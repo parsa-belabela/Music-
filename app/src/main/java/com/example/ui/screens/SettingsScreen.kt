@@ -20,11 +20,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.audio.AmbientPalette
 import com.example.data.model.*
+import com.example.ui.components.FeaturesGuideDialog
 import com.example.ui.components.FeedbackDialog
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
@@ -49,12 +51,21 @@ fun SettingsScreen(
     val coroutineScope = rememberCoroutineScope()
     var showBackupDialog by remember { mutableStateOf(false) }
     var showFeedbackDialog by remember { mutableStateOf(false) }
+    var showFeaturesGuideDialog by remember { mutableStateOf(false) }
     var showThemeRestartDialog by remember { mutableStateOf(false) }
     var pendingTheme by remember { mutableStateOf<AppTheme?>(null) }
     var backupJsonText by remember { mutableStateOf("") }
     var isExportMode by remember { mutableStateOf(true) }
 
     val lang = settings.language
+
+    if (showFeaturesGuideDialog) {
+        FeaturesGuideDialog(
+            settings = settings,
+            palette = palette,
+            onDismiss = { showFeaturesGuideDialog = false }
+        )
+    }
 
     if (showFeedbackDialog) {
         FeedbackDialog(
@@ -176,6 +187,77 @@ fun SettingsScreen(
                         color = Color.White
                     )
                 )
+            }
+        }
+
+        // Section: Features Guide & Capabilities Showcase Card
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .liquidGlass(
+                        shape = RoundedCornerShape(22.dp),
+                        thickness = GlassThickness.THICK,
+                        tintColor = palette.primary,
+                        tintAlpha = 0.25f,
+                        borderWidth = 1.2.dp,
+                        appTheme = settings.theme
+                    )
+                    .clickable { showFeaturesGuideDialog = true }
+                    .padding(18.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(palette.primary.copy(alpha = 0.28f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = palette.accent,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(14.dp))
+
+                        Column {
+                            Text(
+                                text = Localization.getString("features_guide_btn", lang),
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            )
+                            Text(
+                                text = Localization.getString("features_guide_desc", lang),
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = Color(0xFFB4B4CC)
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = palette.accent,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
         }
 

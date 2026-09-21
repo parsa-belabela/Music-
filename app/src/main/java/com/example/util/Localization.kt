@@ -127,7 +127,31 @@ object Localization {
             "feedback_submit" to "ارسال با ایمیل",
             "feedback_copy" to "کپی در حافظه کلیپ‌بورد",
             "feedback_success" to "برنامه ایمیل باز شد و اطلاعات پیام آماده ارسال است.",
-            "feedback_copied" to "متن بازخورد به همراه مشخصات دستگاه در کلیپ‌بورد کپی شد."
+            "feedback_copied" to "متن بازخورد به همراه مشخصات دستگاه در کلیپ‌بورد کپی شد.",
+
+            // Track Actions & Deletion
+            "play_now" to "پخش فوری",
+            "play_next" to "پخش بعد از این",
+            "add_to_queue" to "افزودن به انتهای صف",
+            "add_to_playlist" to "افزودن به پلی‌لیست",
+            "remove_from_playlist" to "حذف از این پلی‌لیست",
+            "edit_metadata" to "ویرایش اطلاعات و متادیتا",
+            "delete_track" to "حذف دائمی آهنگ",
+            "delete_track_title" to "حذف آهنگ از برنامه",
+            "delete_track_confirm" to "آیا مطمئن هستید که می‌خواهید این آهنگ را حذف کنید؟ این آهنگ با انیمیشن محو و متلاشی شدن از لیست حذف خواهد شد.",
+            "delete_playlist_title" to "حذف پلی‌لیست",
+            "delete_playlist_confirm" to "آیا از حذف این پلی‌لیست اطمینان دارید؟",
+            "playlist_details" to "پلی‌لیست و قطعات",
+            "play_all" to "پخش همه",
+            "empty_playlist" to "هنوز آهنگی در این پلی‌لیست قرار نگرفته است.",
+
+            // Features Showcase Guide
+            "features_guide_btn" to "راهنمای امکانات و قابلیت‌های آئورا",
+            "features_guide_desc" to "معرفی موتور صوتی Hi-Fi، تم‌های ۳ بعدی، لیریکس زنده و اکولایزر",
+            "features_showcase" to "راهنمای امکانات و قابلیت‌های آئورا",
+            "features_showcase_desc" to "معرفی موتور صوتی Hi-Fi، تم‌های ۳ بعدی، لیریکس زنده و اکولایزر",
+            "features_guide_title" to "امکانات و قابلیت‌های برجسته آئورا",
+            "features_guide_subtitle" to "طراحی شده برای عاشقان موسیقی با بالاترین کیفیت پردازش و زیبایی بصری"
         )
 
         val enMap = mapOf(
@@ -252,7 +276,31 @@ object Localization {
             "feedback_submit" to "Send via Email",
             "feedback_copy" to "Copy to Clipboard",
             "feedback_success" to "Email client opened with pre-filled feedback report.",
-            "feedback_copied" to "Feedback report & device info copied to clipboard."
+            "feedback_copied" to "Feedback report & device info copied to clipboard.",
+
+            // Track Actions & Deletion
+            "play_now" to "Play Now",
+            "play_next" to "Play Next",
+            "add_to_queue" to "Add to Queue",
+            "add_to_playlist" to "Add to Playlist",
+            "remove_from_playlist" to "Remove from Playlist",
+            "edit_metadata" to "Edit Metadata",
+            "delete_track" to "Delete Track",
+            "delete_track_title" to "Delete Track from App",
+            "delete_track_confirm" to "Are you sure you want to permanently delete this track? It will be removed with a fantasy disintegration animation.",
+            "delete_playlist_title" to "Delete Playlist",
+            "delete_playlist_confirm" to "Are you sure you want to delete this playlist?",
+            "playlist_details" to "Playlist Tracks",
+            "play_all" to "Play All",
+            "empty_playlist" to "No tracks in this playlist yet.",
+
+            // Features Showcase Guide
+            "features_guide_btn" to "Aura Features & Capabilities Guide",
+            "features_guide_desc" to "Explore Hi-Fi Audio DSP, 3D Themes, Live Lyrics & Visualizers",
+            "features_showcase" to "Aura Features & Capabilities Guide",
+            "features_showcase_desc" to "Explore Hi-Fi Audio DSP, 3D Themes, Live Lyrics & Visualizers",
+            "features_guide_title" to "Aura Features & Architecture",
+            "features_guide_subtitle" to "Crafted for audiophiles with uncompromised sound fidelity and visual aesthetics"
         )
 
         return if (language == AppLanguage.PERSIAN) {

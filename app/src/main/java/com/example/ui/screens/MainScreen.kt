@@ -237,6 +237,10 @@ fun MainScreen(
                             onCreatePlaylist = { name -> viewModel.createPlaylist(name) },
                             onCreatePlaylistWithTracks = { name, trackList -> viewModel.createPlaylistWithTracks(name, trackList) },
                             onDeletePlaylist = { id -> viewModel.deletePlaylist(id) },
+                            onAddToPlaylist = { pl, trk -> viewModel.addTrackToPlaylist(pl.id, trk.id) },
+                            onRemoveTrackFromPlaylist = { plId, trkId -> viewModel.removeTrackFromPlaylist(plId, trkId) },
+                            onEditMetadata = { viewModel.editingTrackMetadata.value = it },
+                            onDeleteTrack = { viewModel.deleteTrack(it) },
                             onPlayTrackList = { list -> list.firstOrNull()?.let { viewModel.playTrack(it, list) } },
                             modifier = Modifier.statusBarsPadding()
                         )
@@ -244,13 +248,17 @@ fun MainScreen(
                     MainTab.LIBRARY -> {
                         LibraryScreen(
                             tracks = allTracks,
+                            playlists = playlists,
                             playbackState = playbackState,
                             palette = palette,
+                            settings = appSettings,
                             onPlayTrack = { track, list -> viewModel.playTrack(track, list) },
                             onPlayNext = { viewModel.playNextInQueue(it) },
                             onAddToQueue = { viewModel.addToQueue(it) },
                             onToggleFavorite = { viewModel.toggleFavorite(it) },
+                            onAddToPlaylist = { pl, trk -> viewModel.addTrackToPlaylist(pl.id, trk.id) },
                             onEditMetadata = { viewModel.editingTrackMetadata.value = it },
+                            onDeleteTrack = { viewModel.deleteTrack(it) },
                             onRescanMedia = {
                                 viewModel.scanDeviceLibrary { count ->
                                     Toast.makeText(context, "Scanned $count tracks", Toast.LENGTH_SHORT).show()
@@ -281,8 +289,11 @@ fun MainScreen(
                             mostPlayedTracks = mostPlayed,
                             recentlyAddedTracks = recentlyAdded,
                             palette = palette,
+                            settings = appSettings,
                             onCreatePlaylist = { name -> viewModel.createPlaylist(name) },
                             onDeletePlaylist = { id -> viewModel.deletePlaylist(id) },
+                            onRemoveTrackFromPlaylist = { plId, trkId -> viewModel.removeTrackFromPlaylist(plId, trkId) },
+                            onPlayTrack = { trk, list -> viewModel.playTrack(trk, list) },
                             onPlayTrackList = { list ->
                                 list.firstOrNull()?.let { viewModel.playTrack(it, list) }
                             },

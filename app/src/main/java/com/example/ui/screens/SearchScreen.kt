@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,6 +36,9 @@ import com.example.data.model.AppSettings
 import com.example.data.model.PlaybackState
 import com.example.data.model.Playlist
 import com.example.data.model.Track
+import com.example.ui.components.DisintegrationOverlay
+import com.example.ui.components.PlaylistDetailSheet
+import com.example.ui.components.TrackActionSheet
 import com.example.ui.components.TrackArtworkThumbnail
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
@@ -55,11 +59,18 @@ fun SearchScreen(
     onCreatePlaylist: (String) -> Unit = {},
     onCreatePlaylistWithTracks: (String, List<String>) -> Unit = { name, _ -> onCreatePlaylist(name) },
     onDeletePlaylist: (String) -> Unit = {},
+    onAddToPlaylist: (Playlist, Track) -> Unit = { _, _ -> },
+    onRemoveTrackFromPlaylist: (String, String) -> Unit = { _, _ -> },
+    onEditMetadata: (Track) -> Unit = {},
+    onDeleteTrack: (Track) -> Unit = {},
     onPlayTrackList: (List<Track>) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedPlaylistFilter by remember { mutableStateOf<String?>(null) }
+    var selectedDetailPlaylist by remember { mutableStateOf<Playlist?>(null) }
+    var selectedTrackMenu by remember { mutableStateOf<Track?>(null) }
+    var disintegratingTrackId by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var showSongSelectionDialog by remember { mutableStateOf(false) }
     var pendingPlaylistName by remember { mutableStateOf("") }
@@ -273,58 +284,89 @@ fun SearchScreen(
 
                 items(filteredTracks, key = { it.id }) { track ->
                     val isCurrent = playbackState.currentTrack?.id == track.id
+                    val isDisintegrating = disintegratingTrackId == track.id
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .liquidGlass(
-                                shape = RoundedCornerShape(16.dp),
-                                thickness = if (isCurrent) GlassThickness.THICK else GlassThickness.REGULAR,
-                                tintColor = if (isCurrent) palette.primary else Color(0xFF1E1E2E),
-                                tintAlpha = if (isCurrent) 0.25f else 0.08f,
-                                borderWidth = if (isCurrent) 1.2.dp else 0.5.dp
-                            )
-                            .clickable { onPlayTrack(track, filteredTracks) }
-                            .padding(12.dp)
+                    AnimatedVisibility(
+                        visible = !isDisintegrating,
+                        exit = fadeOut(tween(550)) + shrinkVertically(tween(550))
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .liquidGlass(
+                                    shape = RoundedCornerShape(16.dp),
+                                    thickness = if (isCurrent) GlassThickness.THICK else GlassThickness.REGULAR,
+                                    tintColor = if (isCurrent) palette.primary else Color(0xFF1E1E2E),
+                                    tintAlpha = if (isCurrent) 0.25f else 0.08f,
+                                    borderWidth = if (isCurrent) 1.2.dp else 0.5.dp,
+                                    appTheme = appSettings.theme
+                                )
+                                .clickable { onPlayTrack(track, filteredTracks) }
+                                .padding(12.dp)
                         ) {
-                            TrackArtworkThumbnail(
-                                artworkUri = track.artworkUri,
-                                accentColor = palette.accent,
-                                size = 48.dp,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = track.title,
-                                    style = MaterialTheme.typography.bodyLarge.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isCurrent) palette.accent else Color.White
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                TrackArtworkThumbnail(
+                                    artworkUri = track.artworkUri,
+                                    accentColor = palette.accent,
+                                    size = 48.dp,
+                                    shape = RoundedCornerShape(12.dp)
                                 )
-                                Text(
-                                    text = "${track.artist} • ${track.album}",
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF94A3B8)),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = track.title,
+                                        style = MaterialTheme.typography.bodyLarge.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isCurrent) palette.accent else Color.White
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "${track.artist} • ${track.album}",
+                                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF94A3B8)),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
 
-                            IconButton(onClick = { onToggleFavorite(track) }) {
-                                Icon(
-                                    if (track.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                    contentDescription = "Favorite",
-                                    tint = if (track.isFavorite) Color(0xFFF43F5E) else Color(0xFF75758C),
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                IconButton(onClick = { onToggleFavorite(track) }) {
+                                    Icon(
+                                        if (track.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                        contentDescription = "Favorite",
+                                        tint = if (track.isFavorite) Color(0xFFF43F5E) else Color(0xFF75758C),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+
+                                IconButton(onClick = { selectedTrackMenu = track }) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "Options",
+                                        tint = Color(0xFF8888A0),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
+                    }
+
+                    if (isDisintegrating) {
+                        DisintegrationOverlay(
+                            isDisintegrating = true,
+                            primaryColor = palette.primary,
+                            accentColor = palette.accent,
+                            onAnimationEnd = {
+                                onDeleteTrack(track)
+                                disintegratingTrackId = null
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(64.dp)
+                        )
                     }
                 }
             }
@@ -400,12 +442,7 @@ fun SearchScreen(
                                         borderWidth = 1.2.dp
                                     )
                                     .clickable {
-                                        val playlistTracks = tracks.filter { it.id in playlist.trackIds }
-                                        if (playlistTracks.isNotEmpty()) {
-                                            onPlayTrack(playlistTracks.first(), playlistTracks)
-                                        } else {
-                                            selectedPlaylistFilter = playlist.name
-                                        }
+                                        selectedDetailPlaylist = playlist
                                     }
                                     .padding(14.dp),
                                 contentAlignment = Alignment.BottomStart
@@ -969,5 +1006,44 @@ fun SearchScreen(
                 }
             }
         }
+    }
+
+    // Playlist Details Modal Sheet
+    selectedDetailPlaylist?.let { pl ->
+        PlaylistDetailSheet(
+            playlist = pl,
+            allTracks = tracks,
+            settings = appSettings,
+            palette = palette,
+            onDismiss = { selectedDetailPlaylist = null },
+            onPlayTrack = { trk, list -> onPlayTrack(trk, list) },
+            onPlayAll = { list -> onPlayTrackList(list) },
+            onShuffleAll = { list -> onPlayTrackList(list) },
+            onRemoveTrackFromPlaylist = { plId, trkId -> onRemoveTrackFromPlaylist(plId, trkId) },
+            onDeletePlaylist = { plId ->
+                onDeletePlaylist(plId)
+                selectedDetailPlaylist = null
+            }
+        )
+    }
+
+    // Track Action Sheet for Search Results
+    selectedTrackMenu?.let { trk ->
+        TrackActionSheet(
+            track = trk,
+            playlists = playlists,
+            settings = appSettings,
+            palette = palette,
+            onDismiss = { selectedTrackMenu = null },
+            onPlayNow = { onPlayTrack(it, tracks) },
+            onPlayNext = { onPlayNext(it) },
+            onAddToQueue = { onAddToQueue(it) },
+            onToggleFavorite = { onToggleFavorite(it) },
+            onAddToPlaylist = { pl, t -> onAddToPlaylist(pl, t) },
+            onEditMetadata = { onEditMetadata(it) },
+            onDeleteTrack = { t ->
+                disintegratingTrackId = t.id
+            }
+        )
     }
 }

@@ -20,9 +20,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
+import com.example.data.model.AppSettings
 import com.example.data.model.Playlist
 import com.example.data.model.Track
+import com.example.ui.components.PlaylistDetailSheet
 import com.example.ui.components.TrackArtworkThumbnail
+import com.example.ui.theme.GlassThickness
+import com.example.ui.theme.liquidGlass
+import com.example.util.Localization
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,14 +38,18 @@ fun PlaylistsScreen(
     mostPlayedTracks: List<Track>,
     recentlyAddedTracks: List<Track>,
     palette: AmbientPalette,
+    settings: AppSettings = AppSettings(),
     onCreatePlaylist: (String) -> Unit,
     onDeletePlaylist: (String) -> Unit,
+    onRemoveTrackFromPlaylist: (String, String) -> Unit = { _, _ -> },
+    onPlayTrack: (Track, List<Track>) -> Unit = { _, _ -> },
     onPlayTrackList: (List<Track>) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
     var selectedPlaylist by remember { mutableStateOf<Playlist?>(null) }
+    val lang = settings.language
 
     Column(
         modifier = modifier
@@ -57,7 +66,7 @@ fun PlaylistsScreen(
         ) {
             Column {
                 Text(
-                    text = "COLLECTIONS",
+                    text = Localization.getString("collections", lang).uppercase(),
                     style = MaterialTheme.typography.labelSmall.copy(
                         letterSpacing = 1.5.sp,
                         color = palette.accent,
@@ -65,7 +74,7 @@ fun PlaylistsScreen(
                     )
                 )
                 Text(
-                    text = "Playlists",
+                    text = Localization.getString("playlists", lang),
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -76,12 +85,12 @@ fun PlaylistsScreen(
             Button(
                 onClick = { showCreateDialog = true },
                 colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.testTag("create_playlist_button")
             ) {
                 Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("New")
+                Text(Localization.getString("new_playlist", lang), fontWeight = FontWeight.Bold)
             }
         }
 
@@ -95,7 +104,7 @@ fun PlaylistsScreen(
             // Smart Playlists Section
             item {
                 Text(
-                    text = "Smart Playlists",
+                    text = Localization.getString("smart_playlists", lang),
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -105,24 +114,38 @@ fun PlaylistsScreen(
             }
 
             val smartPlaylists = listOf(
-                Triple("Starred Echoes", "${favoriteTracks.size} tracks", favoriteTracks),
-                Triple("Most Played Heavyweights", "${mostPlayedTracks.size} tracks", mostPlayedTracks),
-                Triple("Recently Added Inflows", "${recentlyAddedTracks.size} tracks", recentlyAddedTracks),
-                Triple("Deep Odyssey (>3 min)", "${allTracks.filter { it.durationMs > 180000 }.size} tracks", allTracks.filter { it.durationMs > 180000 })
+                Triple("Starred Echoes", "${favoriteTracks.size} ${Localization.getString("tracks", lang)}", favoriteTracks),
+                Triple("Most Played Heavyweights", "${mostPlayedTracks.size} ${Localization.getString("tracks", lang)}", mostPlayedTracks),
+                Triple("Recently Added Inflows", "${recentlyAddedTracks.size} ${Localization.getString("tracks", lang)}", recentlyAddedTracks),
+                Triple("Deep Odyssey (>3 min)", "${allTracks.filter { it.durationMs > 180000 }.size} ${Localization.getString("tracks", lang)}", allTracks.filter { it.durationMs > 180000 })
             )
 
             items(smartPlaylists) { (title, countStr, trackList) ->
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF141426)),
-                    shape = RoundedCornerShape(14.dp),
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onPlayTrackList(trackList) }
+                        .liquidGlass(
+                            shape = RoundedCornerShape(16.dp),
+                            thickness = GlassThickness.REGULAR,
+                            tintColor = palette.secondary,
+                            tintAlpha = 0.14f,
+                            borderWidth = 1.dp,
+                            appTheme = settings.theme
+                        )
+                        .clickable {
+                            val dummyPl = Playlist(
+                                id = "smart_${title.hashCode()}",
+                                name = title,
+                                description = countStr,
+                                trackIds = trackList.map { it.id },
+                                isSmart = true
+                            )
+                            selectedPlaylist = dummyPl
+                        }
+                        .padding(14.dp)
                 ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         val firstTrack = trackList.firstOrNull()
@@ -168,7 +191,12 @@ fun PlaylistsScreen(
                         }
 
                         IconButton(onClick = { onPlayTrackList(trackList) }) {
-                            Icon(imageVector = Icons.Default.PlayCircle, contentDescription = "Play", tint = palette.accent, modifier = Modifier.size(32.dp))
+                            Icon(
+                                imageVector = Icons.Default.PlayCircle,
+                                contentDescription = "Play",
+                                tint = palette.accent,
+                                modifier = Modifier.size(32.dp)
+                            )
                         }
                     }
                 }
@@ -178,7 +206,7 @@ fun PlaylistsScreen(
             item {
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "Custom Playlists",
+                    text = Localization.getString("custom_playlists", lang),
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -190,7 +218,7 @@ fun PlaylistsScreen(
             if (playlists.isEmpty()) {
                 item {
                     Text(
-                        text = "No custom playlists yet. Tap '+ New' to create one.",
+                        text = Localization.getString("no_playlists_msg", lang),
                         style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFF88889C)),
                         modifier = Modifier.padding(vertical = 12.dp)
                     )
@@ -198,24 +226,29 @@ fun PlaylistsScreen(
             }
 
             items(playlists) { pl ->
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF121220)),
-                    shape = RoundedCornerShape(14.dp),
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onPlayTrackList(allTracks) }
+                        .liquidGlass(
+                            shape = RoundedCornerShape(16.dp),
+                            thickness = GlassThickness.REGULAR,
+                            tintColor = palette.primary,
+                            tintAlpha = 0.16f,
+                            borderWidth = 1.dp,
+                            appTheme = settings.theme
+                        )
+                        .clickable { selectedPlaylist = pl }
+                        .padding(14.dp)
                 ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
                                 .size(48.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(palette.primary.copy(alpha = 0.2f)),
+                                .background(palette.primary.copy(alpha = 0.25f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -237,7 +270,7 @@ fun PlaylistsScreen(
                                 )
                             )
                             Text(
-                                text = pl.description.ifEmpty { "Created with Aura" },
+                                text = "${pl.trackIds.size} ${Localization.getString("tracks", lang)}",
                                 style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -245,7 +278,11 @@ fun PlaylistsScreen(
                         }
 
                         IconButton(onClick = { onDeletePlaylist(pl.id) }) {
-                            Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFF777788))
+                            Icon(
+                                imageVector = Icons.Default.DeleteOutline,
+                                contentDescription = "Delete",
+                                tint = Color(0xFFEF4444)
+                            )
                         }
                     }
                 }
@@ -253,16 +290,47 @@ fun PlaylistsScreen(
         }
     }
 
+    // Modal Playlist Detail Sheet
+    selectedPlaylist?.let { pl ->
+        PlaylistDetailSheet(
+            playlist = pl,
+            allTracks = allTracks,
+            settings = settings,
+            palette = palette,
+            onDismiss = { selectedPlaylist = null },
+            onPlayTrack = { trk, list -> onPlayTrack(trk, list) },
+            onPlayAll = { list -> onPlayTrackList(list) },
+            onShuffleAll = { list -> onPlayTrackList(list) },
+            onRemoveTrackFromPlaylist = { plId, trkId -> onRemoveTrackFromPlaylist(plId, trkId) },
+            onDeletePlaylist = { plId ->
+                onDeletePlaylist(plId)
+                selectedPlaylist = null
+            }
+        )
+    }
+
     if (showCreateDialog) {
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
-            title = { Text("Create New Playlist") },
+            containerColor = Color(0xFF161628),
+            title = {
+                Text(
+                    Localization.getString("create_playlist", lang),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            },
             text = {
                 OutlinedTextField(
                     value = newPlaylistName,
                     onValueChange = { newPlaylistName = it },
-                    label = { Text("Playlist Name") },
+                    label = { Text(Localization.getString("playlist_name", lang)) },
                     singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = palette.primary
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 )
             },
@@ -274,13 +342,16 @@ fun PlaylistsScreen(
                             newPlaylistName = ""
                             showCreateDialog = false
                         }
-                    }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = palette.primary)
                 ) {
-                    Text("Create")
+                    Text(Localization.getString("create", lang), fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showCreateDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showCreateDialog = false }) {
+                    Text(Localization.getString("cancel", lang), color = Color(0xFFA0A0B8))
+                }
             }
         )
     }

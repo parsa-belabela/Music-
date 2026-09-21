@@ -654,9 +654,33 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun removeTrackFromPlaylist(playlistId: String, trackId: String) {
+        viewModelScope.launch {
+            repository.removeTrackFromPlaylist(playlistId, trackId)
+        }
+    }
+
     fun addTrackToPlaylist(playlistId: String, trackId: String) {
         viewModelScope.launch {
             repository.addTrackToPlaylist(playlistId, trackId)
+        }
+    }
+
+    fun deleteTrack(track: Track) {
+        viewModelScope.launch {
+            if (_playbackState.value.currentTrack?.id == track.id) {
+                val currentQueue = _playbackState.value.queue
+                if (currentQueue.size > 1) {
+                    nextTrack()
+                } else {
+                    audioEngine.pause()
+                    _playbackState.update { it.copy(currentTrack = null, status = PlayerStatus.IDLE, queue = emptyList()) }
+                }
+            }
+            _playbackState.update { state ->
+                state.copy(queue = state.queue.filter { it.id != track.id })
+            }
+            repository.deleteTrack(track.id)
         }
     }
 

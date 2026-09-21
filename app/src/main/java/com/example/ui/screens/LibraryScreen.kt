@@ -1,5 +1,9 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -20,11 +24,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
+import com.example.data.model.AppSettings
 import com.example.data.model.PlaybackState
+import com.example.data.model.Playlist
 import com.example.data.model.Track
+import com.example.ui.components.DisintegrationOverlay
+import com.example.ui.components.TrackActionSheet
 import com.example.ui.components.TrackArtworkThumbnail
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
+import com.example.util.Localization
 
 enum class SortOption(val label: String) {
     TITLE("Title"),
@@ -37,13 +46,17 @@ enum class SortOption(val label: String) {
 @Composable
 fun LibraryScreen(
     tracks: List<Track>,
+    playlists: List<Playlist> = emptyList(),
     playbackState: PlaybackState,
     palette: AmbientPalette,
+    settings: AppSettings = AppSettings(),
     onPlayTrack: (Track, List<Track>) -> Unit,
     onPlayNext: (Track) -> Unit,
     onAddToQueue: (Track) -> Unit,
     onToggleFavorite: (Track) -> Unit,
+    onAddToPlaylist: (Playlist, Track) -> Unit = { _, _ -> },
     onEditMetadata: (Track) -> Unit,
+    onDeleteTrack: (Track) -> Unit = {},
     onRescanMedia: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -51,6 +64,8 @@ fun LibraryScreen(
     var showSortMenu by remember { mutableStateOf(false) }
     var filterQuery by remember { mutableStateOf("") }
     var selectedTrackMenu by remember { mutableStateOf<Track?>(null) }
+    var disintegratingTrackId by remember { mutableStateOf<String?>(null) }
+    val lang = settings.language
 
     val sortedTracks = remember(tracks, selectedSort, filterQuery) {
         val filtered = if (filterQuery.isBlank()) tracks else {
@@ -73,7 +88,7 @@ fun LibraryScreen(
             .fillMaxSize()
             .padding(horizontal = 16.dp)
     ) {
-        // Top Header
+        // Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -83,7 +98,7 @@ fun LibraryScreen(
         ) {
             Column {
                 Text(
-                    text = "LOCAL LIBRARY",
+                    text = Localization.getString("library", lang).uppercase(),
                     style = MaterialTheme.typography.labelSmall.copy(
                         letterSpacing = 1.5.sp,
                         color = palette.accent,
@@ -91,7 +106,7 @@ fun LibraryScreen(
                     )
                 )
                 Text(
-                    text = "Songs (${tracks.size})",
+                    text = "${Localization.getString("tracks", lang)} (${tracks.size})",
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -138,12 +153,12 @@ fun LibraryScreen(
         OutlinedTextField(
             value = filterQuery,
             onValueChange = { filterQuery = it },
-            placeholder = { Text("Filter songs, artists...", color = Color(0xFF707086)) },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF9090A6)) },
+            placeholder = { Text(Localization.getString("search_hint", lang), color = Color(0xFF7E7E9A), fontSize = 14.sp) },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = palette.primary) },
             trailingIcon = {
                 if (filterQuery.isNotEmpty()) {
                     IconButton(onClick = { filterQuery = "" }) {
-                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color.White)
+                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color(0xFFA0A0B8))
                     }
                 }
             },
@@ -168,101 +183,107 @@ fun LibraryScreen(
             contentPadding = PaddingValues(bottom = 120.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(sortedTracks) { track ->
+            items(sortedTracks, key = { it.id }) { track ->
                 val isCurrent = playbackState.currentTrack?.id == track.id
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (isCurrent) {
-                                Modifier.liquidGlass(
-                                    shape = RoundedCornerShape(16.dp),
-                                    thickness = GlassThickness.REGULAR,
-                                    tintColor = palette.primary,
-                                    tintAlpha = 0.22f,
-                                    borderWidth = 1.dp
-                                )
-                            } else {
-                                Modifier
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Color(0xFF11111E))
-                            }
-                        )
-                        .clickable { onPlayTrack(track, sortedTracks) }
-                        .testTag("library_track_${track.id}")
+                val isDisintegrating = disintegratingTrackId == track.id
+
+                AnimatedVisibility(
+                    visible = !isDisintegrating,
+                    exit = fadeOut(tween(550)) + shrinkVertically(tween(550))
                 ) {
-                    Row(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier.size(46.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            TrackArtworkThumbnail(
-                                artworkUri = track.artworkUri,
-                                accentColor = if (isCurrent) palette.accent else palette.primary,
-                                size = 46.dp,
-                                shape = RoundedCornerShape(10.dp),
-                                iconSize = 24.dp
-                            )
-                            if (isCurrent) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(Color.Black.copy(alpha = 0.45f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Equalizer,
-                                        contentDescription = "Playing",
-                                        tint = palette.accent,
-                                        modifier = Modifier.size(24.dp)
+                            .then(
+                                if (isCurrent) {
+                                    Modifier.liquidGlass(
+                                        shape = RoundedCornerShape(16.dp),
+                                        thickness = GlassThickness.REGULAR,
+                                        tintColor = palette.primary,
+                                        tintAlpha = 0.22f,
+                                        borderWidth = 1.dp,
+                                        appTheme = settings.theme
                                     )
+                                } else {
+                                    Modifier
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(Color(0xFF11111E))
+                                }
+                            )
+                            .clickable { onPlayTrack(track, sortedTracks) }
+                            .testTag("library_track_${track.id}")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier.size(46.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                TrackArtworkThumbnail(
+                                    artworkUri = track.artworkUri,
+                                    accentColor = if (isCurrent) palette.accent else palette.primary,
+                                    size = 46.dp,
+                                    shape = RoundedCornerShape(10.dp),
+                                    iconSize = 24.dp
+                                )
+                                if (isCurrent) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color.Black.copy(alpha = 0.45f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Equalizer,
+                                            contentDescription = "Playing",
+                                            tint = palette.accent,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
                                 }
                             }
-                        }
 
-                        Spacer(modifier = Modifier.width(14.dp))
+                            Spacer(modifier = Modifier.width(14.dp))
 
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = track.title,
-                                style = MaterialTheme.typography.bodyLarge.copy(
-                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isCurrent) palette.accent else Color.White
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = "${track.artist} • ${track.album}",
-                                style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        // Duration & Format pill
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = track.durationFormatted,
-                                style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B0))
-                            )
-                            Text(
-                                text = "${track.bitrate}k / ${track.sampleRate / 1000}kHz",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    color = palette.secondary.copy(alpha = 0.8f),
-                                    fontSize = 9.sp
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = track.title,
+                                    style = MaterialTheme.typography.bodyLarge.copy(
+                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isCurrent) palette.accent else Color.White
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                            )
-                        }
+                                Text(
+                                    text = "${track.artist} • ${track.album}",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
 
-                        // Track context menu button
-                        Box {
+                            // Duration & Format pill
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = track.durationFormatted,
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B0))
+                                )
+                                Text(
+                                    text = "${track.bitrate}k / ${track.sampleRate / 1000}kHz",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = palette.secondary.copy(alpha = 0.8f),
+                                        fontSize = 9.sp
+                                    )
+                                )
+                            }
+
+                            // Track context menu button
                             IconButton(onClick = { selectedTrackMenu = track }) {
                                 Icon(
                                     imageVector = Icons.Default.MoreVert,
@@ -273,57 +294,43 @@ fun LibraryScreen(
                         }
                     }
                 }
+
+                // Render Disintegration Shatter Overlay if active
+                if (isDisintegrating) {
+                    DisintegrationOverlay(
+                        isDisintegrating = true,
+                        primaryColor = palette.primary,
+                        accentColor = palette.accent,
+                        onAnimationEnd = {
+                            onDeleteTrack(track)
+                            disintegratingTrackId = null
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(64.dp)
+                    )
+                }
             }
         }
     }
 
-    // Context Dropdown for Track
+    // High-Graphic Liquid Glass Track Action Sheet
     selectedTrackMenu?.let { trk ->
-        DropdownMenu(
-            expanded = true,
-            onDismissRequest = { selectedTrackMenu = null },
-            modifier = Modifier.background(Color(0xFF18182E))
-        ) {
-            DropdownMenuItem(
-                text = { Text("Play Now", color = Color.White) },
-                leadingIcon = { Icon(Icons.Default.PlayArrow, contentDescription = null, tint = palette.primary) },
-                onClick = {
-                    onPlayTrack(trk, tracks)
-                    selectedTrackMenu = null
-                }
-            )
-            DropdownMenuItem(
-                text = { Text("Play Next", color = Color.White) },
-                leadingIcon = { Icon(Icons.Default.SkipNext, contentDescription = null, tint = palette.secondary) },
-                onClick = {
-                    onPlayNext(trk)
-                    selectedTrackMenu = null
-                }
-            )
-            DropdownMenuItem(
-                text = { Text("Add to Queue", color = Color.White) },
-                leadingIcon = { Icon(Icons.Default.QueueMusic, contentDescription = null, tint = palette.accent) },
-                onClick = {
-                    onAddToQueue(trk)
-                    selectedTrackMenu = null
-                }
-            )
-            DropdownMenuItem(
-                text = { Text(if (trk.isFavorite) "Remove Favorite" else "Add to Favorites", color = Color.White) },
-                leadingIcon = { Icon(if (trk.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = null, tint = Color(0xFFF43F5E)) },
-                onClick = {
-                    onToggleFavorite(trk)
-                    selectedTrackMenu = null
-                }
-            )
-            DropdownMenuItem(
-                text = { Text("Edit Metadata", color = Color.White) },
-                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = Color.White) },
-                onClick = {
-                    onEditMetadata(trk)
-                    selectedTrackMenu = null
-                }
-            )
-        }
+        TrackActionSheet(
+            track = trk,
+            playlists = playlists,
+            settings = settings,
+            palette = palette,
+            onDismiss = { selectedTrackMenu = null },
+            onPlayNow = { onPlayTrack(it, tracks) },
+            onPlayNext = { onPlayNext(it) },
+            onAddToQueue = { onAddToQueue(it) },
+            onToggleFavorite = { onToggleFavorite(it) },
+            onAddToPlaylist = { pl, t -> onAddToPlaylist(pl, t) },
+            onEditMetadata = { onEditMetadata(it) },
+            onDeleteTrack = { t ->
+                disintegratingTrackId = t.id
+            }
+        )
     }
 }
