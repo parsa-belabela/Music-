@@ -133,117 +133,124 @@ fun FeaturesGuideDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        // Fullscreen immersive blurred backdrop overlay
         Box(
             modifier = Modifier
-                .fillMaxWidth(0.94f)
-                .fillMaxHeight(0.88f)
-                .drawBehind {
-                    // Volumetric aura back-glow
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                palette.primary.copy(alpha = 0.25f + 0.15f * glowPhase),
-                                palette.accent.copy(alpha = 0.12f),
-                                Color.Transparent
-                            ),
-                            center = Offset(size.width / 2f, size.height * 0.25f),
-                            radius = size.width * 0.75f
-                        )
-                    )
-                }
-                .liquidGlass(
-                    shape = RoundedCornerShape(32.dp),
-                    thickness = GlassThickness.THICK,
-                    tintColor = palette.primary,
-                    tintAlpha = 0.32f,
-                    borderWidth = 1.4.dp,
-                    appTheme = settings.theme
-                )
-                .padding(22.dp)
+                .fillMaxSize()
+                .background(Color(0xFF030308).copy(alpha = 0.82f)),
+            contentAlignment = Alignment.Center
         ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // Header with Glowing Badge
-                Box(
-                    modifier = Modifier
-                        .size(60.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(palette.primary, palette.accent)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .fillMaxHeight(0.88f)
+                    .drawBehind {
+                        // Volumetric aura back-glow
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    palette.primary.copy(alpha = 0.25f + 0.15f * glowPhase),
+                                    palette.accent.copy(alpha = 0.12f),
+                                    Color.Transparent
+                                ),
+                                center = Offset(size.width / 2f, size.height * 0.25f),
+                                radius = size.width * 0.75f
                             )
                         )
-                        .border(1.5.dp, Color.White.copy(alpha = 0.4f), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(32.dp)
+                    }
+                    .liquidGlass(
+                        shape = RoundedCornerShape(32.dp),
+                        thickness = GlassThickness.THICK,
+                        tintColor = palette.primary,
+                        tintAlpha = 0.32f,
+                        borderWidth = 1.4.dp,
+                        appTheme = settings.theme
                     )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Text(
-                    text = Localization.getString("features_guide_title", lang),
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    ),
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    text = Localization.getString("features_guide_subtitle", lang),
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = Color(0xFFB0B0CC),
-                        lineHeight = 18.sp
-                    ),
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                // Scrollable Feature Cards
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(22.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    items(features) { item ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .liquidGlass(
-                                    shape = RoundedCornerShape(20.dp),
-                                    thickness = GlassThickness.REGULAR,
-                                    tintColor = item.color,
-                                    tintAlpha = 0.18f,
-                                    borderWidth = 1.dp,
-                                    appTheme = settings.theme
+                    // Header with Glowing Badge
+                    Box(
+                        modifier = Modifier
+                            .size(60.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(palette.primary, palette.accent)
                                 )
-                                .padding(16.dp)
-                        ) {
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
+                            )
+                            .border(1.5.dp, Color.White.copy(alpha = 0.4f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Text(
+                        text = Localization.getString("features_guide_title", lang),
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        ),
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = Localization.getString("features_guide_subtitle", lang),
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = Color(0xFFB0B0CC),
+                            lineHeight = 18.sp
+                        ),
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // Scrollable Feature Cards
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(features) { item ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .liquidGlass(
+                                        shape = RoundedCornerShape(20.dp),
+                                        thickness = GlassThickness.REGULAR,
+                                        tintColor = item.color,
+                                        tintAlpha = 0.18f,
+                                        borderWidth = 1.dp,
+                                        appTheme = settings.theme
+                                    )
+                                    .padding(16.dp)
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
                                     Row(
+                                        modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.weight(1f, fill = false)
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(38.dp)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(38.dp)
                                                 .clip(RoundedCornerShape(10.dp))
                                                 .background(item.color.copy(alpha = 0.22f)),
                                             contentAlignment = Alignment.Center
@@ -319,4 +326,5 @@ fun FeaturesGuideDialog(
             }
         }
     }
+}
 }

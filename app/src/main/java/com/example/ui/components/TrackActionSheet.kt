@@ -52,6 +52,7 @@ fun TrackActionSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = Color.Transparent,
+        scrimColor = Color(0xFF030308).copy(alpha = 0.82f),
         dragHandle = null,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ) {

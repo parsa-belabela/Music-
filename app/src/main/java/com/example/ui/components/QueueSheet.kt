@@ -41,6 +41,7 @@ fun QueueSheet(
     ModalBottomSheet(
         onDismissRequest = onClose,
         containerColor = Color(0xFF0E0E1B),
+        scrimColor = Color(0xFF030308).copy(alpha = 0.82f),
         dragHandle = { BottomSheetDefaults.DragHandle(color = Color(0x66FFFFFF)) },
         modifier = Modifier.fillMaxHeight(0.85f)
     ) {

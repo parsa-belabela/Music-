@@ -47,6 +47,7 @@ fun EqualizerSheet(
     ModalBottomSheet(
         onDismissRequest = onClose,
         containerColor = Color(0xFF10101E),
+        scrimColor = Color(0xFF030308).copy(alpha = 0.82f),
         dragHandle = { BottomSheetDefaults.DragHandle(color = Color(0x66FFFFFF)) },
         modifier = Modifier.fillMaxHeight(0.88f)
     ) {
