@@ -1,0 +1,6 @@
+{
+  "name": "Aura Music",
+  "description": "Premium local-first music player with audio-reactive ambient halo visualizer, live synchronized lyrics editor, and DSP sound engine.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

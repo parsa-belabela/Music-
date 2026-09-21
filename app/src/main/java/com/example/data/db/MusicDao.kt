@@ -1,0 +1,79 @@
+package com.example.data.db
+
+import androidx.room.*
+import com.example.data.model.LyricsEntity
+import com.example.data.model.Playlist
+import com.example.data.model.PlaylistTrackCrossRef
+import com.example.data.model.Track
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface MusicDao {
+    @Query("SELECT * FROM tracks ORDER BY title ASC")
+    fun getAllTracks(): Flow<List<Track>>
+
+    @Query("SELECT * FROM tracks WHERE isFavorite = 1 ORDER BY title ASC")
+    fun getFavoriteTracks(): Flow<List<Track>>
+
+    @Query("SELECT * FROM tracks WHERE lastPlayedTimestamp > 0 ORDER BY lastPlayedTimestamp DESC LIMIT 30")
+    fun getRecentlyPlayedTracks(): Flow<List<Track>>
+
+    @Query("SELECT * FROM tracks ORDER BY playCount DESC LIMIT 30")
+    fun getMostPlayedTracks(): Flow<List<Track>>
+
+    @Query("SELECT * FROM tracks ORDER BY dateAdded DESC LIMIT 30")
+    fun getRecentlyAddedTracks(): Flow<List<Track>>
+
+    @Query("SELECT * FROM tracks WHERE id = :id LIMIT 1")
+    suspend fun getTrackById(id: String): Track?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTracks(tracks: List<Track>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTrack(track: Track)
+
+    @Update
+    suspend fun updateTrack(track: Track)
+
+    @Query("UPDATE tracks SET isFavorite = :isFavorite WHERE id = :trackId")
+    suspend fun setFavorite(trackId: String, isFavorite: Boolean)
+
+    @Query("UPDATE tracks SET playCount = playCount + 1, lastPlayedTimestamp = :timestamp WHERE id = :trackId")
+    suspend fun recordPlay(trackId: String, timestamp: Long)
+
+    @Query("DELETE FROM tracks WHERE id = :trackId")
+    suspend fun deleteTrack(trackId: String)
+
+    // Lyrics
+    @Query("SELECT * FROM lyrics WHERE trackId = :trackId LIMIT 1")
+    fun getLyrics(trackId: String): Flow<LyricsEntity?>
+
+    @Query("SELECT * FROM lyrics WHERE trackId = :trackId LIMIT 1")
+    suspend fun getLyricsSync(trackId: String): LyricsEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLyrics(lyrics: LyricsEntity)
+
+    @Query("DELETE FROM lyrics WHERE trackId = :trackId")
+    suspend fun deleteLyrics(trackId: String)
+
+    // Playlists
+    @Query("SELECT * FROM playlists ORDER BY createdAt DESC")
+    fun getAllPlaylists(): Flow<List<Playlist>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPlaylist(playlist: Playlist)
+
+    @Query("DELETE FROM playlists WHERE id = :id")
+    suspend fun deletePlaylist(id: String)
+
+    @Query("SELECT * FROM playlist_tracks WHERE playlistId = :playlistId ORDER BY sortOrder ASC")
+    fun getPlaylistTracks(playlistId: String): Flow<List<PlaylistTrackCrossRef>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPlaylistTrack(ref: PlaylistTrackCrossRef)
+
+    @Query("DELETE FROM playlist_tracks WHERE playlistId = :playlistId AND trackId = :trackId")
+    suspend fun removeTrackFromPlaylist(playlistId: String, trackId: String)
+}

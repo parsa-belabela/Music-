@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Outer ambient halo ring -->
+    <path
+        android:pathData="M54,54m-28,0a28,28 0 1,1 56,0a28,28 0 1,1 -56,0"
+        android:strokeWidth="2.5">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="26"
+                android:startY="26"
+                android:endX="82"
+                android:endY="82"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#A855F7"/>
+                <item android:offset="0.5" android:color="#38BDF8"/>
+                <item android:offset="1.0" android:color="#F43F5E"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Inner pulsing ring -->
+    <path
+        android:pathData="M54,54m-22,0a22,22 0 1,1 44,0a22,22 0 1,1 -44,0"
+        android:strokeWidth="1.2"
+        android:strokeAlpha="0.6">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="32"
+                android:startY="32"
+                android:endX="76"
+                android:endY="76"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#38BDF8"/>
+                <item android:offset="1.0" android:color="#A855F7"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Sound Wave Spectrum Bars & Center Music Aura -->
+    <!-- Bar 1 -->
+    <path
+        android:pathData="M38,50v8"
+        android:strokeWidth="3.2"
+        android:strokeColor="#818CF8"
+        android:strokeLineCap="round" />
+
+    <!-- Bar 2 -->
+    <path
+        android:pathData="M43,44v20"
+        android:strokeWidth="3.2"
+        android:strokeColor="#A855F7"
+        android:strokeLineCap="round" />
+
+    <!-- Bar 3 (Center High) -->
+    <path
+        android:pathData="M48,39v30"
+        android:strokeWidth="3.5"
+        android:strokeColor="#C084FC"
+        android:strokeLineCap="round" />
+
+    <!-- Center Play / Note symbol overlay -->
+    <path
+        android:pathData="M54,36v36"
+        android:strokeWidth="3.8"
+        android:strokeColor="#38BDF8"
+        android:strokeLineCap="round" />
+
+    <!-- Bar 4 -->
+    <path
+        android:pathData="M60,41v26"
+        android:strokeWidth="3.5"
+        android:strokeColor="#22D3EE"
+        android:strokeLineCap="round" />
+
+    <!-- Bar 5 -->
+    <path
+        android:pathData="M65,46v16"
+        android:strokeWidth="3.2"
+        android:strokeColor="#F472B6"
+        android:strokeLineCap="round" />
+
+    <!-- Bar 6 -->
+    <path
+        android:pathData="M70,51v6"
+        android:strokeWidth="3.2"
+        android:strokeColor="#FB7185"
+        android:strokeLineCap="round" />
+</vector>
