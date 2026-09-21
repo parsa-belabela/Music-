@@ -17,6 +17,7 @@ enum class RepeatMode {
 data class PlaybackState(
     val currentTrack: Track? = null,
     val status: PlayerStatus = PlayerStatus.IDLE,
+    val isPlayWhenReady: Boolean = false,
     val currentPositionMs: Long = 0L,
     val durationMs: Long = 0L,
     val volume: Float = 1.0f,
@@ -27,6 +28,9 @@ data class PlaybackState(
     val queueIndex: Int = 0,
     val errorMessage: String? = null
 ) {
+    val isPlaying: Boolean
+        get() = status == PlayerStatus.PLAYING || (status == PlayerStatus.BUFFERING && isPlayWhenReady)
+
     val progress: Float
         get() = if (durationMs > 0) (currentPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
 

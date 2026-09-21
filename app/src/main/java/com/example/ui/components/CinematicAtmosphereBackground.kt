@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -22,8 +23,9 @@ import kotlin.math.min
 
 /**
  * Cinematic Living Atmosphere Background:
- * - Heavily blurred, low-contrast, darkened album art back-layer
- * - Dynamic audio-reactive ambient aura field (Idea 02 & Idea 08)
+ * - Silky smooth interruptible crossfading for album art on track transitions
+ * - Dynamic audio-reactive ambient aura field (bass, kick, energy driven)
+ * - Animated color morphing between album palettes
  * - True deep black preservation with organic light emission
  * - Contrast protection layer for crystal clear text readability
  */
@@ -36,6 +38,28 @@ fun CinematicAtmosphereBackground(
     dimmingFactor: Float = 0.72f,
     glowStrength: Float = 0.9f
 ) {
+    // Smooth color morphing between track palettes
+    val animatedPrimary by animateColorAsState(
+        targetValue = palette.primary,
+        animationSpec = tween(600, easing = FastOutSlowInEasing),
+        label = "bgPrimaryMorph"
+    )
+    val animatedSecondary by animateColorAsState(
+        targetValue = palette.secondary,
+        animationSpec = tween(600, easing = FastOutSlowInEasing),
+        label = "bgSecondaryMorph"
+    )
+    val animatedAccent by animateColorAsState(
+        targetValue = palette.accent,
+        animationSpec = tween(600, easing = FastOutSlowInEasing),
+        label = "bgAccentMorph"
+    )
+    val animatedDeep by animateColorAsState(
+        targetValue = palette.deepAtmosphere,
+        animationSpec = tween(600, easing = FastOutSlowInEasing),
+        label = "bgDeepMorph"
+    )
+
     val infiniteTransition = rememberInfiniteTransition(label = "livingAtmosphereMotion")
     val waveOffset by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -48,16 +72,28 @@ fun CinematicAtmosphereBackground(
     )
 
     Box(modifier = modifier.fillMaxSize().background(Color(0xFF06060A))) {
-        // Layer 1: Heavily blurred, soft, darkened Album Art (idea 2)
-        if (track?.artworkUri != null) {
-            AsyncImage(
-                model = track.artworkUri,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .blur(90.dp)
-            )
+        // Layer 1: Heavily blurred, soft, darkened Album Art with seamless crossfade
+        AnimatedContent(
+            targetState = track?.artworkUri,
+            transitionSpec = {
+                fadeIn(animationSpec = tween(650, easing = FastOutSlowInEasing))
+                    .togetherWith(fadeOut(animationSpec = tween(450, easing = FastOutSlowInEasing)))
+            },
+            label = "atmosphereArtworkFade",
+            modifier = Modifier.fillMaxSize()
+        ) { uri ->
+            if (uri != null) {
+                AsyncImage(
+                    model = uri,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(90.dp)
+                )
+            } else {
+                Box(modifier = Modifier.fillMaxSize())
+            }
         }
 
         // Layer 2: Atmospheric Dimming & Contrast Preservation Veil
@@ -67,7 +103,7 @@ fun CinematicAtmosphereBackground(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            palette.deepAtmosphere.copy(alpha = 0.82f),
+                            animatedDeep.copy(alpha = 0.82f),
                             Color(0xEE07070D),
                             Color(0xFA050508)
                         )
@@ -85,7 +121,7 @@ fun CinematicAtmosphereBackground(
             val kick = data.kickPulse
             val energy = data.totalEnergy
 
-            // Dynamic radius driven by song energy and gentle cosmic rotation
+            // Dynamic radius driven by real audio energy and subtle cosmic rotation
             val baseRadius = maxDimension * (0.65f + bass * 0.35f)
             val radAngle = Math.toRadians(waveOffset.toDouble())
             val driftX = (Math.cos(radAngle) * 35.0).toFloat()
@@ -96,8 +132,8 @@ fun CinematicAtmosphereBackground(
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        palette.primary.copy(alpha = (0.28f + bass * 0.25f + kick * 0.15f) * glowStrength),
-                        palette.secondary.copy(alpha = (0.16f + energy * 0.18f) * glowStrength),
+                        animatedPrimary.copy(alpha = (0.28f + bass * 0.25f + kick * 0.15f) * glowStrength),
+                        animatedSecondary.copy(alpha = (0.16f + energy * 0.18f) * glowStrength),
                         Color.Transparent
                     ),
                     center = auraCenter,
@@ -111,8 +147,8 @@ fun CinematicAtmosphereBackground(
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        palette.secondary.copy(alpha = (0.22f + kick * 0.28f) * glowStrength),
-                        palette.accent.copy(alpha = (0.10f + bass * 0.12f) * glowStrength),
+                        animatedSecondary.copy(alpha = (0.22f + kick * 0.28f) * glowStrength),
+                        animatedAccent.copy(alpha = (0.10f + bass * 0.12f) * glowStrength),
                         Color.Transparent
                     ),
                     center = auraCenter,
@@ -122,12 +158,12 @@ fun CinematicAtmosphereBackground(
                 center = auraCenter
             )
 
-            // Transient kick pulse burst (organic micro-interaction)
+            // Transient kick pulse burst
             if (kick > 0.08f) {
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            palette.accent.copy(alpha = (kick * 0.45f * glowStrength).coerceIn(0f, 0.65f)),
+                            animatedAccent.copy(alpha = (kick * 0.45f * glowStrength).coerceIn(0f, 0.65f)),
                             Color.Transparent
                         ),
                         center = center,

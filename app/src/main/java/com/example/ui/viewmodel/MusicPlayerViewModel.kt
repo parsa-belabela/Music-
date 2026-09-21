@@ -1,8 +1,7 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
-import android.os.Handler
-import android.os.Looper
+import android.content.Context
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -83,7 +82,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     private var lyricsJob: Job? = null
     private var sleepTimerJob: Job? = null
-    private var isSwitchingTrack = false
+    private var hasRestoredPlayback = false
 
     init {
         // Wire audio engine callbacks
@@ -107,7 +106,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             audioEngine.status.collect { st ->
                 val isPlaying = st == PlayerStatus.PLAYING
                 analysisEngine.isPlaybackActive = isPlaying
-                _playbackState.update { it.copy(status = st) }
+                _playbackState.update { it.copy(status = st, isPlayWhenReady = audioEngine.isPlayWhenReady.value) }
                 
                 // Update system media notification
                 val track = _playbackState.value.currentTrack
@@ -126,16 +125,32 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
 
         viewModelScope.launch {
+            audioEngine.isPlayWhenReady.collect { pwr ->
+                _playbackState.update { it.copy(isPlayWhenReady = pwr) }
+            }
+        }
+
+        viewModelScope.launch {
             audioEngine.audioSessionId.collect { sid ->
                 analysisEngine.attachToAudioSession(sid)
+            }
+        }
+
+        // Instant Resume: Check and restore last playback state once tracks load
+        viewModelScope.launch {
+            allTracks.collect { tracks ->
+                if (!hasRestoredPlayback && tracks.isNotEmpty()) {
+                    hasRestoredPlayback = true
+                    restoreLastPlaybackIfAvailable(tracks)
+                }
             }
         }
 
         // Notification & External system actions handler
         AudioPlaybackService.actionHandler = { action ->
             when (action) {
-                "PLAY" -> audioEngine.play()
-                "PAUSE" -> audioEngine.pause()
+                "PLAY" -> play()
+                "PAUSE" -> pause()
                 "PLAY_PAUSE" -> togglePlayPause()
                 "NEXT" -> nextTrack()
                 "PREVIOUS" -> previousTrack()
@@ -168,10 +183,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun playTrack(track: Track, newQueue: List<Track>? = null) {
-        if (isSwitchingTrack && _playbackState.value.currentTrack?.id == track.id) return
-        isSwitchingTrack = true
-
+    fun playTrack(track: Track, newQueue: List<Track>? = null, startPositionMs: Long = 0L) {
         val queue = newQueue ?: _playbackState.value.queue.ifEmpty { listOf(track) }
         val idx = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
 
@@ -185,7 +197,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 queue = queue,
                 queueIndex = idx,
                 status = PlayerStatus.BUFFERING,
-                currentPositionMs = 0L,
+                isPlayWhenReady = true,
+                currentPositionMs = startPositionMs,
                 durationMs = track.durationMs
             )
         }
@@ -202,11 +215,12 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         // Load lyrics strictly for this track
         loadLyricsForTrack(track.id)
 
-        // Play in engine
-        audioEngine.playTrack(track)
+        // Play in engine with soft audio transition
+        audioEngine.playTrack(track, startPositionMs)
+        
         viewModelScope.launch {
             repository.recordPlay(track.id)
-            isSwitchingTrack = false
+            saveLastPlayback(track.id, queue.map { it.id }, startPositionMs)
             
             // Preload next track if enabled
             if (_appSettings.value.preloadNextTrack && queue.size > 1) {
@@ -224,26 +238,47 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             album = track.album,
             isPlaying = true,
             durationMs = track.durationMs,
-            positionMs = 0L
+            positionMs = startPositionMs
         )
     }
 
     fun togglePlayPause() {
         val current = _playbackState.value
-        if (current.status == PlayerStatus.PLAYING) {
-            audioEngine.pause()
-        } else {
-            if (current.currentTrack == null) {
-                val first = allTracks.value.firstOrNull()
-                if (first != null) playTrack(first, allTracks.value)
-            } else {
-                audioEngine.play()
-            }
+        if (current.currentTrack == null) {
+            val first = allTracks.value.firstOrNull()
+            if (first != null) playTrack(first, allTracks.value)
+            return
         }
+        audioEngine.togglePlayPause()
+        
+        // Save current position on pause
+        if (_playbackState.value.isPlayWhenReady) {
+            saveLastPlayback(
+                trackId = current.currentTrack.id,
+                queueIds = current.queue.map { it.id },
+                positionMs = audioEngine.currentPosition.value
+            )
+        }
+    }
+
+    fun play() {
+        if (_playbackState.value.currentTrack == null) {
+            val first = allTracks.value.firstOrNull()
+            if (first != null) playTrack(first, allTracks.value)
+            return
+        }
+        audioEngine.play()
     }
 
     fun pause() {
         audioEngine.pause()
+        _playbackState.value.currentTrack?.let { track ->
+            saveLastPlayback(
+                trackId = track.id,
+                queueIds = _playbackState.value.queue.map { it.id },
+                positionMs = audioEngine.currentPosition.value
+            )
+        }
     }
 
     fun nextTrack() {
@@ -296,6 +331,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun seekTo(positionMs: Long) {
         audioEngine.seekTo(positionMs)
         _playbackState.update { it.copy(currentPositionMs = positionMs) }
+        _playbackState.value.currentTrack?.let { track ->
+            saveLastPlayback(track.id, _playbackState.value.queue.map { it.id }, positionMs)
+        }
     }
 
     fun setVolume(vol: Float) {
@@ -504,6 +542,54 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 _playbackState.update { it.copy(currentTrack = updated) }
             }
         }
+    }
+
+    // Instant Resume persistence helpers
+    private fun restoreLastPlaybackIfAvailable(tracks: List<Track>) {
+        if (_playbackState.value.currentTrack != null || tracks.isEmpty()) return
+        val prefs = app.getSharedPreferences("aura_playback_state", Context.MODE_PRIVATE)
+        val lastTrackId = prefs.getString("last_track_id", null) ?: return
+        val lastPos = prefs.getLong("last_pos_ms", 0L)
+        val queueIdsStr = prefs.getString("last_queue_ids", "") ?: ""
+
+        val track = tracks.firstOrNull { it.id == lastTrackId } ?: tracks.firstOrNull() ?: return
+        val trackMap = tracks.associateBy { it.id }
+        val restoredQueue = if (queueIdsStr.isNotBlank()) {
+            queueIdsStr.split(",").mapNotNull { trackMap[it] }.ifEmpty { tracks }
+        } else {
+            tracks
+        }
+        val qIdx = restoredQueue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+
+        val fallback = Color(_appSettings.value.customAccentColor)
+        val palette = if (_appSettings.value.autoColorFromArtwork) {
+            ArtworkPaletteExtractor.extract(track, fallback)
+        } else {
+            AmbientPalette(fallback, fallback.copy(alpha = 0.5f), fallback.copy(alpha = 0.25f), fallback)
+        }
+        _activePalette.value = palette
+        loadLyricsForTrack(track.id)
+
+        _playbackState.update {
+            it.copy(
+                currentTrack = track,
+                queue = restoredQueue,
+                queueIndex = qIdx,
+                status = PlayerStatus.PAUSED,
+                isPlayWhenReady = false,
+                currentPositionMs = lastPos,
+                durationMs = track.durationMs
+            )
+        }
+    }
+
+    private fun saveLastPlayback(trackId: String, queueIds: List<String>, positionMs: Long) {
+        val prefs = app.getSharedPreferences("aura_playback_state", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString("last_track_id", trackId)
+            .putLong("last_pos_ms", positionMs)
+            .putString("last_queue_ids", queueIds.joinToString(","))
+            .apply()
     }
 
     // Backup & Restore

@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -30,17 +31,15 @@ import coil.compose.AsyncImage
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
 import com.example.data.model.PlaybackState
-import com.example.data.model.PlayerStatus
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
 
 /**
- * IDEA 03: Floating Liquid Glass Capsule Mini Player
- * - Translucent liquid glass material (GlassThickness.REGULAR)
- * - Concentric geometry with rounded capsule corners
- * - Audio-reactive ambient light halo leaking subtly around capsule border
- * - Specular highlight reflection across the glass surface
- * - Glowing audio-reactive progress bar
+ * Floating Liquid Glass Capsule Mini Player:
+ * - Single source of truth playback state via playbackState.isPlaying
+ * - Smooth interruptible morph transition for Artwork, Title & Artist
+ * - Responsive dynamic progress track powered by isolated position provider
+ * - Audio-reactive ambient light halo
  */
 @Composable
 fun MiniPlayer(
@@ -50,10 +49,23 @@ fun MiniPlayer(
     onNext: () -> Unit,
     onExpandNowPlaying: () -> Unit,
     modifier: Modifier = Modifier,
-    analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() }
+    analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() },
+    currentPositionProvider: () -> Long = { playbackState.currentPositionMs }
 ) {
     val track = playbackState.currentTrack ?: return
-    val isPlaying = playbackState.status == PlayerStatus.PLAYING
+    val isPlaying = playbackState.isPlaying
+
+    // Smooth color morphing for seamless scene transitions
+    val animatedPrimary by animateColorAsState(
+        targetValue = palette.primary,
+        animationSpec = tween(500, easing = FastOutSlowInEasing),
+        label = "miniPlayerPrimary"
+    )
+    val animatedAccent by animateColorAsState(
+        targetValue = palette.accent,
+        animationSpec = tween(500, easing = FastOutSlowInEasing),
+        label = "miniPlayerAccent"
+    )
 
     val infiniteTransition = rememberInfiniteTransition(label = "capsuleBreathing")
     val pulse by infiniteTransition.animateFloat(
@@ -87,7 +99,7 @@ fun MiniPlayer(
                 drawRoundRect(
                     brush = Brush.horizontalGradient(
                         listOf(
-                            palette.primary.copy(alpha = auraAlpha.coerceIn(0f, 0.6f)),
+                            animatedPrimary.copy(alpha = auraAlpha.coerceIn(0f, 0.6f)),
                             palette.secondary.copy(alpha = (auraAlpha * 0.65f).coerceIn(0f, 0.45f))
                         )
                     ),
@@ -104,7 +116,7 @@ fun MiniPlayer(
                 .liquidGlass(
                     shape = RoundedCornerShape(26.dp),
                     thickness = GlassThickness.REGULAR,
-                    tintColor = palette.primary,
+                    tintColor = animatedPrimary,
                     tintAlpha = 0.14f,
                     borderWidth = 1.2.dp
                 )
@@ -118,57 +130,79 @@ fun MiniPlayer(
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Album artwork thumbnail with soft glow aura & rounded corner
-                    Box(
-                        modifier = Modifier
-                            .size(46.dp)
-                            .shadow(8.dp, RoundedCornerShape(14.dp), ambientColor = palette.primary, spotColor = palette.accent)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(Color(0xFF141322)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (track.artworkUri != null) {
-                            AsyncImage(
-                                model = track.artworkUri,
-                                contentDescription = "Track Artwork",
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.MusicNote,
-                                contentDescription = "Music",
-                                tint = palette.primary,
-                                modifier = Modifier.size(24.dp)
-                            )
+                    // Morphing Track Info (Artwork, Title, Artist)
+                    AnimatedContent(
+                        targetState = track,
+                        transitionSpec = {
+                            (fadeIn(animationSpec = tween(350, easing = FastOutSlowInEasing)) +
+                             scaleIn(initialScale = 0.94f, animationSpec = tween(350, easing = FastOutSlowInEasing)))
+                                .togetherWith(
+                                    fadeOut(animationSpec = tween(280, easing = FastOutSlowInEasing)) +
+                                    scaleOut(targetScale = 1.04f, animationSpec = tween(280, easing = FastOutSlowInEasing))
+                                )
+                        },
+                        modifier = Modifier.weight(1f),
+                        label = "miniPlayerContentTransition"
+                    ) { currentTrack ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            // Album artwork thumbnail with soft glow aura & rounded corner
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .shadow(8.dp, RoundedCornerShape(14.dp), ambientColor = animatedPrimary, spotColor = animatedAccent)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xFF141322)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (currentTrack.artworkUri != null) {
+                                    AsyncImage(
+                                        model = currentTrack.artworkUri,
+                                        contentDescription = "Track Artwork",
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.MusicNote,
+                                        contentDescription = "Music",
+                                        tint = animatedPrimary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            // Title & Artist with confident typography
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = currentTrack.title,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        letterSpacing = 0.2.sp
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = currentTrack.artist,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = Color(0xFFA0A5BA),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    // Title & Artist with confident typography
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = track.title,
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                letterSpacing = 0.2.sp
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = track.artist,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = Color(0xFFA0A5BA),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    Spacer(modifier = Modifier.width(8.dp))
 
                     // Tactile Play / Pause button in Glass pill
                     IconButton(
@@ -189,7 +223,7 @@ fun MiniPlayer(
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = palette.accent,
+                            tint = animatedAccent,
                             modifier = Modifier.size(26.dp)
                         )
                     }
@@ -213,6 +247,11 @@ fun MiniPlayer(
                 }
 
                 // Glowing Liquid Progress Track at bottom of capsule
+                val currentPos = currentPositionProvider()
+                val progressFraction = if (playbackState.durationMs > 0) {
+                    (currentPos.toFloat() / playbackState.durationMs.toFloat()).coerceIn(0f, 1f)
+                } else 0f
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -221,13 +260,13 @@ fun MiniPlayer(
                 ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(fraction = playbackState.progress.coerceIn(0f, 1f))
+                            .fillMaxWidth(fraction = progressFraction)
                             .fillMaxHeight()
                             .background(
                                 Brush.horizontalGradient(
                                     listOf(
-                                        palette.primary,
-                                        palette.accent
+                                        animatedPrimary,
+                                        animatedAccent
                                     )
                                 )
                             )

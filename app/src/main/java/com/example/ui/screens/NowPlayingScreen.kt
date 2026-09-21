@@ -84,7 +84,7 @@ fun NowPlayingScreen(
     }
 
     // Dynamic scale for artwork responding to Bass/Kick & Focus Mode
-    val isPlaying = playbackState.status == PlayerStatus.PLAYING
+    val isPlaying = playbackState.isPlaying
     val bassExpansion = if (isPlaying) analysisData.haloExpansion else 0f
     val kickPulse = if (isPlaying) analysisData.kickPulse else 0f
 
@@ -381,76 +381,89 @@ fun NowPlayingScreen(
             ) {
                 when (centerView) {
                     NowPlayingCenterView.ARTWORK_AND_HALO -> {
-                        // IDEA 01, 02: Album Aura with liquid glass concentric frame and dynamic reactive scale
-                        Box(
-                            modifier = Modifier
-                                .size(if (isImmersive) 320.dp else 285.dp)
-                                .scale(artworkScale)
-                                .shadow(
-                                    elevation = 32.dp,
-                                    shape = RoundedCornerShape(28.dp),
-                                    ambientColor = palette.primary,
-                                    spotColor = palette.accent
-                                )
-                                .clip(RoundedCornerShape(28.dp))
-                                .background(Color(0xFF131322))
-                                .border(
-                                    width = 1.5.dp,
-                                    brush = Brush.verticalGradient(
-                                        listOf(
-                                            Color(0x60FFFFFF),
-                                            palette.primary.copy(alpha = 0.45f),
-                                            Color(0x10FFFFFF)
-                                        )
-                                    ),
-                                    shape = RoundedCornerShape(28.dp)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (track.artworkUri != null) {
-                                AsyncImage(
-                                    model = track.artworkUri,
-                                    contentDescription = "Artwork",
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.MusicNote,
-                                        contentDescription = null,
-                                        tint = palette.primary,
-                                        modifier = Modifier.size(96.dp)
+                        AnimatedContent(
+                            targetState = track,
+                            transitionSpec = {
+                                (fadeIn(animationSpec = tween(400, easing = FastOutSlowInEasing)) +
+                                 scaleIn(initialScale = 0.92f, animationSpec = tween(400, easing = FastOutSlowInEasing)))
+                                    .togetherWith(
+                                        fadeOut(animationSpec = tween(280, easing = FastOutSlowInEasing)) +
+                                        scaleOut(targetScale = 1.04f, animationSpec = tween(280, easing = FastOutSlowInEasing))
                                     )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Text(
-                                        text = track.genre,
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            color = palette.accent,
-                                            fontWeight = FontWeight.Bold,
-                                            letterSpacing = 1.sp
-                                        )
-                                    )
-                                }
-                            }
-
-                            // Subtle specular reflection sheen over the artwork glass
+                            },
+                            label = "nowPlayingArtworkTransition"
+                        ) { currentTrack ->
+                            // IDEA 01, 02: Album Aura with liquid glass concentric frame and dynamic reactive scale
                             Box(
                                 modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(
-                                                Color(0x20FFFFFF),
-                                                Color.Transparent
-                                            ),
-                                            startY = 0f,
-                                            endY = 250f
-                                        )
+                                    .size(if (isImmersive) 320.dp else 285.dp)
+                                    .scale(artworkScale)
+                                    .shadow(
+                                        elevation = 32.dp,
+                                        shape = RoundedCornerShape(28.dp),
+                                        ambientColor = palette.primary,
+                                        spotColor = palette.accent
                                     )
-                            )
+                                    .clip(RoundedCornerShape(28.dp))
+                                    .background(Color(0xFF131322))
+                                    .border(
+                                        width = 1.5.dp,
+                                        brush = Brush.verticalGradient(
+                                            listOf(
+                                                Color(0x60FFFFFF),
+                                                palette.primary.copy(alpha = 0.45f),
+                                                Color(0x10FFFFFF)
+                                            )
+                                        ),
+                                        shape = RoundedCornerShape(28.dp)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (currentTrack.artworkUri != null) {
+                                    AsyncImage(
+                                        model = currentTrack.artworkUri,
+                                        contentDescription = "Artwork",
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MusicNote,
+                                            contentDescription = null,
+                                            tint = palette.primary,
+                                            modifier = Modifier.size(96.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Text(
+                                            text = currentTrack.genre,
+                                            style = MaterialTheme.typography.bodySmall.copy(
+                                                color = palette.accent,
+                                                fontWeight = FontWeight.Bold,
+                                                letterSpacing = 1.sp
+                                            )
+                                        )
+                                    }
+                                }
+
+                                // Subtle specular reflection sheen over the artwork glass
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            Brush.verticalGradient(
+                                                listOf(
+                                                    Color(0x20FFFFFF),
+                                                    Color.Transparent
+                                                ),
+                                                startY = 0f,
+                                                endY = 250f
+                                            )
+                                        )
+                                )
+                            }
                         }
                     }
 
@@ -491,27 +504,41 @@ fun NowPlayingScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = track.title,
-                            style = MaterialTheme.typography.headlineSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                letterSpacing = (-0.4).sp
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(3.dp))
-                        Text(
-                            text = track.artist,
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                color = Color(0xFFA5A5BC),
-                                fontWeight = FontWeight.Medium
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                    AnimatedContent(
+                        targetState = track,
+                        transitionSpec = {
+                            (fadeIn(animationSpec = tween(350, easing = FastOutSlowInEasing)) +
+                             slideInHorizontally(initialOffsetX = { 30 }, animationSpec = tween(350, easing = FastOutSlowInEasing)))
+                                .togetherWith(
+                                    fadeOut(animationSpec = tween(250, easing = FastOutSlowInEasing)) +
+                                    slideOutHorizontally(targetOffsetX = { -30 }, animationSpec = tween(250, easing = FastOutSlowInEasing))
+                                )
+                        },
+                        modifier = Modifier.weight(1f),
+                        label = "nowPlayingTitleTransition"
+                    ) { currentTrack ->
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = currentTrack.title,
+                                style = MaterialTheme.typography.headlineSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    letterSpacing = (-0.4).sp
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = currentTrack.artist,
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    color = Color(0xFFA5A5BC),
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
 
                     // Tactile Favorite button with Liquid Glass pill & burst

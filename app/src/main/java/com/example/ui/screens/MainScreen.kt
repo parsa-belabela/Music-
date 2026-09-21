@@ -71,7 +71,8 @@ fun MainScreen(
                             onTogglePlay = { viewModel.togglePlayPause() },
                             onNext = { viewModel.nextTrack() },
                             onExpandNowPlaying = { viewModel.isNowPlayingExpanded.value = true },
-                            analysisDataProvider = { analysisData }
+                            analysisDataProvider = { analysisData },
+                            currentPositionProvider = { viewModel.currentPositionMs.value }
                         )
                     }
 
