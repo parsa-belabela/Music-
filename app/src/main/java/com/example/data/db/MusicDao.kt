@@ -2,6 +2,7 @@ package com.example.data.db
 
 import androidx.room.*
 import com.example.data.model.LyricsEntity
+import com.example.data.model.PlaybackEvent
 import com.example.data.model.Playlist
 import com.example.data.model.PlaylistTrackCrossRef
 import com.example.data.model.Track
@@ -76,4 +77,26 @@ interface MusicDao {
 
     @Query("DELETE FROM playlist_tracks WHERE playlistId = :playlistId AND trackId = :trackId")
     suspend fun removeTrackFromPlaylist(playlistId: String, trackId: String)
+
+    // Playback Events for Listening Wrapped Analysis
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPlaybackEvent(event: PlaybackEvent)
+
+    @Query("SELECT * FROM playback_events ORDER BY timestamp DESC")
+    fun getAllPlaybackEventsFlow(): Flow<List<PlaybackEvent>>
+
+    @Query("SELECT * FROM playback_events ORDER BY timestamp DESC")
+    suspend fun getAllPlaybackEvents(): List<PlaybackEvent>
+
+    @Query("SELECT * FROM playback_events WHERE timestamp >= :startMs AND timestamp <= :endMs ORDER BY timestamp DESC")
+    suspend fun getPlaybackEventsBetween(startMs: Long, endMs: Long): List<PlaybackEvent>
+
+    @Query("SELECT COUNT(*) FROM playback_events")
+    suspend fun getPlaybackEventsCount(): Int
+
+    @Query("SELECT MIN(timestamp) FROM playback_events")
+    suspend fun getFirstPlaybackTimestamp(): Long?
+
+    @Query("DELETE FROM playback_events")
+    suspend fun clearAllPlaybackEvents()
 }

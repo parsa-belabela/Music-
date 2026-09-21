@@ -24,12 +24,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
+import com.example.data.model.AppSettings
 import com.example.data.model.PlaybackState
 import com.example.data.model.PlayerStatus
 import com.example.data.model.Track
 import com.example.ui.components.TrackArtworkThumbnail
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
+import com.example.util.Localization
 
 @Composable
 fun HomeScreen(
@@ -38,17 +40,21 @@ fun HomeScreen(
     recentlyPlayed: List<Track>,
     favoriteTracks: List<Track>,
     palette: AmbientPalette,
+    appSettings: AppSettings,
     onPlayTrack: (Track, List<Track>) -> Unit,
     onTogglePlay: () -> Unit,
     onOpenLibrary: () -> Unit,
+    onOpenWrapped: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val lang = appSettings.language
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp),
-        verticalArrangement = Arrangement.spacedBy(22.dp)
+        verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         // App Header & Greeting
         item {
@@ -59,7 +65,7 @@ fun HomeScreen(
             ) {
                 Column {
                     Text(
-                        text = "AURA MUSIC",
+                        text = Localization.getString("aura_music", lang),
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.Black,
                             letterSpacing = 2.sp,
@@ -67,7 +73,7 @@ fun HomeScreen(
                         )
                     )
                     Text(
-                        text = "Audio Environment",
+                        text = Localization.getString("audio_environment", lang),
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -89,6 +95,71 @@ fun HomeScreen(
                         tint = palette.accent,
                         modifier = Modifier.size(22.dp)
                     )
+                }
+            }
+        }
+
+        // Spotify-Wrapped Style Recap Invitation Banner
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .liquidGlass(
+                        shape = RoundedCornerShape(22.dp),
+                        thickness = GlassThickness.REGULAR,
+                        tintColor = palette.secondary,
+                        tintAlpha = 0.20f,
+                        borderWidth = 1.2.dp
+                    )
+                    .clickable { onOpenWrapped() }
+                    .padding(18.dp)
+                    .testTag("home_wrapped_banner")
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(palette.primary, palette.secondary)
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column {
+                            Text(
+                                text = Localization.getString("wrapped_banner_title", lang),
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = Color.White)
+                            )
+                            Text(
+                                text = Localization.getString("wrapped_banner_desc", lang),
+                                style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFD0D0E8), fontSize = 11.sp)
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = onOpenWrapped,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = palette.accent)
+                    ) {
+                        Text(
+                            text = Localization.getString("open_wrapped", lang),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = Color.Black)
+                        )
+                    }
                 }
             }
         }

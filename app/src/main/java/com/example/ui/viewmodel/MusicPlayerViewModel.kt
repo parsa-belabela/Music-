@@ -49,8 +49,18 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
-    private val _appSettings = MutableStateFlow(AppSettings())
+    private val _appSettings = MutableStateFlow(loadPersistedSettings())
     val appSettings: StateFlow<AppSettings> = _appSettings.asStateFlow()
+
+    // Wrapped Statistics States
+    private val _wrappedPeriods = MutableStateFlow<List<WrappedPeriod>>(emptyList())
+    val wrappedPeriods: StateFlow<List<WrappedPeriod>> = _wrappedPeriods.asStateFlow()
+
+    private val _selectedWrappedPeriod = MutableStateFlow<WrappedPeriod?>(null)
+    val selectedWrappedPeriod: StateFlow<WrappedPeriod?> = _selectedWrappedPeriod.asStateFlow()
+
+    private val _wrappedStats = MutableStateFlow<WrappedStats?>(null)
+    val wrappedStats: StateFlow<WrappedStats?> = _wrappedStats.asStateFlow()
 
     private val _activePreset = MutableStateFlow(VisualizerPreset.SOFT)
     val activePreset: StateFlow<VisualizerPreset> = _activePreset.asStateFlow()
@@ -83,8 +93,16 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private var lyricsJob: Job? = null
     private var sleepTimerJob: Job? = null
     private var hasRestoredPlayback = false
+    private var trackStartPlayTimestamp: Long = 0L
+    private var activePlayingTrackRef: Track? = null
 
     init {
+        // Apply persisted audio engine settings
+        applySettingsToEngines(_appSettings.value)
+
+        // Load wrapped periods
+        refreshWrappedPeriods()
+
         // Wire audio engine callbacks
         audioEngine.onTrackCompleted = {
             handleTrackCompleted()
@@ -187,6 +205,19 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         val queue = newQueue ?: _playbackState.value.queue.ifEmpty { listOf(track) }
         val idx = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
 
+        // Record previous track listen session if active
+        val prevTrack = activePlayingTrackRef
+        val startTs = trackStartPlayTimestamp
+        if (prevTrack != null && startTs > 0L) {
+            val listenedMs = (System.currentTimeMillis() - startTs).coerceAtLeast(0L)
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                repository.recordPlaybackSession(prevTrack, listenedMs, wasSkipped = true)
+            }
+        }
+
+        activePlayingTrackRef = track
+        trackStartPlayTimestamp = System.currentTimeMillis()
+
         // Immediately clear old lyrics so previous track words NEVER linger or flash
         _currentLyrics.value = emptyList()
         _currentLyricsEntity.value = null
@@ -203,22 +234,22 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             )
         }
 
-        // Extract palette
-        val fallback = Color(_appSettings.value.customAccentColor)
-        val palette = if (_appSettings.value.autoColorFromArtwork) {
-            ArtworkPaletteExtractor.extract(track, fallback)
-        } else {
-            AmbientPalette(fallback, fallback.copy(alpha = 0.5f), fallback.copy(alpha = 0.25f), fallback)
-        }
-        _activePalette.value = palette
+        // 1. Play in engine immediately with zero blocking
+        audioEngine.playTrack(track, startPositionMs)
 
-        // Load lyrics strictly for this track
+        // 2. Load lyrics strictly for this track
         loadLyricsForTrack(track.id)
 
-        // Play in engine with soft audio transition
-        audioEngine.playTrack(track, startPositionMs)
-        
-        viewModelScope.launch {
+        // 3. Extract palette and record metadata in background
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            val fallback = Color(_appSettings.value.customAccentColor)
+            val palette = if (_appSettings.value.autoColorFromArtwork) {
+                ArtworkPaletteExtractor.extract(track, fallback)
+            } else {
+                AmbientPalette(fallback, fallback.copy(alpha = 0.5f), fallback.copy(alpha = 0.25f), fallback)
+            }
+            _activePalette.value = palette
+
             repository.recordPlay(track.id)
             saveLastPlayback(track.id, queue.map { it.id }, startPositionMs)
             
@@ -229,6 +260,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     audioEngine.preloadTrack(nextTrack)
                 }
             }
+
+            // Refresh wrapped stats after record
+            refreshCurrentWrappedStats()
         }
 
         AudioPlaybackService.update(
@@ -311,6 +345,17 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun handleTrackCompleted() {
         val state = _playbackState.value
+        val track = state.currentTrack
+        val startTs = trackStartPlayTimestamp
+        if (track != null && startTs > 0L) {
+            val listenedMs = (System.currentTimeMillis() - startTs).coerceAtLeast(0L)
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                repository.recordPlaybackSession(track, listenedMs, wasSkipped = false)
+            }
+        }
+        trackStartPlayTimestamp = 0L
+        activePlayingTrackRef = null
+
         when (state.repeatMode) {
             RepeatMode.ONE -> {
                 state.currentTrack?.let { playTrack(it, state.queue) }
@@ -472,13 +517,104 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun updateSettings(newSettings: AppSettings) {
         _appSettings.value = newSettings
-        audioEngine.crossfadeSeconds = newSettings.crossfadeDurationSeconds
-        audioEngine.gaplessEnabled = newSettings.gaplessEnabled
-        audioEngine.setBassBoost(newSettings.bassBoostStrength)
-        analysisEngine.sensitivity = newSettings.visualizerSensitivity
-        analysisEngine.bassResponse = newSettings.visualizerBassResponse
-        analysisEngine.targetFps = newSettings.visualizerQuality.fps
-        analysisEngine.batterySaver = newSettings.batterySaver
+        savePersistedSettings(newSettings)
+        applySettingsToEngines(newSettings)
+    }
+
+    private fun applySettingsToEngines(settings: AppSettings) {
+        audioEngine.crossfadeSeconds = settings.crossfadeDurationSeconds
+        audioEngine.gaplessEnabled = settings.gaplessEnabled
+        audioEngine.setBassBoost(settings.bassBoostStrength)
+        analysisEngine.sensitivity = settings.visualizerSensitivity
+        analysisEngine.bassResponse = settings.visualizerBassResponse
+        analysisEngine.targetFps = settings.visualizerFps
+        analysisEngine.batterySaver = settings.batterySaver
+    }
+
+    private fun loadPersistedSettings(): AppSettings {
+        val prefs = app.getSharedPreferences("aura_settings", Context.MODE_PRIVATE)
+        val langStr = prefs.getString("language", AppLanguage.ENGLISH.name) ?: AppLanguage.ENGLISH.name
+        val lang = try { AppLanguage.valueOf(langStr) } catch (e: Exception) { AppLanguage.ENGLISH }
+        val themeStr = prefs.getString("theme", AppTheme.MIDNIGHT.name) ?: AppTheme.MIDNIGHT.name
+        val theme = try { AppTheme.valueOf(themeStr) } catch (e: Exception) { AppTheme.MIDNIGHT }
+        val modeStr = prefs.getString("viz_mode", VisualizerMode.AMBIENT_HALO.name) ?: VisualizerMode.AMBIENT_HALO.name
+        val vizMode = try { VisualizerMode.valueOf(modeStr) } catch (e: Exception) { VisualizerMode.AMBIENT_HALO }
+
+        return AppSettings(
+            theme = theme,
+            language = lang,
+            visualizerMode = vizMode,
+            visualizerSensitivity = prefs.getFloat("viz_sens", 1.0f),
+            visualizerGlow = prefs.getFloat("viz_glow", 0.65f),
+            visualizerFps = prefs.getInt("viz_fps", 60),
+            autoColorFromArtwork = prefs.getBoolean("auto_color", true),
+            customAccentColor = prefs.getLong("accent_color", 0xFF8B5CF6L),
+            lyricsFontSize = prefs.getFloat("lyrics_size", 20.0f),
+            lyricsKaraokeWordHighlight = prefs.getBoolean("karaoke_hl", true),
+            crossfadeDurationSeconds = prefs.getInt("crossfade_sec", 0),
+            gaplessEnabled = prefs.getBoolean("gapless", true),
+            hapticFeedbackEnabled = prefs.getBoolean("haptic", true),
+            pauseOnHeadphoneDisconnect = prefs.getBoolean("pause_disconnect", true),
+            duckVolumeOnInterruption = prefs.getBoolean("duck_volume", true)
+        )
+    }
+
+    private fun savePersistedSettings(settings: AppSettings) {
+        val prefs = app.getSharedPreferences("aura_settings", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString("language", settings.language.name)
+            .putString("theme", settings.theme.name)
+            .putString("viz_mode", settings.visualizerMode.name)
+            .putFloat("viz_sens", settings.visualizerSensitivity)
+            .putFloat("viz_glow", settings.visualizerGlow)
+            .putInt("viz_fps", settings.visualizerFps)
+            .putBoolean("auto_color", settings.autoColorFromArtwork)
+            .putLong("accent_color", settings.customAccentColor)
+            .putFloat("lyrics_size", settings.lyricsFontSize)
+            .putBoolean("karaoke_hl", settings.lyricsKaraokeWordHighlight)
+            .putInt("crossfade_sec", settings.crossfadeDurationSeconds)
+            .putBoolean("gapless", settings.gaplessEnabled)
+            .putBoolean("haptic", settings.hapticFeedbackEnabled)
+            .putBoolean("pause_disconnect", settings.pauseOnHeadphoneDisconnect)
+            .putBoolean("duck_volume", settings.duckVolumeOnInterruption)
+            .apply()
+    }
+
+    // Spotify-Wrapped Listen Stats
+    fun refreshWrappedPeriods() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val periods = repository.getAvailableWrappedPeriods()
+            _wrappedPeriods.value = periods
+            if (_selectedWrappedPeriod.value == null && periods.isNotEmpty()) {
+                selectWrappedPeriod(periods.first())
+            }
+        }
+    }
+
+    fun selectWrappedPeriod(period: WrappedPeriod) {
+        _selectedWrappedPeriod.value = period
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val stats = repository.getWrappedStats(period)
+            _wrappedStats.value = stats
+        }
+    }
+
+    private fun refreshCurrentWrappedStats() {
+        val period = _selectedWrappedPeriod.value
+        if (period != null) {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val stats = repository.getWrappedStats(period)
+                _wrappedStats.value = stats
+            }
+        }
+    }
+
+    fun clearPlaybackHistory() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            repository.clearPlaybackHistory()
+            refreshWrappedPeriods()
+            _wrappedStats.value = null
+        }
     }
 
     fun setSleepTimer(minutes: Int) {

@@ -9,7 +9,6 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -19,14 +18,14 @@ import com.example.ui.components.*
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
 import com.example.ui.viewmodel.MusicPlayerViewModel
-import kotlinx.coroutines.launch
+import com.example.util.Localization
 
-enum class MainTab(val title: String) {
-    HOME("Home"),
-    LIBRARY("Library"),
-    PLAYLISTS("Playlists"),
-    SEARCH("Search"),
-    SETTINGS("Settings")
+enum class MainTab {
+    HOME,
+    LIBRARY,
+    WRAPPED,
+    PLAYLISTS,
+    SETTINGS
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -36,7 +35,6 @@ fun MainScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
 
     val playbackState by viewModel.playbackState.collectAsState()
     val analysisData by viewModel.analysisData.collectAsState()
@@ -50,6 +48,12 @@ fun MainScreen(
     val playlists by viewModel.playlists.collectAsState()
     val currentLyrics by viewModel.currentLyrics.collectAsState()
 
+    // Wrapped States
+    val wrappedPeriods by viewModel.wrappedPeriods.collectAsState()
+    val selectedWrappedPeriod by viewModel.selectedWrappedPeriod.collectAsState()
+    val wrappedStats by viewModel.wrappedStats.collectAsState()
+
+    val currentPositionMs by viewModel.currentPositionMs.collectAsState()
     val isNowPlayingExpanded by viewModel.isNowPlayingExpanded.collectAsState()
     val showLyricsEditor by viewModel.showLyricsEditor.collectAsState()
     val showEqualizer by viewModel.showEqualizer.collectAsState()
@@ -58,11 +62,13 @@ fun MainScreen(
     val editingTrackMetadata by viewModel.editingTrackMetadata.collectAsState()
 
     var currentTab by remember { mutableStateOf(MainTab.HOME) }
+    val lang = appSettings.language
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (!isNowPlayingExpanded) {
-                Column {
+                Column(modifier = Modifier.navigationBarsPadding()) {
                     // Persistent Floating Mini Player
                     if (playbackState.currentTrack != null) {
                         MiniPlayer(
@@ -72,11 +78,11 @@ fun MainScreen(
                             onNext = { viewModel.nextTrack() },
                             onExpandNowPlaying = { viewModel.isNowPlayingExpanded.value = true },
                             analysisDataProvider = { analysisData },
-                            currentPositionProvider = { viewModel.currentPositionMs.value }
+                            currentPositionProvider = { currentPositionMs }
                         )
                     }
 
-                    // Floating Liquid Glass Navigation Bar (iOS 26 dynamic tab philosophy)
+                    // Floating Liquid Glass Navigation Bar
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -92,72 +98,75 @@ fun MainScreen(
                             containerColor = Color.Transparent,
                             modifier = Modifier.testTag("main_navigation_bar")
                         ) {
-                        NavigationBarItem(
-                            selected = currentTab == MainTab.HOME,
-                            onClick = { currentTab = MainTab.HOME },
-                            icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-                            label = { Text("Home") },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = palette.accent,
-                                selectedTextColor = palette.accent,
-                                unselectedIconColor = Color(0xFF75758C),
-                                unselectedTextColor = Color(0xFF75758C),
-                                indicatorColor = palette.primary.copy(alpha = 0.25f)
+                            NavigationBarItem(
+                                selected = currentTab == MainTab.HOME,
+                                onClick = { currentTab = MainTab.HOME },
+                                icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
+                                label = { Text(Localization.getString("home", lang)) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = palette.accent,
+                                    selectedTextColor = palette.accent,
+                                    unselectedIconColor = Color(0xFF75758C),
+                                    unselectedTextColor = Color(0xFF75758C),
+                                    indicatorColor = palette.primary.copy(alpha = 0.25f)
+                                )
                             )
-                        )
-                        NavigationBarItem(
-                            selected = currentTab == MainTab.LIBRARY,
-                            onClick = { currentTab = MainTab.LIBRARY },
-                            icon = { Icon(Icons.Default.LibraryMusic, contentDescription = "Library") },
-                            label = { Text("Library") },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = palette.accent,
-                                selectedTextColor = palette.accent,
-                                unselectedIconColor = Color(0xFF75758C),
-                                unselectedTextColor = Color(0xFF75758C),
-                                indicatorColor = palette.primary.copy(alpha = 0.25f)
+                            NavigationBarItem(
+                                selected = currentTab == MainTab.LIBRARY,
+                                onClick = { currentTab = MainTab.LIBRARY },
+                                icon = { Icon(Icons.Default.LibraryMusic, contentDescription = "Library") },
+                                label = { Text(Localization.getString("library", lang)) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = palette.accent,
+                                    selectedTextColor = palette.accent,
+                                    unselectedIconColor = Color(0xFF75758C),
+                                    unselectedTextColor = Color(0xFF75758C),
+                                    indicatorColor = palette.primary.copy(alpha = 0.25f)
+                                )
                             )
-                        )
-                        NavigationBarItem(
-                            selected = currentTab == MainTab.PLAYLISTS,
-                            onClick = { currentTab = MainTab.PLAYLISTS },
-                            icon = { Icon(Icons.Default.PlaylistPlay, contentDescription = "Playlists") },
-                            label = { Text("Playlists") },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = palette.accent,
-                                selectedTextColor = palette.accent,
-                                unselectedIconColor = Color(0xFF75758C),
-                                unselectedTextColor = Color(0xFF75758C),
-                                indicatorColor = palette.primary.copy(alpha = 0.25f)
+                            NavigationBarItem(
+                                selected = currentTab == MainTab.WRAPPED,
+                                onClick = {
+                                    currentTab = MainTab.WRAPPED
+                                    viewModel.refreshWrappedPeriods()
+                                },
+                                icon = { Icon(Icons.Default.AutoAwesome, contentDescription = "Wrapped") },
+                                label = { Text(Localization.getString("wrapped", lang)) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = palette.accent,
+                                    selectedTextColor = palette.accent,
+                                    unselectedIconColor = Color(0xFF75758C),
+                                    unselectedTextColor = Color(0xFF75758C),
+                                    indicatorColor = palette.primary.copy(alpha = 0.25f)
+                                )
                             )
-                        )
-                        NavigationBarItem(
-                            selected = currentTab == MainTab.SEARCH,
-                            onClick = { currentTab = MainTab.SEARCH },
-                            icon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                            label = { Text("Search") },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = palette.accent,
-                                selectedTextColor = palette.accent,
-                                unselectedIconColor = Color(0xFF75758C),
-                                unselectedTextColor = Color(0xFF75758C),
-                                indicatorColor = palette.primary.copy(alpha = 0.25f)
+                            NavigationBarItem(
+                                selected = currentTab == MainTab.PLAYLISTS,
+                                onClick = { currentTab = MainTab.PLAYLISTS },
+                                icon = { Icon(Icons.Default.PlaylistPlay, contentDescription = "Playlists") },
+                                label = { Text(Localization.getString("playlists", lang)) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = palette.accent,
+                                    selectedTextColor = palette.accent,
+                                    unselectedIconColor = Color(0xFF75758C),
+                                    unselectedTextColor = Color(0xFF75758C),
+                                    indicatorColor = palette.primary.copy(alpha = 0.25f)
+                                )
                             )
-                        )
-                        NavigationBarItem(
-                            selected = currentTab == MainTab.SETTINGS,
-                            onClick = { currentTab = MainTab.SETTINGS },
-                            icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                            label = { Text("Settings") },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = palette.accent,
-                                selectedTextColor = palette.accent,
-                                unselectedIconColor = Color(0xFF75758C),
-                                unselectedTextColor = Color(0xFF75758C),
-                                indicatorColor = palette.primary.copy(alpha = 0.25f)
+                            NavigationBarItem(
+                                selected = currentTab == MainTab.SETTINGS,
+                                onClick = { currentTab = MainTab.SETTINGS },
+                                icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                                label = { Text(Localization.getString("settings", lang)) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = palette.accent,
+                                    selectedTextColor = palette.accent,
+                                    unselectedIconColor = Color(0xFF75758C),
+                                    unselectedTextColor = Color(0xFF75758C),
+                                    indicatorColor = palette.primary.copy(alpha = 0.25f)
+                                )
                             )
-                        )
-                    }
+                        }
                     }
                 }
             }
@@ -178,9 +187,11 @@ fun MainScreen(
                         recentlyPlayed = recentlyPlayed,
                         favoriteTracks = favoriteTracks,
                         palette = palette,
+                        appSettings = appSettings,
                         onPlayTrack = { track, list -> viewModel.playTrack(track, list) },
                         onTogglePlay = { viewModel.togglePlayPause() },
-                        onOpenLibrary = { currentTab = MainTab.LIBRARY }
+                        onOpenLibrary = { currentTab = MainTab.LIBRARY },
+                        onOpenWrapped = { currentTab = MainTab.WRAPPED }
                     )
                 }
                 MainTab.LIBRARY -> {
@@ -200,6 +211,19 @@ fun MainScreen(
                         }
                     )
                 }
+                MainTab.WRAPPED -> {
+                    WrappedScreen(
+                        appSettings = appSettings,
+                        palette = palette,
+                        periods = wrappedPeriods,
+                        selectedPeriod = selectedWrappedPeriod,
+                        wrappedStats = wrappedStats,
+                        onSelectPeriod = { viewModel.selectWrappedPeriod(it) },
+                        onPlayTrackById = { trackId ->
+                            allTracks.firstOrNull { it.id == trackId }?.let { viewModel.playTrack(it, allTracks) }
+                        }
+                    )
+                }
                 MainTab.PLAYLISTS -> {
                     PlaylistsScreen(
                         playlists = playlists,
@@ -215,13 +239,6 @@ fun MainScreen(
                         }
                     )
                 }
-                MainTab.SEARCH -> {
-                    SearchScreen(
-                        allTracks = allTracks,
-                        palette = palette,
-                        onPlayTrack = { track, list -> viewModel.playTrack(track, list) }
-                    )
-                }
                 MainTab.SETTINGS -> {
                     SettingsScreen(
                         settings = appSettings,
@@ -234,7 +251,9 @@ fun MainScreen(
                             viewModel.scanDeviceLibrary { count ->
                                 Toast.makeText(context, "Rescanned $count tracks", Toast.LENGTH_SHORT).show()
                             }
-                        }
+                        },
+                        onClearPlaybackHistory = { viewModel.clearPlaybackHistory() },
+                        onOpenEqualizer = { viewModel.showEqualizer.value = true }
                     )
                 }
             }
@@ -251,7 +270,7 @@ fun MainScreen(
                     palette = palette,
                     currentLyrics = currentLyrics,
                     appSettings = appSettings,
-                    currentPositionProvider = { viewModel.currentPositionMs.value },
+                    currentPositionProvider = { currentPositionMs },
                     onCollapse = { viewModel.isNowPlayingExpanded.value = false },
                     onTogglePlay = { viewModel.togglePlayPause() },
                     onNext = { viewModel.nextTrack() },
@@ -276,7 +295,7 @@ fun MainScreen(
         LyricsEditorSheet(
             track = playbackState.currentTrack,
             currentLyrics = currentLyrics,
-            currentPositionMs = playbackState.currentPositionMs,
+            currentPositionMs = currentPositionMs,
             palette = palette,
             onSave = { rawLrc, offsetMs ->
                 playbackState.currentTrack?.let {

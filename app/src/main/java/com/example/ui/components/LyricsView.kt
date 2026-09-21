@@ -85,15 +85,13 @@ fun LyricsView(
 ) {
     val listState = rememberLazyListState()
 
-    // Derived active index only changes when line transition happens, saving 95% of recompositions
-    val activeIndex by remember(lyrics) {
-        derivedStateOf {
-            val pos = currentPositionProvider()
-            if (lyrics.isEmpty()) -1
-            else {
-                val idx = lyrics.indexOfLast { it.timestampMs <= pos }
-                if (idx == -1) 0 else idx
-            }
+    val currentPos = currentPositionProvider()
+
+    val activeIndex = remember(lyrics, currentPos) {
+        if (lyrics.isEmpty()) -1
+        else {
+            val idx = lyrics.indexOfLast { it.timestampMs <= currentPos }
+            if (idx == -1) 0 else idx
         }
     }
 

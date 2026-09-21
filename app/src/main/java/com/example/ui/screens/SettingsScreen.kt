@@ -24,8 +24,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
 import com.example.data.model.*
+import com.example.ui.components.FeedbackDialog
+import com.example.util.Localization
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
@@ -35,13 +38,26 @@ fun SettingsScreen(
     onExportBackup: suspend () -> String,
     onImportBackup: suspend (String) -> Boolean,
     onRescanLibrary: () -> Unit,
+    onClearPlaybackHistory: () -> Unit,
+    onOpenEqualizer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var showBackupDialog by remember { mutableStateOf(false) }
+    var showFeedbackDialog by remember { mutableStateOf(false) }
     var backupJsonText by remember { mutableStateOf("") }
     var isExportMode by remember { mutableStateOf(true) }
+
+    val lang = settings.language
+
+    if (showFeedbackDialog) {
+        FeedbackDialog(
+            appSettings = settings,
+            palette = palette,
+            onDismiss = { showFeedbackDialog = false }
+        )
+    }
 
     LazyColumn(
         modifier = modifier
@@ -54,7 +70,7 @@ fun SettingsScreen(
         item {
             Column {
                 Text(
-                    text = "PREFERENCES",
+                    text = Localization.getString("preferences", lang),
                     style = MaterialTheme.typography.labelSmall.copy(
                         letterSpacing = 1.5.sp,
                         color = palette.accent,
@@ -62,12 +78,55 @@ fun SettingsScreen(
                     )
                 )
                 Text(
-                    text = "Settings",
+                    text = Localization.getString("settings", lang),
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                 )
+            }
+        }
+
+        // Section: Language Selection
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF131325)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.Language, contentDescription = null, tint = palette.accent)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = Localization.getString("language_settings", lang),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White)
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        AppLanguage.values().forEach { l ->
+                            val isSelected = settings.language == l
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { onUpdateSettings(settings.copy(language = l)) },
+                                label = { Text(if (lang == AppLanguage.PERSIAN) l.titleFa else l.titleEn, fontSize = 13.sp) },
+                                modifier = Modifier.weight(1f),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = palette.primary.copy(alpha = 0.35f),
+                                    selectedLabelColor = Color.White
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    enabled = true,
+                                    selected = isSelected,
+                                    borderColor = if (isSelected) palette.accent else Color(0xFF2A2840),
+                                    selectedBorderColor = palette.accent
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -82,12 +141,15 @@ fun SettingsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(imageVector = Icons.Default.GraphicEq, contentDescription = null, tint = palette.accent)
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text("Visualizer & Ambient Halo", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
+                        Text(
+                            text = Localization.getString("visualizer_dsp", lang),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White)
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    Text("Presets", style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)))
+                    Text(Localization.getString("visualizer_presets", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)))
                     Spacer(modifier = Modifier.height(6.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(VisualizerPreset.DEFAULT_PRESETS) { p ->
@@ -117,7 +179,7 @@ fun SettingsScreen(
 
                     // Sensitivity Slider
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Audio Sensitivity", style = MaterialTheme.typography.bodySmall.copy(color = Color.White))
+                        Text(Localization.getString("audio_sensitivity", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color.White))
                         Text("${"%.1f".format(settings.visualizerSensitivity)}x", color = palette.accent, style = MaterialTheme.typography.bodySmall)
                     }
                     Slider(
@@ -129,7 +191,7 @@ fun SettingsScreen(
 
                     // Glow Strength Slider
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Halo Glow & Bloom", style = MaterialTheme.typography.bodySmall.copy(color = Color.White))
+                        Text(Localization.getString("halo_glow", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color.White))
                         Text("${(settings.visualizerGlow * 100).toInt()}%", color = palette.accent, style = MaterialTheme.typography.bodySmall)
                     }
                     Slider(
@@ -145,13 +207,13 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Visualizer Engine FPS", style = MaterialTheme.typography.bodySmall.copy(color = Color.White))
+                        Text(Localization.getString("engine_fps", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color.White))
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             listOf(30, 60, 120).forEach { fps ->
                                 FilterChip(
                                     selected = settings.visualizerFps == fps,
                                     onClick = { onUpdateSettings(settings.copy(visualizerFps = fps)) },
-                                    label = { Text("${fps}Hz", fontSize = 11.sp) }
+                                    label = { Text("${fps} FPS", fontSize = 11.sp) }
                                 )
                             }
                         }
@@ -165,11 +227,68 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Auto Color From Artwork", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
+                        Text(Localization.getString("auto_color", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
                         Switch(
                             checked = settings.autoColorFromArtwork,
                             onCheckedChange = { onUpdateSettings(settings.copy(autoColorFromArtwork = it)) }
                         )
+                    }
+                }
+            }
+        }
+
+        // Section: Audio DSP, Crossfade & Equalizer
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF131325)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.Equalizer, contentDescription = null, tint = palette.accent)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(Localization.getString("audio_hardware", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
+                    }
+
+                    // Crossfade duration slider
+                    Column {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(Localization.getString("crossfade_duration", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color.White))
+                            Text("${settings.crossfadeDurationSeconds}s", color = palette.accent, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Slider(
+                            value = settings.crossfadeDurationSeconds.toFloat(),
+                            onValueChange = { onUpdateSettings(settings.copy(crossfadeDurationSeconds = it.toInt())) },
+                            valueRange = 0f..12f,
+                            steps = 11,
+                            colors = SliderDefaults.colors(thumbColor = palette.primary, activeTrackColor = palette.primary)
+                        )
+                    }
+
+                    // Gapless Playback
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(Localization.getString("gapless_playback", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
+                        Switch(
+                            checked = settings.gaplessEnabled,
+                            onCheckedChange = { onUpdateSettings(settings.copy(gaplessEnabled = it)) }
+                        )
+                    }
+
+                    // Open Equalizer Button
+                    Button(
+                        onClick = onOpenEqualizer,
+                        colors = ButtonDefaults.buttonColors(containerColor = palette.primary.copy(alpha = 0.35f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp), tint = palette.accent)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(Localization.getString("equalizer", lang), color = Color.White)
                     }
                 }
             }
@@ -186,12 +305,12 @@ fun SettingsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(imageVector = Icons.Default.Lyrics, contentDescription = null, tint = palette.accent)
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text("Lyrics Display & Karaoke", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
+                        Text(Localization.getString("lyrics_typography", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    Text("Display Mode", style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)))
+                    Text(Localization.getString("display_mode", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)))
                     Spacer(modifier = Modifier.height(6.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(LyricsDisplayMode.values().toList()) { mode ->
@@ -207,7 +326,7 @@ fun SettingsScreen(
 
                     // Font size slider
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Font Size", style = MaterialTheme.typography.bodySmall.copy(color = Color.White))
+                        Text(Localization.getString("font_size", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color.White))
                         Text("${settings.lyricsFontSize.toInt()}sp", color = palette.accent, style = MaterialTheme.typography.bodySmall)
                     }
                     Slider(
@@ -223,7 +342,7 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Karaoke Word-Level Highlight", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
+                        Text(Localization.getString("karaoke_highlight", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
                         Switch(
                             checked = settings.lyricsKaraokeWordHighlight,
                             onCheckedChange = { onUpdateSettings(settings.copy(lyricsKaraokeWordHighlight = it)) }
@@ -244,7 +363,7 @@ fun SettingsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(imageVector = Icons.Default.Palette, contentDescription = null, tint = palette.accent)
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text("Theme & Dark Atmosphere", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
+                        Text(Localization.getString("theme_appearance", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -254,14 +373,14 @@ fun SettingsScreen(
                             FilterChip(
                                 selected = settings.theme == t,
                                 onClick = { onUpdateSettings(settings.copy(theme = t)) },
-                                label = { Text(t.title, fontSize = 12.sp) }
+                                label = { Text(if (lang == AppLanguage.PERSIAN) t.titleFa else t.titleEn, fontSize = 12.sp) }
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    Text("Accent Color Palette", style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)))
+                    Text(Localization.getString("accent_palette", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)))
                     Spacer(modifier = Modifier.height(8.dp))
                     val accentColors = listOf(
                         0xFF8B5CF6 to "Radiant Violet",
@@ -293,7 +412,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section: Playback & Audio Focus
+        // Section: Hardware & Haptic Feedback
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF131325)),
@@ -302,9 +421,9 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Tune, contentDescription = null, tint = palette.accent)
+                        Icon(imageVector = Icons.Default.Vibration, contentDescription = null, tint = palette.accent)
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text("Playback & Hardware", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
+                        Text(Localization.getString("haptic_feedback", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
                     }
 
                     Row(
@@ -312,7 +431,19 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Pause on Headphone Disconnect", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
+                        Text(Localization.getString("haptic_feedback", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
+                        Switch(
+                            checked = settings.hapticFeedbackEnabled,
+                            onCheckedChange = { onUpdateSettings(settings.copy(hapticFeedbackEnabled = it)) }
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(Localization.getString("pause_on_disconnect", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
                         Switch(
                             checked = settings.pauseOnHeadphoneDisconnect,
                             onCheckedChange = { onUpdateSettings(settings.copy(pauseOnHeadphoneDisconnect = it)) }
@@ -324,7 +455,7 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Duck Volume on Call/Notification", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
+                        Text(Localization.getString("duck_volume", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
                         Switch(
                             checked = settings.duckVolumeOnInterruption,
                             onCheckedChange = { onUpdateSettings(settings.copy(duckVolumeOnInterruption = it)) }
@@ -334,7 +465,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section: Backup & Developer HUD
+        // Section: Storage, Cache & History Management
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF131325)),
@@ -343,25 +474,36 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Build, contentDescription = null, tint = palette.accent)
+                        Icon(imageVector = Icons.Default.Storage, contentDescription = null, tint = palette.accent)
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text("System & Developer", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
+                        Text(Localization.getString("storage_cache", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Button(
+                        onClick = onRescanLibrary,
+                        colors = ButtonDefaults.buttonColors(containerColor = palette.primary.copy(alpha = 0.25f)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Developer Mode (DSP Telemetry HUD)", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
-                        Switch(
-                            checked = settings.developerModeEnabled,
-                            onCheckedChange = { onUpdateSettings(settings.copy(developerModeEnabled = it)) },
-                            modifier = Modifier.testTag("developer_mode_switch")
-                        )
+                        Icon(Icons.Default.Refresh, contentDescription = null, tint = palette.secondary)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(Localization.getString("rescan_library", lang), color = Color.White)
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            onClearPlaybackHistory()
+                            Toast.makeText(context, "Playback history cleared", Toast.LENGTH_SHORT).show()
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = Color(0xFFF43F5E))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(Localization.getString("clear_history", lang), color = Color(0xFFF43F5E))
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         Button(
                             onClick = {
                                 coroutineScope.launch {
@@ -371,11 +513,12 @@ fun SettingsScreen(
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
-                            shape = RoundedCornerShape(10.dp)
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f)
                         ) {
                             Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Export Backup")
+                            Text(Localization.getString("export_backup", lang), fontSize = 11.sp)
                         }
 
                         OutlinedButton(
@@ -384,18 +527,48 @@ fun SettingsScreen(
                                 isExportMode = false
                                 showBackupDialog = true
                             },
-                            shape = RoundedCornerShape(10.dp)
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f)
                         ) {
                             Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Import Backup")
+                            Text(Localization.getString("import_backup", lang), fontSize = 11.sp)
                         }
                     }
+                }
+            }
+        }
 
-                    TextButton(onClick = onRescanLibrary) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, tint = palette.secondary)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Trigger MediaStore Rescan", color = palette.secondary)
+        // Section: Dedicated Feedback & Support
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF131325)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.Feedback, contentDescription = null, tint = palette.accent)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(Localization.getString("feedback_section", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
+                    }
+
+                    Text(
+                        text = Localization.getString("send_feedback", lang),
+                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0C0))
+                    )
+
+                    Button(
+                        onClick = { showFeedbackDialog = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("open_feedback_dialog_button")
+                    ) {
+                        Icon(Icons.Default.Mail, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(Localization.getString("feedback_dialog_title", lang), fontWeight = FontWeight.Bold)
                     }
                 }
             }

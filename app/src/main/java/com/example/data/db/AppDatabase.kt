@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import com.example.data.model.LyricsEntity
+import com.example.data.model.PlaybackEvent
 import com.example.data.model.Playlist
 import com.example.data.model.PlaylistTrackCrossRef
 import com.example.data.model.Track
@@ -15,9 +16,10 @@ import com.example.data.model.Track
         Track::class,
         LyricsEntity::class,
         Playlist::class,
-        PlaylistTrackCrossRef::class
+        PlaylistTrackCrossRef::class,
+        PlaybackEvent::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

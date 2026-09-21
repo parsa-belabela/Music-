@@ -1,23 +1,29 @@
 package com.example.data.model
 
-enum class AppTheme(val title: String) {
-    MIDNIGHT("Midnight"),
-    PURE_BLACK("Pure Black"),
-    AMOLED("AMOLED"),
-    GRAPHITE("Graphite"),
-    GLASS("Glass"),
-    NEON("Neon"),
-    CINEMA("Cinema"),
-    MINIMAL("Minimal")
+enum class AppLanguage(val code: String, val titleEn: String, val titleFa: String) {
+    ENGLISH("en", "English", "انگلیسی"),
+    PERSIAN("fa", "Persian (فارسی)", "فارسی")
 }
 
-enum class VisualizerQuality(val title: String, val fps: Int) {
-    PERFORMANCE("Performance (30 FPS)", 30),
-    BALANCED("Balanced (60 FPS)", 60),
-    QUALITY("High Quality (120 FPS)", 120)
+enum class AppTheme(val titleEn: String, val titleFa: String) {
+    MIDNIGHT("Midnight", "نیمه‌شب"),
+    PURE_BLACK("Pure Black", "مشکی خالص"),
+    AMOLED("AMOLED", "امولد"),
+    GRAPHITE("Graphite", "گرافیت"),
+    GLASS("Liquid Glass", "شیشه مایع"),
+    NEON("Neon Cyber", "نئون سایبر"),
+    CINEMA("Cinema Glow", "سینمایی"),
+    MINIMAL("Minimal Dark", "مینیمال تاریک")
+}
+
+enum class VisualizerQuality(val titleEn: String, val titleFa: String, val fps: Int) {
+    PERFORMANCE("Performance (30 FPS)", "اقتصادی (۳۰ فریم)", 30),
+    BALANCED("Balanced (60 FPS)", "متعادل (۶۰ فریم)", 60),
+    QUALITY("High Quality (120 FPS)", "بالاترین کیفیت (۱۲۰ فریم)", 120)
 }
 
 data class AppSettings(
+    val language: AppLanguage = AppLanguage.ENGLISH,
     val theme: AppTheme = AppTheme.MIDNIGHT,
     val customAccentColor: Long = 0xFF8B5CF6, // Purple
     val crossfadeDurationSeconds: Int = 2,
@@ -33,11 +39,11 @@ data class AppSettings(
     val lyricsDisplayMode: LyricsDisplayMode = LyricsDisplayMode.CLASSIC,
     val lyricsKaraokeWordHighlight: Boolean = true,
     val visualizerMode: VisualizerMode = VisualizerMode.AMBIENT_HALO,
-    val visualizerQuality: VisualizerQuality = VisualizerQuality.BALANCED,
+    val visualizerQuality: VisualizerQuality = VisualizerQuality.QUALITY,
     val visualizerSensitivity: Float = 1.0f,
     val visualizerBassResponse: Float = 1.2f,
     val visualizerGlow: Float = 0.85f,
-    val visualizerFps: Int = 60,
+    val visualizerFps: Int = 120,
     val autoColorFromArtwork: Boolean = true,
     val developerModeEnabled: Boolean = false,
     val gesturesEnabled: Boolean = true,

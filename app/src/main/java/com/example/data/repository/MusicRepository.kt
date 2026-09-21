@@ -147,6 +147,43 @@ class MusicRepository(
         musicDao.recordPlay(trackId, System.currentTimeMillis())
     }
 
+    suspend fun recordPlaybackSession(
+        track: Track,
+        durationListenedMs: Long,
+        wasSkipped: Boolean
+    ) = withContext(Dispatchers.IO) {
+        if (durationListenedMs >= 3000L) { // Only log meaningful listens (> 3 seconds)
+            val event = PlaybackEvent(
+                trackId = track.id,
+                trackTitle = track.title,
+                artist = track.artist,
+                album = track.album,
+                genre = track.genre,
+                timestamp = System.currentTimeMillis(),
+                durationListenedMs = durationListenedMs,
+                fullTrackDurationMs = track.durationMs,
+                wasSkipped = wasSkipped
+            )
+            musicDao.insertPlaybackEvent(event)
+        }
+    }
+
+    suspend fun getAvailableWrappedPeriods(): List<WrappedPeriod> = withContext(Dispatchers.IO) {
+        val firstTimestamp = musicDao.getFirstPlaybackTimestamp() ?: System.currentTimeMillis()
+        WrappedEngine.getAvailablePeriods(firstTimestamp)
+    }
+
+    suspend fun getWrappedStats(period: WrappedPeriod): WrappedStats = withContext(Dispatchers.IO) {
+        val events = musicDao.getAllPlaybackEvents()
+        val allTracksList = musicDao.getAllTracks().firstOrNull() ?: emptyList()
+        val firstTimestamp = musicDao.getFirstPlaybackTimestamp() ?: 0L
+        WrappedEngine.computeStats(period, events, allTracksList, firstTimestamp)
+    }
+
+    suspend fun clearPlaybackHistory() = withContext(Dispatchers.IO) {
+        musicDao.clearAllPlaybackEvents()
+    }
+
     suspend fun updateTrackMetadata(track: Track) = withContext(Dispatchers.IO) {
         musicDao.updateTrack(track)
     }

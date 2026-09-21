@@ -384,12 +384,7 @@ fun NowPlayingScreen(
                         AnimatedContent(
                             targetState = track,
                             transitionSpec = {
-                                (fadeIn(animationSpec = tween(400, easing = FastOutSlowInEasing)) +
-                                 scaleIn(initialScale = 0.92f, animationSpec = tween(400, easing = FastOutSlowInEasing)))
-                                    .togetherWith(
-                                        fadeOut(animationSpec = tween(280, easing = FastOutSlowInEasing)) +
-                                        scaleOut(targetScale = 1.04f, animationSpec = tween(280, easing = FastOutSlowInEasing))
-                                    )
+                                fadeIn(animationSpec = tween(90)).togetherWith(fadeOut(animationSpec = tween(90)))
                             },
                             label = "nowPlayingArtworkTransition"
                         ) { currentTrack ->
@@ -507,12 +502,7 @@ fun NowPlayingScreen(
                     AnimatedContent(
                         targetState = track,
                         transitionSpec = {
-                            (fadeIn(animationSpec = tween(350, easing = FastOutSlowInEasing)) +
-                             slideInHorizontally(initialOffsetX = { 30 }, animationSpec = tween(350, easing = FastOutSlowInEasing)))
-                                .togetherWith(
-                                    fadeOut(animationSpec = tween(250, easing = FastOutSlowInEasing)) +
-                                    slideOutHorizontally(targetOffsetX = { -30 }, animationSpec = tween(250, easing = FastOutSlowInEasing))
-                                )
+                            fadeIn(animationSpec = tween(90)).togetherWith(fadeOut(animationSpec = tween(90)))
                         },
                         modifier = Modifier.weight(1f),
                         label = "nowPlayingTitleTransition"
