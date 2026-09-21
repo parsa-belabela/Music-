@@ -5,15 +5,13 @@ enum class AppLanguage(val code: String, val titleEn: String, val titleFa: Strin
     PERSIAN("fa", "Persian (فارسی)", "فارسی")
 }
 
-enum class AppTheme(val titleEn: String, val titleFa: String) {
-    MIDNIGHT("Midnight", "نیمه‌شب"),
-    PURE_BLACK("Pure Black", "مشکی خالص"),
-    AMOLED("AMOLED", "امولد"),
-    GRAPHITE("Graphite", "گرافیت"),
-    GLASS("Liquid Glass", "شیشه مایع"),
-    NEON("Neon Cyber", "نئون سایبر"),
-    CINEMA("Cinema Glow", "سینمایی"),
-    MINIMAL("Minimal Dark", "مینیمال تاریک")
+enum class AppTheme(val id: String, val titleEn: String, val titleFa: String, val descEn: String, val descFa: String) {
+    GLASS("glass", "Liquid Glass", "شیشه مایع", "Default crystal glassmorphism & fluid glow", "پیش‌فرض شیشه‌ای بلورین و نور سیال"),
+    LEGO("lego", "Brick Studio (Lego)", "بلوک‌های لگو ۳بعدی", "3D plastic studs, tactile bevels & toy sheen", "استادهای برجسته ۳بعدی و حس پلاستیک لگو"),
+    CARTOON("cartoon", "Anime Pop (Cartoon)", "کارتونی و انیمه", "Cel-shaded comic ink outlines & pop vibrancy", "خطوط پررنگ اینک، استایل کمیک و انیمه"),
+    CYBER_CHROME("chrome", "Y2K Cyber Chrome", "کروم متالیک Y2K", "Liquid mercury, silver sheen & prism reflection", "فلز مایع، جیوه براق و بازتاب هولوگرافیک"),
+    VAPORWAVE("vaporwave", "Synthwave Sunset", "غروب سینت‌ویو ۸۰s", "80s neon magenta, cyan dusk & retro grid", "نئون صورتی و سایان، گرادیان غروب دهه ۸۰"),
+    OBSIDIAN_MATRIX("matrix", "Obsidian Matrix", "ماتریکس دارک", "Cyber carbon weave & emerald laser HUD", "بافت کربن، لیزر سبز زمردی و هدآپ سایبری")
 }
 
 enum class VisualizerQuality(val titleEn: String, val titleFa: String, val fps: Int) {
@@ -24,7 +22,7 @@ enum class VisualizerQuality(val titleEn: String, val titleFa: String, val fps: 
 
 data class AppSettings(
     val language: AppLanguage = AppLanguage.ENGLISH,
-    val theme: AppTheme = AppTheme.MIDNIGHT,
+    val theme: AppTheme = AppTheme.GLASS,
     val customAccentColor: Long = 0xFF8B5CF6, // Purple
     val crossfadeDurationSeconds: Int = 2,
     val gaplessEnabled: Boolean = true,

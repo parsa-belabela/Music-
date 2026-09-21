@@ -190,41 +190,46 @@ fun LyricsView(
                 val isActive = index == activeIndex
                 val isPast = index < activeIndex
 
-                val scale by animateFloatAsState(
-                    targetValue = if (isActive) 1.08f else 0.95f,
-                    animationSpec = tween(300, easing = FastOutSlowInEasing),
-                    label = "lyricsScale"
-                )
-
-                val alpha by animateFloatAsState(
-                    targetValue = when {
-                        isActive -> 1.0f
-                        isPast -> 0.32f
-                        else -> 0.48f
-                    },
-                    animationSpec = tween(300, easing = FastOutSlowInEasing),
-                    label = "lyricsAlpha"
-                )
-
-                val textColor by animateColorAsState(
-                    targetValue = if (isActive) palette.accent else Color.White,
-                    animationSpec = tween(300, easing = FastOutSlowInEasing),
-                    label = "lyricsTextColor"
-                )
-
                 val alignment = when (displayMode) {
                     LyricsDisplayMode.CENTER, LyricsDisplayMode.CINEMATIC, LyricsDisplayMode.FLOATING -> TextAlign.Center
                     else -> TextAlign.Start
                 }
 
+                val textColor by animateColorAsState(
+                    targetValue = if (isActive) Color.White else Color(0xFF9E9EB2),
+                    animationSpec = tween(250, easing = FastOutSlowInEasing),
+                    label = "lyricsTextColor"
+                )
+
+                val alpha by animateFloatAsState(
+                    targetValue = when {
+                        isActive -> 1.0f
+                        isPast -> 0.38f
+                        else -> 0.52f
+                    },
+                    animationSpec = tween(250, easing = FastOutSlowInEasing),
+                    label = "lyricsAlpha"
+                )
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .scale(scale)
                         .alpha(alpha)
-                        .clip(RoundedCornerShape(12.dp))
+                        .then(
+                            if (isActive) {
+                                Modifier.liquidGlass(
+                                    shape = RoundedCornerShape(18.dp),
+                                    thickness = GlassThickness.THIN,
+                                    tintColor = palette.accent,
+                                    tintAlpha = 0.25f,
+                                    borderWidth = 1.2.dp
+                                )
+                            } else {
+                                Modifier.clip(RoundedCornerShape(12.dp))
+                            }
+                        )
                         .clickable { onSeekTo(line.timestampMs) }
-                        .padding(vertical = 6.dp, horizontal = 8.dp),
+                        .padding(horizontal = 16.dp, vertical = if (isActive) 14.dp else 8.dp),
                     contentAlignment = when (displayMode) {
                         LyricsDisplayMode.CENTER, LyricsDisplayMode.CINEMATIC, LyricsDisplayMode.FLOATING -> Alignment.Center
                         else -> Alignment.CenterStart
@@ -244,28 +249,29 @@ fun LyricsView(
                                 val isWordActive = curPos in w.startMs..w.endMs
                                 val isWordPassed = curPos > w.endMs
                                 val wordColor = when {
-                                    isWordActive -> palette.secondary
-                                    isWordPassed -> palette.primary
-                                    else -> Color.White.copy(alpha = 0.5f)
+                                    isWordActive -> palette.accent
+                                    isWordPassed -> Color.White
+                                    else -> Color.White.copy(alpha = 0.6f)
                                 }
 
                                 Text(
                                     text = "${w.word} ",
-                                    fontSize = (baseFontSize * (if (isActive) 1.12f else 1.0f)).sp,
-                                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
-                                    color = wordColor
+                                    fontSize = (baseFontSize + 2f).sp,
+                                    fontWeight = if (isWordActive) FontWeight.Bold else FontWeight.SemiBold,
+                                    color = wordColor,
+                                    lineHeight = ((baseFontSize + 2f) * 1.45f).sp
                                 )
                             }
                         }
                     } else {
                         Text(
                             text = line.text,
-                            fontSize = (baseFontSize * (if (isActive) 1.14f else 1.0f)).sp,
-                            fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Medium,
-                            color = textColor,
+                            fontSize = if (isActive) (baseFontSize + 2f).sp else baseFontSize.sp,
+                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isActive) Color.White else textColor,
                             textAlign = alignment,
-                            lineHeight = (baseFontSize * 1.42f).sp,
-                            letterSpacing = if (isActive) (-0.2).sp else 0.sp
+                            lineHeight = ((if (isActive) baseFontSize + 2f else baseFontSize) * 1.45f).sp,
+                            letterSpacing = 0.2.sp
                         )
                     }
                 }

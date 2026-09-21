@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,16 +15,25 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.rememberAsyncImagePainter
+import coil.request.ImageRequest
 import com.example.audio.AmbientPalette
 import com.example.data.model.AppSettings
 import com.example.data.model.PlaybackState
@@ -48,6 +59,18 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     val lang = appSettings.language
+    val context = LocalContext.current
+
+    val infiniteTransition = rememberInfiniteTransition(label = "heroLightBeam")
+    val rotationAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 3500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "lightBeamAngle"
+    )
 
     LazyColumn(
         modifier = modifier
@@ -99,194 +122,190 @@ fun HomeScreen(
             }
         }
 
-        // Hero Quick Play Card in Liquid Glass
+        // Hero CURRENTLY PLAYING Card with Blurred Album Artwork & Rotating Glowing Light Ring
         item {
             val heroTrack = playbackState.currentTrack ?: allTracks.firstOrNull()
+            val cardShape = RoundedCornerShape(24.dp)
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(175.dp)
-                    .liquidGlass(
-                        shape = RoundedCornerShape(24.dp),
-                        thickness = GlassThickness.REGULAR,
-                        tintColor = palette.primary,
-                        tintAlpha = 0.18f,
-                        borderWidth = 1.2.dp
-                    )
+                    .height(180.dp)
+                    .clip(cardShape)
                     .clickable {
                         heroTrack?.let { onPlayTrack(it, allTracks) }
                     }
                     .testTag("hero_quick_play_card")
             ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    Column(
+                // 1. Blurred Album Artwork Background inside the card
+                if (heroTrack?.artworkUri != null) {
+                    Image(
+                        painter = rememberAsyncImagePainter(
+                            ImageRequest.Builder(context)
+                                .data(heroTrack.artworkUri)
+                                .crossfade(true)
+                                .build()
+                        ),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(20.dp),
-                        verticalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(10.dp)
-                                        .clip(CircleShape)
-                                        .background(palette.secondary)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = if (playbackState.status == PlayerStatus.PLAYING) "CURRENTLY PLAYING" else "QUICK PLAY",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        color = palette.secondary,
-                                        fontWeight = FontWeight.Bold,
-                                        letterSpacing = 1.sp
-                                    )
-                                )
-                            }
-
-                            Text(
-                                text = heroTrack?.genre ?: "Electronic",
-                                style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFFA0A0C0))
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            if (heroTrack != null) {
-                                TrackArtworkThumbnail(
-                                    artworkUri = heroTrack.artworkUri,
-                                    accentColor = palette.secondary,
-                                    size = 54.dp,
-                                    shape = RoundedCornerShape(14.dp),
-                                    iconSize = 26.dp
-                                )
-                                Spacer(modifier = Modifier.width(14.dp))
-                            }
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = heroTrack?.title ?: "Select a Track",
-                                    style = MaterialTheme.typography.titleLarge.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = heroTrack?.artist ?: "Local-First Hi-Fi Audio",
-                                    style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFFA0A0B8)),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            // Big circular Play Button
-                            Box(
-                                modifier = Modifier
-                                    .size(54.dp)
-                                    .clip(CircleShape)
-                                    .background(palette.primary)
-                                    .clickable {
-                                        if (playbackState.currentTrack != null) onTogglePlay()
-                                        else heroTrack?.let { onPlayTrack(it, allTracks) }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                val isPlaying = playbackState.status == PlayerStatus.PLAYING
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = "Play",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(30.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Atmosphere Mood Presets
-        item {
-            Text(
-                text = "Atmospheric Soundscapes",
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                val moods = listOf(
-                    Triple("Cyber Resonance", "Heavy Bass & Reactive Kick", Color(0xFFA855F7)),
-                    Triple("Late Night Drift", "Atmospheric Synthwave", Color(0xFF06B6D4)),
-                    Triple("Aurora Ambient", "Liquid Northern Lights", Color(0xFF10B981)),
-                    Triple("Deep Sleep Halo", "Soft Slow Harmonic Sine", Color(0xFFF59E0B))
-                )
-                items(moods) { (title, subtitle, moodColor) ->
+                            .blur(32.dp)
+                    )
+                } else {
                     Box(
                         modifier = Modifier
-                            .width(172.dp)
-                            .height(118.dp)
-                            .liquidGlass(
-                                shape = RoundedCornerShape(18.dp),
-                                thickness = GlassThickness.THIN,
-                                tintColor = moodColor,
-                                tintAlpha = 0.15f
+                            .fillMaxSize()
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(palette.primary.copy(alpha = 0.35f), Color(0xFF0D0F1B))
+                                )
                             )
-                            .clickable {
-                                val target = allTracks.find { it.title.contains(title.take(5), ignoreCase = true) } ?: allTracks.firstOrNull()
-                                target?.let { onPlayTrack(it, allTracks) }
+                    )
+                }
+
+                // Dark Translucent Scrim for optimal text contrast
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color(0x800A0C16),
+                                    Color(0xCC080A12)
+                                )
+                            )
+                        )
+                )
+
+                // 2. Continuous Rotating Glowing Colored Light Beam attached around the perimeter
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .drawWithContent {
+                            drawContent()
+                            rotate(rotationAngle) {
+                                drawCircle(
+                                    brush = Brush.sweepGradient(
+                                        colors = listOf(
+                                            palette.accent,
+                                            palette.secondary,
+                                            palette.primary,
+                                            Color.Transparent,
+                                            Color.Transparent,
+                                            Color.Transparent,
+                                            palette.accent
+                                        )
+                                    ),
+                                    radius = size.maxDimension * 0.85f,
+                                    blendMode = BlendMode.Screen
+                                )
                             }
+                        }
+                        .border(
+                            width = 1.2.dp,
+                            brush = Brush.linearGradient(
+                                listOf(
+                                    palette.accent.copy(alpha = 0.65f),
+                                    palette.secondary.copy(alpha = 0.35f),
+                                    Color.White.copy(alpha = 0.20f)
+                                )
+                            ),
+                            shape = cardShape
+                        )
+                )
+
+                // 3. Card Content
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(14.dp),
-                            verticalArrangement = Arrangement.SpaceBetween
-                        ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(moodColor.copy(alpha = 0.2f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Headphones,
-                                    contentDescription = null,
-                                    tint = moodColor,
-                                    modifier = Modifier.size(18.dp)
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(palette.secondary)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (playbackState.status == PlayerStatus.PLAYING) "CURRENTLY PLAYING" else "QUICK PLAY",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = palette.secondary,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.2.sp
                                 )
-                            }
+                            )
+                        }
 
-                            Column {
-                                Text(
-                                    text = title,
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = subtitle,
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B0), fontSize = 11.sp),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                        Text(
+                            text = heroTrack?.genre ?: "Audio",
+                            style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFFA0A0C0))
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        if (heroTrack != null) {
+                            TrackArtworkThumbnail(
+                                artworkUri = heroTrack.artworkUri,
+                                accentColor = palette.secondary,
+                                size = 56.dp,
+                                shape = RoundedCornerShape(14.dp),
+                                iconSize = 28.dp
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = heroTrack?.title ?: "Select a Track",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = heroTrack?.artist ?: "Local-First Hi-Fi Audio",
+                                style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFFA0A0B8)),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        // Big circular Play Button
+                        Box(
+                            modifier = Modifier
+                                .size(54.dp)
+                                .clip(CircleShape)
+                                .background(palette.primary)
+                                .clickable {
+                                    if (playbackState.currentTrack != null) onTogglePlay()
+                                    else heroTrack?.let { onPlayTrack(it, allTracks) }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val isPlaying = playbackState.status == PlayerStatus.PLAYING
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = "Play",
+                                tint = Color.White,
+                                modifier = Modifier.size(30.dp)
+                            )
                         }
                     }
                 }

@@ -68,13 +68,12 @@ fun ModernAuroraMotionBackground(
 
     // Base background tone according to the selected AppTheme
     val baseBackgroundColor = when (appTheme) {
-        AppTheme.MIDNIGHT -> Color(0xFF060712)
-        AppTheme.PURE_BLACK, AppTheme.AMOLED -> Color(0xFF000000)
-        AppTheme.GRAPHITE -> Color(0xFF0E1015)
-        AppTheme.GLASS -> Color(0xFF040914)
-        AppTheme.NEON -> Color(0xFF070210)
-        AppTheme.CINEMA -> Color(0xFF0B0705)
-        AppTheme.MINIMAL -> Color(0xFF09090C)
+        AppTheme.GLASS -> Color(0xFF050814)
+        AppTheme.LEGO -> Color(0xFF141416)
+        AppTheme.CARTOON -> Color(0xFF120E1C)
+        AppTheme.CYBER_CHROME -> Color(0xFF090A10)
+        AppTheme.VAPORWAVE -> Color(0xFF100720)
+        AppTheme.OBSIDIAN_MATRIX -> Color(0xFF040608)
     }
 
     Box(

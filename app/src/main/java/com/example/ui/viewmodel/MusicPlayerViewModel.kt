@@ -534,8 +534,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         val prefs = app.getSharedPreferences("aura_settings", Context.MODE_PRIVATE)
         val langStr = prefs.getString("language", AppLanguage.ENGLISH.name) ?: AppLanguage.ENGLISH.name
         val lang = try { AppLanguage.valueOf(langStr) } catch (e: Exception) { AppLanguage.ENGLISH }
-        val themeStr = prefs.getString("theme", AppTheme.MIDNIGHT.name) ?: AppTheme.MIDNIGHT.name
-        val theme = try { AppTheme.valueOf(themeStr) } catch (e: Exception) { AppTheme.MIDNIGHT }
+        val themeStr = prefs.getString("theme", AppTheme.GLASS.name) ?: AppTheme.GLASS.name
+        val theme = try { AppTheme.valueOf(themeStr) } catch (e: Exception) { AppTheme.GLASS }
         val modeStr = prefs.getString("viz_mode", VisualizerMode.AMBIENT_HALO.name) ?: VisualizerMode.AMBIENT_HALO.name
         val vizMode = try { VisualizerMode.valueOf(modeStr) } catch (e: Exception) { VisualizerMode.AMBIENT_HALO }
 
@@ -639,6 +639,12 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun createPlaylist(name: String, description: String = "") {
         viewModelScope.launch {
             repository.createPlaylist(name, description)
+        }
+    }
+
+    fun createPlaylistWithTracks(name: String, trackIds: List<String>, description: String = "") {
+        viewModelScope.launch {
+            repository.createPlaylistWithTracks(name, trackIds, description)
         }
     }
 

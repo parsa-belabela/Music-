@@ -180,6 +180,14 @@ class MusicRepository(
         musicDao.insertPlaylist(Playlist(id = newId, name = name, description = description))
     }
 
+    suspend fun createPlaylistWithTracks(name: String, trackIds: List<String>, description: String = "") = withContext(Dispatchers.IO) {
+        val newId = "pl_${System.currentTimeMillis()}"
+        musicDao.insertPlaylist(Playlist(id = newId, name = name, description = description))
+        trackIds.forEachIndexed { index, trackId ->
+            musicDao.insertPlaylistTrack(PlaylistTrackCrossRef(newId, trackId, index))
+        }
+    }
+
     suspend fun deletePlaylist(playlistId: String) = withContext(Dispatchers.IO) {
         musicDao.deletePlaylist(playlistId)
     }

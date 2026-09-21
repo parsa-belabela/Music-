@@ -53,6 +53,7 @@ fun SearchScreen(
     onAddToQueue: (Track) -> Unit,
     onToggleFavorite: (Track) -> Unit,
     onCreatePlaylist: (String) -> Unit = {},
+    onCreatePlaylistWithTracks: (String, List<String>) -> Unit = { name, _ -> onCreatePlaylist(name) },
     onDeletePlaylist: (String) -> Unit = {},
     onPlayTrackList: (List<Track>) -> Unit = {},
     modifier: Modifier = Modifier
@@ -60,7 +61,11 @@ fun SearchScreen(
     var searchQuery by remember { mutableStateOf("") }
     var selectedPlaylistFilter by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    var showSongSelectionDialog by remember { mutableStateOf(false) }
+    var pendingPlaylistName by remember { mutableStateOf("") }
     var newPlaylistNameInput by remember { mutableStateOf("") }
+    var selectedTrackIdsForNewPlaylist by remember { mutableStateOf(setOf<String>()) }
+    var songSelectionSearchQuery by remember { mutableStateOf("") }
 
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
@@ -516,62 +521,453 @@ fun SearchScreen(
         }
     }
 
-    // Modal Dialog to Create Playlist
+    // Step 1: Liquid Glass Modal Dialog to Enter Playlist Name
     if (showCreatePlaylistDialog) {
-        AlertDialog(
+        androidx.compose.ui.window.Dialog(
             onDismissRequest = {
                 showCreatePlaylistDialog = false
                 newPlaylistNameInput = ""
             },
-            title = {
-                Text(
-                    text = Localization.getString("create_playlist", lang),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = Localization.getString("new_playlist_hint", lang),
-                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8))
-                    )
-                    OutlinedTextField(
-                        value = newPlaylistNameInput,
-                        onValueChange = { newPlaylistNameInput = it },
-                        singleLine = true,
-                        placeholder = { Text(if (lang == AppLanguage.PERSIAN) "مثال: ریمیکس‌های شبانه" else "e.g. Midnight Waves") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (newPlaylistNameInput.isNotBlank()) {
-                            onCreatePlaylist(newPlaylistNameInput.trim())
+            properties = androidx.compose.ui.window.DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = true
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xCC06060C))
+                    .clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null,
+                        onClick = {
                             showCreatePlaylistDialog = false
                             newPlaylistNameInput = ""
                         }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = palette.accent)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null,
+                            onClick = { /* consume */ }
+                        )
+                        .liquidGlass(
+                            shape = RoundedCornerShape(24.dp),
+                            thickness = GlassThickness.THICK,
+                            tintColor = palette.primary,
+                            tintAlpha = 0.28f,
+                            borderWidth = 1.4.dp
+                        )
+                        .padding(22.dp)
                 ) {
-                    Text(
-                        text = Localization.getString("save", lang),
-                        color = Color.Black,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showCreatePlaylistDialog = false
-                        newPlaylistNameInput = ""
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(palette.accent.copy(alpha = 0.25f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.QueueMusic,
+                                        contentDescription = null,
+                                        tint = palette.accent,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = Localization.getString("create_playlist", lang),
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    showCreatePlaylistDialog = false
+                                    newPlaylistNameInput = ""
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFFA0A0B8), modifier = Modifier.size(18.dp))
+                            }
+                        }
+
+                        Text(
+                            text = Localization.getString("new_playlist_hint", lang),
+                            style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8))
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .liquidGlass(
+                                    shape = RoundedCornerShape(14.dp),
+                                    thickness = GlassThickness.THIN,
+                                    tintColor = Color(0xFF1E1E34),
+                                    tintAlpha = 0.3f,
+                                    borderWidth = 1.dp
+                                )
+                                .padding(horizontal = 14.dp, vertical = 2.dp)
+                        ) {
+                            TextField(
+                                value = newPlaylistNameInput,
+                                onValueChange = { newPlaylistNameInput = it },
+                                singleLine = true,
+                                placeholder = {
+                                    Text(
+                                        if (lang == AppLanguage.PERSIAN) "نام پلی‌لیست (مثال: ریمیکس‌های شبانه)" else "Playlist name (e.g. Midnight Waves)",
+                                        color = Color(0xFF7A7A90),
+                                        fontSize = 14.sp
+                                    )
+                                },
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    showCreatePlaylistDialog = false
+                                    newPlaylistNameInput = ""
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = Localization.getString("cancel", lang),
+                                    color = Color(0xFFA0A0B8)
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (newPlaylistNameInput.isNotBlank()) {
+                                        pendingPlaylistName = newPlaylistNameInput.trim()
+                                        selectedTrackIdsForNewPlaylist = emptySet()
+                                        songSelectionSearchQuery = ""
+                                        showCreatePlaylistDialog = false
+                                        newPlaylistNameInput = ""
+                                        showSongSelectionDialog = true
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = palette.accent),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1.3f)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(Icons.Default.LibraryMusic, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                                    Text(
+                                        text = if (lang == AppLanguage.PERSIAN) "انتخاب آهنگ‌ها" else "Choose Songs",
+                                        color = Color.Black,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                            }
+                        }
                     }
-                ) {
-                    Text(text = Localization.getString("cancel", lang))
                 }
             }
-        )
+        }
+    }
+
+    // Step 2: Liquid Glass Modal Dialog to Select Songs for the Playlist
+    if (showSongSelectionDialog) {
+        val candidateTracks = remember(tracks, songSelectionSearchQuery) {
+            if (songSelectionSearchQuery.isBlank()) tracks
+            else tracks.filter {
+                it.title.contains(songSelectionSearchQuery, ignoreCase = true) ||
+                        it.artist.contains(songSelectionSearchQuery, ignoreCase = true) ||
+                        it.album.contains(songSelectionSearchQuery, ignoreCase = true)
+            }
+        }
+
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = {
+                showSongSelectionDialog = false
+                selectedTrackIdsForNewPlaylist = emptySet()
+            },
+            properties = androidx.compose.ui.window.DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = false
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xDD06060C)),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.94f)
+                        .fillMaxHeight(0.85f)
+                        .liquidGlass(
+                            shape = RoundedCornerShape(26.dp),
+                            thickness = GlassThickness.THICK,
+                            tintColor = palette.primary,
+                            tintAlpha = 0.28f,
+                            borderWidth = 1.4.dp
+                        )
+                        .padding(20.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Header
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (lang == AppLanguage.PERSIAN) "افزودن آهنگ به پلی‌لیست" else "Select Songs for Playlist",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                )
+                                Text(
+                                    text = pendingPlaylistName,
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        color = palette.accent,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                )
+                            }
+
+                            // Selected Counter Badge
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = palette.primary.copy(alpha = 0.35f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, palette.accent.copy(alpha = 0.6f))
+                            ) {
+                                Text(
+                                    text = if (lang == AppLanguage.PERSIAN) "${selectedTrackIdsForNewPlaylist.size} انتخاب شده" else "${selectedTrackIdsForNewPlaylist.size} selected",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        // Search Field for song filtering
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .liquidGlass(
+                                    shape = RoundedCornerShape(14.dp),
+                                    thickness = GlassThickness.THIN,
+                                    tintColor = Color(0xFF1B1B2F),
+                                    tintAlpha = 0.25f,
+                                    borderWidth = 1.dp
+                                )
+                                .padding(horizontal = 12.dp, vertical = 2.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Search, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                TextField(
+                                    value = songSelectionSearchQuery,
+                                    onValueChange = { songSelectionSearchQuery = it },
+                                    singleLine = true,
+                                    placeholder = {
+                                        Text(
+                                            if (lang == AppLanguage.PERSIAN) "جستجوی آهنگ..." else "Search tracks...",
+                                            color = Color(0xFF7A7A90),
+                                            fontSize = 13.sp
+                                        )
+                                    },
+                                    colors = TextFieldDefaults.colors(
+                                        focusedContainerColor = Color.Transparent,
+                                        unfocusedContainerColor = Color.Transparent,
+                                        focusedIndicatorColor = Color.Transparent,
+                                        unfocusedIndicatorColor = Color.Transparent,
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+
+                        // Track List with Checkboxes
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (candidateTracks.isEmpty()) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(32.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = if (lang == AppLanguage.PERSIAN) "آهنگی یافت نشد" else "No tracks found",
+                                            color = Color(0xFFA0A0B8),
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+                                }
+                            } else {
+                                items(candidateTracks, key = { it.id }) { track ->
+                                    val isSelected = track.id in selectedTrackIdsForNewPlaylist
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .liquidGlass(
+                                                shape = RoundedCornerShape(14.dp),
+                                                thickness = GlassThickness.THIN,
+                                                tintColor = if (isSelected) palette.accent else Color(0xFF161628),
+                                                tintAlpha = if (isSelected) 0.22f else 0.12f,
+                                                borderWidth = if (isSelected) 1.2.dp else 0.8.dp
+                                            )
+                                            .clickable {
+                                                selectedTrackIdsForNewPlaylist = if (isSelected) {
+                                                    selectedTrackIdsForNewPlaylist - track.id
+                                                } else {
+                                                    selectedTrackIdsForNewPlaylist + track.id
+                                                }
+                                            }
+                                            .padding(10.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            TrackArtworkThumbnail(
+                                                artworkUri = track.artworkUri,
+                                                accentColor = palette.secondary,
+                                                size = 42.dp,
+                                                shape = RoundedCornerShape(10.dp),
+                                                iconSize = 20.dp
+                                            )
+
+                                            Spacer(modifier = Modifier.width(12.dp))
+
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = track.title,
+                                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = Color.White
+                                                    ),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = track.artist,
+                                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+
+                                            Checkbox(
+                                                checked = isSelected,
+                                                onCheckedChange = { checked ->
+                                                    selectedTrackIdsForNewPlaylist = if (checked) {
+                                                        selectedTrackIdsForNewPlaylist + track.id
+                                                    } else {
+                                                        selectedTrackIdsForNewPlaylist - track.id
+                                                    }
+                                                },
+                                                colors = CheckboxDefaults.colors(
+                                                    checkedColor = palette.accent,
+                                                    checkmarkColor = Color.Black,
+                                                    uncheckedColor = Color(0xFF55556E)
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Action Buttons: Save Playlist & Cancel
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    showSongSelectionDialog = false
+                                    selectedTrackIdsForNewPlaylist = emptySet()
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = Localization.getString("cancel", lang),
+                                    color = Color(0xFFA0A0B8)
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    onCreatePlaylistWithTracks(
+                                        pendingPlaylistName,
+                                        selectedTrackIdsForNewPlaylist.toList()
+                                    )
+                                    showSongSelectionDialog = false
+                                    selectedTrackIdsForNewPlaylist = emptySet()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = palette.accent),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1.5f)
+                            ) {
+                                Text(
+                                    text = if (lang == AppLanguage.PERSIAN) "ذخیره پلی‌لیست (${selectedTrackIdsForNewPlaylist.size})" else "Save (${selectedTrackIdsForNewPlaylist.size} tracks)",
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

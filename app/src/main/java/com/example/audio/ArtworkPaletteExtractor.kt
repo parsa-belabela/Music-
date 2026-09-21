@@ -52,34 +52,6 @@ object ArtworkPaletteExtractor {
 
         // Theme-driven dynamic chromatic palette
         return when (theme) {
-            AppTheme.MIDNIGHT -> AmbientPalette(
-                primary = Color(0xFF8B5CF6),
-                secondary = Color(0xFF38BDF8),
-                haloGlow = Color(0x668B5CF6),
-                accent = Color(0xFFA78BFA),
-                deepAtmosphere = Color(0xFF070814)
-            )
-            AppTheme.PURE_BLACK -> AmbientPalette(
-                primary = Color(0xFF6366F1),
-                secondary = Color(0xFF818CF8),
-                haloGlow = Color(0x556366F1),
-                accent = Color(0xFFA5B4FC),
-                deepAtmosphere = Color(0xFF000000)
-            )
-            AppTheme.AMOLED -> AmbientPalette(
-                primary = Color(0xFF38BDF8),
-                secondary = Color(0xFF818CF8),
-                haloGlow = Color(0x5538BDF8),
-                accent = Color(0xFF7DD3FC),
-                deepAtmosphere = Color(0xFF000000)
-            )
-            AppTheme.GRAPHITE -> AmbientPalette(
-                primary = Color(0xFF38BDF8),
-                secondary = Color(0xFF94A3B8),
-                haloGlow = Color(0x5538BDF8),
-                accent = Color(0xFF7DD3FC),
-                deepAtmosphere = Color(0xFF101216)
-            )
             AppTheme.GLASS -> AmbientPalette(
                 primary = Color(0xFF06B6D4),
                 secondary = Color(0xFF3B82F6),
@@ -87,26 +59,40 @@ object ArtworkPaletteExtractor {
                 accent = Color(0xFF67E8F9),
                 deepAtmosphere = Color(0xFF050B16)
             )
-            AppTheme.NEON -> AmbientPalette(
-                primary = Color(0xFFF43F5E),
-                secondary = Color(0xFF06B6D4),
-                haloGlow = Color(0x77F43F5E),
-                accent = Color(0xFFFB7185),
-                deepAtmosphere = Color(0xFF080312)
+            AppTheme.LEGO -> AmbientPalette(
+                primary = Color(0xFFFF2D20),
+                secondary = Color(0xFFFFD600),
+                haloGlow = Color(0x66FF2D20),
+                accent = Color(0xFF00E5FF),
+                deepAtmosphere = Color(0xFF180A0A)
             )
-            AppTheme.CINEMA -> AmbientPalette(
-                primary = Color(0xFFF59E0B),
-                secondary = Color(0xFFEA580C),
-                haloGlow = Color(0x66F59E0B),
-                accent = Color(0xFFFBBF24),
-                deepAtmosphere = Color(0xFF0D0907)
+            AppTheme.CARTOON -> AmbientPalette(
+                primary = Color(0xFFFF4081),
+                secondary = Color(0xFF00E5FF),
+                haloGlow = Color(0x66FF4081),
+                accent = Color(0xFFFFD600),
+                deepAtmosphere = Color(0xFF140718)
             )
-            AppTheme.MINIMAL -> AmbientPalette(
-                primary = Color(0xFFE2E8F0),
-                secondary = Color(0xFF94A3B8),
-                haloGlow = Color(0x44E2E8F0),
-                accent = Color(0xFFF8FAFC),
-                deepAtmosphere = Color(0xFF0B0B0E)
+            AppTheme.CYBER_CHROME -> AmbientPalette(
+                primary = Color(0xFF00F0FF),
+                secondary = Color(0xFFFF0055),
+                haloGlow = Color(0x7700F0FF),
+                accent = Color(0xFF7000FF),
+                deepAtmosphere = Color(0xFF060913)
+            )
+            AppTheme.VAPORWAVE -> AmbientPalette(
+                primary = Color(0xFFFF71CE),
+                secondary = Color(0xFF01CDFE),
+                haloGlow = Color(0x66FF71CE),
+                accent = Color(0xFF05FFA1),
+                deepAtmosphere = Color(0xFF130826)
+            )
+            AppTheme.OBSIDIAN_MATRIX -> AmbientPalette(
+                primary = Color(0xFF00FF66),
+                secondary = Color(0xFF00CC44),
+                haloGlow = Color(0x6600FF66),
+                accent = Color(0xFF39FF14),
+                deepAtmosphere = Color(0xFF020904)
             )
         }
     }

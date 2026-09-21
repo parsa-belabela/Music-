@@ -233,6 +233,7 @@ fun MainScreen(
                             onAddToQueue = { viewModel.addToQueue(it) },
                             onToggleFavorite = { viewModel.toggleFavorite(it) },
                             onCreatePlaylist = { name -> viewModel.createPlaylist(name) },
+                            onCreatePlaylistWithTracks = { name, trackList -> viewModel.createPlaylistWithTracks(name, trackList) },
                             onDeletePlaylist = { id -> viewModel.deletePlaylist(id) },
                             onPlayTrackList = { list -> list.firstOrNull()?.let { viewModel.playTrack(it, list) } },
                             modifier = Modifier.statusBarsPadding()

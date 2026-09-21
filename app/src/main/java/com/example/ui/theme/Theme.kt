@@ -17,20 +17,21 @@ fun createAuraColorScheme(appTheme: AppTheme, accentColor: Color = RadiantPurple
     secondaryContainer = ElectricBlue.copy(alpha = 0.2f),
     tertiary = NeonRose,
     background = when (appTheme) {
-        AppTheme.MIDNIGHT -> MidnightBackground
-        AppTheme.PURE_BLACK, AppTheme.AMOLED -> PureBlackBackground
-        AppTheme.GRAPHITE -> GraphiteBackground
         AppTheme.GLASS -> GlassBackground
-        AppTheme.NEON -> NeonBackground
-        AppTheme.CINEMA -> CinemaBackground
-        AppTheme.MINIMAL -> MinimalBackground
+        AppTheme.LEGO -> Color(0xFF140707)
+        AppTheme.CARTOON -> Color(0xFF13091B)
+        AppTheme.CYBER_CHROME -> Color(0xFF040711)
+        AppTheme.VAPORWAVE -> Color(0xFF110820)
+        AppTheme.OBSIDIAN_MATRIX -> Color(0xFF020703)
     },
     onBackground = TextPrimary,
     surface = when (appTheme) {
-        AppTheme.PURE_BLACK, AppTheme.AMOLED -> Color(0xFF080808)
-        AppTheme.GRAPHITE -> Color(0xFF181A1F)
+        AppTheme.OBSIDIAN_MATRIX -> Color(0xFF030E06)
+        AppTheme.LEGO -> Color(0xFF1C0D0D)
+        AppTheme.CARTOON -> Color(0xFF1B0F24)
+        AppTheme.CYBER_CHROME -> Color(0xFF080D1A)
+        AppTheme.VAPORWAVE -> Color(0xFF190C2C)
         AppTheme.GLASS -> Color(0xFF0E1320)
-        else -> SurfaceDark
     },
     onSurface = TextPrimary,
     surfaceVariant = SurfaceVariantDark,
@@ -40,7 +41,7 @@ fun createAuraColorScheme(appTheme: AppTheme, accentColor: Color = RadiantPurple
 
 @Composable
 fun MyApplicationTheme(
-    appTheme: AppTheme = AppTheme.MIDNIGHT,
+    appTheme: AppTheme = AppTheme.GLASS,
     accentColor: Color = RadiantPurple,
     content: @Composable () -> Unit
 ) {
