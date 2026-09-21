@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
 import com.example.data.model.Playlist
 import com.example.data.model.Track
+import com.example.ui.components.TrackArtworkThumbnail
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -124,19 +125,30 @@ fun PlaylistsScreen(
                             .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(palette.secondary.copy(alpha = 0.2f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                tint = palette.secondary,
-                                modifier = Modifier.size(24.dp)
+                        val firstTrack = trackList.firstOrNull()
+                        if (firstTrack?.artworkUri != null) {
+                            TrackArtworkThumbnail(
+                                artworkUri = firstTrack.artworkUri,
+                                accentColor = palette.secondary,
+                                size = 48.dp,
+                                shape = RoundedCornerShape(12.dp),
+                                iconSize = 24.dp
                             )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(palette.secondary.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = palette.secondary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.width(14.dp))

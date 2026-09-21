@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
 import com.example.data.model.PlaybackState
 import com.example.data.model.Track
+import com.example.ui.components.TrackArtworkThumbnail
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -103,14 +104,24 @@ fun QueueSheet(
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            TrackArtworkThumbnail(
+                                artworkUri = track.artworkUri,
+                                accentColor = if (isCurrent) palette.accent else palette.primary,
+                                size = 38.dp,
+                                shape = RoundedCornerShape(8.dp),
+                                iconSize = 18.dp
+                            )
+
+                            Spacer(modifier = Modifier.width(10.dp))
+
                             if (isCurrent) {
                                 Icon(
                                     imageVector = Icons.Default.VolumeUp,
                                     contentDescription = "Playing",
                                     tint = palette.accent,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(18.dp)
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                             }
 
                             Column(modifier = Modifier.weight(1f)) {

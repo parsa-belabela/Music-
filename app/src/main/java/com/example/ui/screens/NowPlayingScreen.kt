@@ -554,142 +554,144 @@ fun NowPlayingScreen(
                 )
             }
 
-            // Controls Bar in Liquid Glass: Shuffle, Previous, Play/Pause, Next, Repeat
+            // Controls Bar in Liquid Glass capsule: Shuffle, Previous, Play/Pause, Next, Repeat
             AnimatedVisibility(visible = !isImmersive) {
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(vertical = 12.dp)
+                        .liquidGlass(
+                            shape = RoundedCornerShape(32.dp),
+                            thickness = GlassThickness.REGULAR,
+                            tintColor = palette.primary,
+                            tintAlpha = 0.12f,
+                            borderWidth = 1.2.dp
+                        )
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
-                    // Shuffle
-                    IconButton(
-                        onClick = {
-                            triggerHaptic()
-                            onToggleShuffle()
-                        },
-                        modifier = Modifier
-                            .size(44.dp)
-                            .liquidGlass(
-                                shape = CircleShape,
-                                thickness = GlassThickness.THIN,
-                                tintColor = if (playbackState.isShuffle) palette.primary else Color.Transparent,
-                                tintAlpha = 0.2f
-                            )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Shuffle,
-                            contentDescription = "Shuffle",
-                            tint = if (playbackState.isShuffle) palette.accent else Color(0xFFA0A0B5),
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    // Previous
-                    IconButton(
-                        onClick = {
-                            triggerHaptic()
-                            onPrevious()
-                        },
-                        modifier = Modifier
-                            .size(54.dp)
-                            .liquidGlass(
-                                shape = CircleShape,
-                                thickness = GlassThickness.THIN,
-                                tintColor = Color.White,
-                                tintAlpha = 0.05f
+                        // Shuffle
+                        IconButton(
+                            onClick = {
+                                triggerHaptic()
+                                onToggleShuffle()
+                            },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (playbackState.isShuffle) palette.accent.copy(alpha = 0.22f)
+                                    else Color(0x14FFFFFF)
+                                )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Shuffle,
+                                contentDescription = "Shuffle",
+                                tint = if (playbackState.isShuffle) palette.accent else Color(0xFFA0A0B5),
+                                modifier = Modifier.size(22.dp)
                             )
-                            .testTag("previous_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SkipPrevious,
-                            contentDescription = "Previous",
-                            tint = Color.White,
-                            modifier = Modifier.size(32.dp)
-                        )
-                    }
+                        }
 
-                    // Glowing Liquid Glass Play / Pause Button with reactive pulse
-                    Box(
-                        modifier = Modifier
-                            .size(72.dp)
-                            .shadow(22.dp, CircleShape, ambientColor = palette.primary, spotColor = palette.primary)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.linearGradient(
-                                    colors = listOf(
-                                        palette.primary,
-                                        palette.accent
+                        // Previous
+                        IconButton(
+                            onClick = {
+                                triggerHaptic()
+                                onPrevious()
+                            },
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(CircleShape)
+                                .background(Color(0x18FFFFFF))
+                                .testTag("previous_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SkipPrevious,
+                                contentDescription = "Previous",
+                                tint = Color.White,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+
+                        // Glowing Liquid Glass Play / Pause Button with reactive pulse
+                        Box(
+                            modifier = Modifier
+                                .size(68.dp)
+                                .shadow(18.dp, CircleShape, ambientColor = palette.primary, spotColor = palette.accent)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(
+                                            palette.primary,
+                                            palette.accent
+                                        )
                                     )
                                 )
+                                .border(1.5.dp, Color(0x66FFFFFF), CircleShape)
+                                .clickable {
+                                    triggerHaptic()
+                                    onTogglePlay()
+                                }
+                                .testTag("play_pause_button"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                tint = Color.White,
+                                modifier = Modifier.size(36.dp)
                             )
-                            .border(1.5.dp, Color(0x66FFFFFF), CircleShape)
-                            .clickable {
-                                triggerHaptic()
-                                onTogglePlay()
-                            }
-                            .testTag("play_pause_button"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = Color.White,
-                            modifier = Modifier.size(36.dp)
-                        )
-                    }
-
-                    // Next
-                    IconButton(
-                        onClick = {
-                            triggerHaptic()
-                            onNext()
-                        },
-                        modifier = Modifier
-                            .size(54.dp)
-                            .liquidGlass(
-                                shape = CircleShape,
-                                thickness = GlassThickness.THIN,
-                                tintColor = Color.White,
-                                tintAlpha = 0.05f
-                            )
-                            .testTag("next_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SkipNext,
-                            contentDescription = "Next",
-                            tint = Color.White,
-                            modifier = Modifier.size(32.dp)
-                        )
-                    }
-
-                    // Repeat Mode
-                    IconButton(
-                        onClick = {
-                            triggerHaptic()
-                            onCycleRepeat()
-                        },
-                        modifier = Modifier
-                            .size(44.dp)
-                            .liquidGlass(
-                                shape = CircleShape,
-                                thickness = GlassThickness.THIN,
-                                tintColor = if (playbackState.repeatMode != PlaybackRepeatMode.OFF) palette.primary else Color.Transparent,
-                                tintAlpha = 0.2f
-                            )
-                    ) {
-                        val (icon, tint) = when (playbackState.repeatMode) {
-                            PlaybackRepeatMode.OFF -> Icons.Default.Repeat to Color(0xFFA0A0B5)
-                            PlaybackRepeatMode.ALL -> Icons.Default.Repeat to palette.accent
-                            PlaybackRepeatMode.ONE -> Icons.Default.RepeatOne to palette.accent
                         }
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = "Repeat",
-                            tint = tint,
-                            modifier = Modifier.size(22.dp)
-                        )
+
+                        // Next
+                        IconButton(
+                            onClick = {
+                                triggerHaptic()
+                                onNext()
+                            },
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(CircleShape)
+                                .background(Color(0x18FFFFFF))
+                                .testTag("next_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SkipNext,
+                                contentDescription = "Next",
+                                tint = Color.White,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+
+                        // Repeat Mode
+                        IconButton(
+                            onClick = {
+                                triggerHaptic()
+                                onCycleRepeat()
+                            },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (playbackState.repeatMode != PlaybackRepeatMode.OFF) palette.accent.copy(alpha = 0.22f)
+                                    else Color(0x14FFFFFF)
+                                )
+                        ) {
+                            val (icon, tint) = when (playbackState.repeatMode) {
+                                PlaybackRepeatMode.OFF -> Icons.Default.Repeat to Color(0xFFA0A0B5)
+                                PlaybackRepeatMode.ALL -> Icons.Default.Repeat to palette.accent
+                                PlaybackRepeatMode.ONE -> Icons.Default.RepeatOne to palette.accent
+                            }
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = "Repeat",
+                                tint = tint,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
                 }
             }

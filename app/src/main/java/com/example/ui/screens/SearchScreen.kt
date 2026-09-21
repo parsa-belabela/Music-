@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
 import com.example.data.model.Track
+import com.example.ui.components.TrackArtworkThumbnail
 
 @Composable
 fun SearchScreen(
@@ -134,20 +135,13 @@ fun SearchScreen(
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(palette.primary.copy(alpha = 0.2f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.MusicNote,
-                                    contentDescription = null,
-                                    tint = palette.accent,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
+                            TrackArtworkThumbnail(
+                                artworkUri = track.artworkUri,
+                                accentColor = palette.accent,
+                                size = 44.dp,
+                                shape = RoundedCornerShape(10.dp),
+                                iconSize = 22.dp
+                            )
 
                             Spacer(modifier = Modifier.width(14.dp))
 

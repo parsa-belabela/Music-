@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
 import com.example.data.model.PlaybackState
 import com.example.data.model.Track
+import com.example.ui.components.TrackArtworkThumbnail
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
 
@@ -197,18 +198,32 @@ fun LibraryScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
-                            modifier = Modifier
-                                .size(46.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(palette.primary.copy(alpha = 0.2f)),
+                            modifier = Modifier.size(46.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = if (isCurrent) Icons.Default.Equalizer else Icons.Default.MusicNote,
-                                contentDescription = null,
-                                tint = if (isCurrent) palette.accent else palette.primary,
-                                modifier = Modifier.size(24.dp)
+                            TrackArtworkThumbnail(
+                                artworkUri = track.artworkUri,
+                                accentColor = if (isCurrent) palette.accent else palette.primary,
+                                size = 46.dp,
+                                shape = RoundedCornerShape(10.dp),
+                                iconSize = 24.dp
                             )
+                            if (isCurrent) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color.Black.copy(alpha = 0.45f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Equalizer,
+                                        contentDescription = "Playing",
+                                        tint = palette.accent,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
                         }
 
                         Spacer(modifier = Modifier.width(14.dp))

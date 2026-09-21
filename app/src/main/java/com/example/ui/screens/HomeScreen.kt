@@ -27,6 +27,7 @@ import com.example.audio.AmbientPalette
 import com.example.data.model.PlaybackState
 import com.example.data.model.PlayerStatus
 import com.example.data.model.Track
+import com.example.ui.components.TrackArtworkThumbnail
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
 
@@ -152,6 +153,17 @@ fun HomeScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
+                            if (heroTrack != null) {
+                                TrackArtworkThumbnail(
+                                    artworkUri = heroTrack.artworkUri,
+                                    accentColor = palette.secondary,
+                                    size = 54.dp,
+                                    shape = RoundedCornerShape(14.dp),
+                                    iconSize = 26.dp
+                                )
+                                Spacer(modifier = Modifier.width(14.dp))
+                            }
+
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = heroTrack?.title ?: "Select a Track",
@@ -169,6 +181,8 @@ fun HomeScreen(
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
+
+                            Spacer(modifier = Modifier.width(12.dp))
 
                             // Big circular Play Button
                             Box(
@@ -303,20 +317,13 @@ fun HomeScreen(
                                 .clickable { onPlayTrack(track, recentlyPlayed) }
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(120.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(palette.primary.copy(alpha = 0.2f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.MusicNote,
-                                        contentDescription = null,
-                                        tint = palette.primary,
-                                        modifier = Modifier.size(40.dp)
-                                    )
-                                }
+                                TrackArtworkThumbnail(
+                                    artworkUri = track.artworkUri,
+                                    accentColor = palette.primary,
+                                    size = 120.dp,
+                                    shape = RoundedCornerShape(10.dp),
+                                    iconSize = 40.dp
+                                )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
                                     text = track.title,
@@ -373,20 +380,13 @@ fun HomeScreen(
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(palette.primary.copy(alpha = 0.25f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.MusicNote,
-                                    contentDescription = null,
-                                    tint = palette.accent,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
+                            TrackArtworkThumbnail(
+                                artworkUri = track.artworkUri,
+                                accentColor = palette.accent,
+                                size = 44.dp,
+                                shape = RoundedCornerShape(10.dp),
+                                iconSize = 24.dp
+                            )
                             Spacer(modifier = Modifier.width(14.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
