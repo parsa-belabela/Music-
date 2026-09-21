@@ -44,6 +44,10 @@ class AudioEngine(private val context: Context) {
     private var crossfadeJob: Job? = null
     private val engineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
+    private val transitionId = java.util.concurrent.atomic.AtomicLong(0L)
+    private var preloadedPlayer: MediaPlayer? = null
+    private var preloadedTrackId: String? = null
+
     var onTrackCompleted: (() -> Unit)? = null
     var onError: ((String) -> Unit)? = null
 
@@ -118,8 +122,10 @@ class AudioEngine(private val context: Context) {
     }
 
     fun playTrack(track: Track, startPositionMs: Long = 0L) {
+        val currentTransitionId = transitionId.incrementAndGet()
         requestAudioFocus()
         releaseEffects()
+        crossfadeJob?.cancel()
 
         try {
             mediaPlayer?.apply {
@@ -131,6 +137,37 @@ class AudioEngine(private val context: Context) {
             Log.e(tag, "Error resetting player", e)
         }
         mediaPlayer = null
+
+        // Check if track was preloaded
+        val preloaded = preloadedPlayer
+        if (preloaded != null && preloadedTrackId == track.id) {
+            preloadedPlayer = null
+            preloadedTrackId = null
+            try {
+                mediaPlayer = preloaded
+                val trackDuration = preloaded.duration.toLong().coerceAtLeast(track.durationMs)
+                _duration.value = trackDuration
+                _audioSessionId.value = preloaded.audioSessionId
+                initAudioEffects(preloaded.audioSessionId)
+
+                if (startPositionMs > 0 && startPositionMs < trackDuration) {
+                    preloaded.seekTo(startPositionMs.toInt())
+                }
+
+                if (crossfadeSeconds > 0) {
+                    performFadeIn(preloaded)
+                } else {
+                    applyVolume()
+                    preloaded.start()
+                    _status.value = PlayerStatus.PLAYING
+                }
+                startProgressTracker()
+                return
+            } catch (e: Exception) {
+                Log.w(tag, "Failed using preloaded player, creating fresh instance", e)
+                try { preloaded.release() } catch (_: Exception) {}
+            }
+        }
 
         val mp = MediaPlayer()
         try {
@@ -170,6 +207,17 @@ class AudioEngine(private val context: Context) {
             }
 
             mp.setOnPreparedListener { preparedMp ->
+                // Stale callback check: If transition has advanced, discard this player
+                if (transitionId.get() != currentTransitionId) {
+                    Log.d(tag, "Discarding stale prepared player for track ${track.title}")
+                    try {
+                        preparedMp.stop()
+                        preparedMp.reset()
+                        preparedMp.release()
+                    } catch (_: Exception) {}
+                    return@setOnPreparedListener
+                }
+
                 val trackDuration = preparedMp.duration.toLong().coerceAtLeast(track.durationMs)
                 _duration.value = trackDuration
                 _audioSessionId.value = preparedMp.audioSessionId
@@ -190,13 +238,15 @@ class AudioEngine(private val context: Context) {
             }
 
             mp.setOnCompletionListener {
+                if (transitionId.get() != currentTransitionId) return@setOnCompletionListener
                 _status.value = PlayerStatus.PAUSED
                 stopProgressTracker()
                 onTrackCompleted?.invoke()
             }
 
             mp.setOnErrorListener { _, what, extra ->
-                Log.e(tag, "MediaPlayer Error: what=$what, extra=$extra")
+                if (transitionId.get() != currentTransitionId) return@setOnErrorListener true
+                Log.e(tag, "MediaPlayer Error: what=$what, extra=$extra for track ${track.title}")
                 _status.value = PlayerStatus.ERROR
                 onError?.invoke("Playback error ($what, $extra)")
                 true
@@ -212,15 +262,86 @@ class AudioEngine(private val context: Context) {
                 mp.release()
             } catch (_: Exception) {}
             mediaPlayer = null
-            useFallbackTrack(track)
+            onError?.invoke("Cannot open audio: ${e.localizedMessage ?: "File missing"}")
         }
     }
 
-    private fun useFallbackTrack(track: Track) {
-        // Create demo synthesis or graceful completion
-        _duration.value = track.durationMs
-        _status.value = PlayerStatus.PLAYING
-        startProgressTracker()
+    fun preloadTrack(track: Track) {
+        if (preloadedTrackId == track.id && preloadedPlayer != null) return
+        try {
+            preloadedPlayer?.release()
+        } catch (_: Exception) {}
+        preloadedPlayer = null
+        preloadedTrackId = null
+
+        val mp = MediaPlayer()
+        try {
+            mp.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+            )
+            if (track.isDemo || track.uri.contains("aura/demo") || track.uri.startsWith("/")) {
+                val file = if (track.uri.startsWith("file://")) {
+                    java.io.File(Uri.parse(track.uri).path ?: "")
+                } else if (track.uri.startsWith("/")) {
+                    java.io.File(track.uri)
+                } else {
+                    DemoAudioGenerator.getOrCreateDemoAudio(context, track.id)
+                }
+                val targetFile = if (file.exists() && file.length() > 0) file else DemoAudioGenerator.getOrCreateDemoAudio(context, track.id)
+                mp.setDataSource(targetFile.absolutePath)
+            } else if (track.uri.startsWith("content://media/")) {
+                val uri = Uri.parse(track.uri)
+                context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                    mp.setDataSource(pfd.fileDescriptor)
+                } ?: run {
+                    mp.setDataSource(context, uri)
+                }
+            } else {
+                val fallbackWav = DemoAudioGenerator.getOrCreateDemoAudio(context, track.id)
+                mp.setDataSource(fallbackWav.absolutePath)
+            }
+
+            mp.setOnPreparedListener {
+                preloadedPlayer = mp
+                preloadedTrackId = track.id
+                Log.d(tag, "Successfully preloaded track: ${track.title}")
+            }
+            mp.setOnErrorListener { _, _, _ ->
+                try { mp.release() } catch (_: Exception) {}
+                preloadedPlayer = null
+                preloadedTrackId = null
+                true
+            }
+            mp.prepareAsync()
+        } catch (e: Exception) {
+            Log.w(tag, "Failed preloading track ${track.title}: ${e.message}")
+            try { mp.release() } catch (_: Exception) {}
+        }
+    }
+
+    fun performFadeOut(durationSeconds: Int = 2, onComplete: () -> Unit) {
+        crossfadeJob?.cancel()
+        val currentMp = mediaPlayer ?: run {
+            onComplete()
+            return
+        }
+        crossfadeJob = engineScope.launch {
+            val steps = 20
+            val delayMs = (durationSeconds * 1000L) / steps
+            for (i in steps downTo 0) {
+                val vol = (i.toFloat() / steps) * masterVolume
+                try {
+                    currentMp.setVolume(vol, vol)
+                } catch (_: Exception) {}
+                delay(delayMs)
+            }
+            pause()
+            applyVolume()
+            onComplete()
+        }
     }
 
     private fun performFadeIn(mp: MediaPlayer) {
@@ -379,6 +500,11 @@ class AudioEngine(private val context: Context) {
             Log.e(tag, "Error releasing MediaPlayer", e)
         }
         mediaPlayer = null
+        try {
+            preloadedPlayer?.release()
+        } catch (_: Exception) {}
+        preloadedPlayer = null
+        preloadedTrackId = null
         _status.value = PlayerStatus.IDLE
     }
 }

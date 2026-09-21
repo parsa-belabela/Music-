@@ -44,6 +44,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     val analysisData: StateFlow<AudioAnalysisData> = analysisEngine.analysisState
 
+    // High-frequency playback position isolated to prevent recomposition cascades
+    val currentPositionMs: StateFlow<Long> = audioEngine.currentPosition
+
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
@@ -80,6 +83,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     private var lyricsJob: Job? = null
     private var sleepTimerJob: Job? = null
+    private var isSwitchingTrack = false
 
     init {
         // Wire audio engine callbacks
@@ -89,15 +93,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
         audioEngine.onError = { err ->
             _playbackState.update { it.copy(status = PlayerStatus.ERROR, errorMessage = err) }
+            handleTrackError()
         }
 
-        // Attach audio engine position to playbackState
-        viewModelScope.launch {
-            audioEngine.currentPosition.collect { pos ->
-                _playbackState.update { it.copy(currentPositionMs = pos) }
-            }
-        }
-
+        // Maintain duration and status
         viewModelScope.launch {
             audioEngine.duration.collect { dur ->
                 _playbackState.update { it.copy(durationMs = dur) }
@@ -106,15 +105,21 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
         viewModelScope.launch {
             audioEngine.status.collect { st ->
+                val isPlaying = st == PlayerStatus.PLAYING
+                analysisEngine.isPlaybackActive = isPlaying
                 _playbackState.update { it.copy(status = st) }
-                // Update notification
+                
+                // Update system media notification
                 val track = _playbackState.value.currentTrack
                 if (track != null) {
                     AudioPlaybackService.update(
-                        app,
-                        track.title,
-                        track.artist,
-                        st == PlayerStatus.PLAYING
+                        context = app,
+                        title = track.title,
+                        artist = track.artist,
+                        album = track.album,
+                        isPlaying = isPlaying,
+                        durationMs = _playbackState.value.durationMs,
+                        positionMs = audioEngine.currentPosition.value
                     )
                 }
             }
@@ -126,20 +131,53 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
 
-        // Notification actions handler
+        // Notification & External system actions handler
         AudioPlaybackService.actionHandler = { action ->
             when (action) {
+                "PLAY" -> audioEngine.play()
+                "PAUSE" -> audioEngine.pause()
                 "PLAY_PAUSE" -> togglePlayPause()
                 "NEXT" -> nextTrack()
                 "PREVIOUS" -> previousTrack()
                 "STOP" -> pause()
+                "HEADPHONES_DISCONNECTED" -> {
+                    if (_appSettings.value.pauseOnHeadphoneDisconnect) {
+                        pause()
+                    }
+                }
+            }
+        }
+
+        AudioPlaybackService.seekHandler = { pos ->
+            seekTo(pos)
+        }
+    }
+
+    fun setAppForeground(isForeground: Boolean) {
+        analysisEngine.isAppForeground = isForeground
+    }
+
+    private fun handleTrackError() {
+        val state = _playbackState.value
+        if (state.queue.size > 1) {
+            // Auto skip corrupted track gracefully
+            viewModelScope.launch {
+                kotlinx.coroutines.delay(600L)
+                nextTrack()
             }
         }
     }
 
     fun playTrack(track: Track, newQueue: List<Track>? = null) {
+        if (isSwitchingTrack && _playbackState.value.currentTrack?.id == track.id) return
+        isSwitchingTrack = true
+
         val queue = newQueue ?: _playbackState.value.queue.ifEmpty { listOf(track) }
         val idx = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+
+        // Immediately clear old lyrics so previous track words NEVER linger or flash
+        _currentLyrics.value = emptyList()
+        _currentLyricsEntity.value = null
 
         _playbackState.update {
             it.copy(
@@ -161,16 +199,33 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
         _activePalette.value = palette
 
-        // Load lyrics for this track
+        // Load lyrics strictly for this track
         loadLyricsForTrack(track.id)
 
         // Play in engine
         audioEngine.playTrack(track)
         viewModelScope.launch {
             repository.recordPlay(track.id)
+            isSwitchingTrack = false
+            
+            // Preload next track if enabled
+            if (_appSettings.value.preloadNextTrack && queue.size > 1) {
+                val nextIdx = (idx + 1) % queue.size
+                queue.getOrNull(nextIdx)?.let { nextTrack ->
+                    audioEngine.preloadTrack(nextTrack)
+                }
+            }
         }
 
-        AudioPlaybackService.update(app, track.title, track.artist, true)
+        AudioPlaybackService.update(
+            context = app,
+            title = track.title,
+            artist = track.artist,
+            album = track.album,
+            isPlaying = true,
+            durationMs = track.durationMs,
+            positionMs = 0L
+        )
     }
 
     fun togglePlayPause() {
@@ -279,6 +334,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         lyricsJob?.cancel()
         lyricsJob = viewModelScope.launch {
             repository.getLyrics(trackId).collect { entity ->
+                // Guard: verify track is still the currently active track
+                if (_playbackState.value.currentTrack?.id != trackId) return@collect
+                
                 _currentLyricsEntity.value = entity
                 if (entity != null && entity.rawLrc.isNotBlank()) {
                     val parsed = LrcParser.parse(entity.rawLrc, entity.offsetMs)
@@ -381,7 +439,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         audioEngine.setBassBoost(newSettings.bassBoostStrength)
         analysisEngine.sensitivity = newSettings.visualizerSensitivity
         analysisEngine.bassResponse = newSettings.visualizerBassResponse
-        analysisEngine.targetFps = newSettings.visualizerFps
+        analysisEngine.targetFps = newSettings.visualizerQuality.fps
+        analysisEngine.batterySaver = newSettings.batterySaver
     }
 
     fun setSleepTimer(minutes: Int) {
@@ -391,8 +450,14 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         if (minutes > 0) {
             sleepTimerJob = viewModelScope.launch {
                 kotlinx.coroutines.delay(minutes * 60 * 1000L)
-                audioEngine.pause()
-                _appSettings.update { it.copy(sleepTimerMinutes = 0) }
+                if (_appSettings.value.sleepTimerFadeOut) {
+                    audioEngine.performFadeOut(durationSeconds = 3) {
+                        _appSettings.update { it.copy(sleepTimerMinutes = 0) }
+                    }
+                } else {
+                    audioEngine.pause()
+                    _appSettings.update { it.copy(sleepTimerMinutes = 0) }
+                }
             }
         }
     }

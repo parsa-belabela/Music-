@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,13 +17,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -30,7 +33,10 @@ import coil.compose.AsyncImage
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
 import com.example.data.model.*
+import com.example.data.model.RepeatMode as PlaybackRepeatMode
 import com.example.ui.components.*
+import com.example.ui.theme.GlassThickness
+import com.example.ui.theme.liquidGlass
 
 enum class NowPlayingCenterView {
     ARTWORK_AND_HALO,
@@ -60,40 +66,56 @@ fun NowPlayingScreen(
     onSelectVisualizerMode: (VisualizerMode) -> Unit,
     onOpenSleepTimer: () -> Unit,
     onOpenMetadataEditor: (Track) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    currentPositionProvider: () -> Long = { playbackState.currentPositionMs }
 ) {
     val track = playbackState.currentTrack ?: return
     var centerView by remember { mutableStateOf(NowPlayingCenterView.ARTWORK_AND_HALO) }
     var isImmersive by remember { mutableStateOf(false) }
-    var showVisualizerDropdown by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
+
+    val triggerHaptic = {
+        if (appSettings.hapticFeedbackEnabled) {
+            try {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            } catch (_: Exception) {}
+        }
+    }
+
+    // Dynamic scale for artwork responding to Bass/Kick & Focus Mode
+    val isPlaying = playbackState.status == PlayerStatus.PLAYING
+    val bassExpansion = if (isPlaying) analysisData.haloExpansion else 0f
+    val kickPulse = if (isPlaying) analysisData.kickPulse else 0f
+
+    val artworkScale by animateFloatAsState(
+        targetValue = if (isImmersive) 1.08f else (1f + bassExpansion * 0.035f + kickPulse * 0.025f),
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
+        label = "artworkScale"
+    )
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        palette.primary.copy(alpha = 0.22f),
-                        Color(0xFF0A0A14),
-                        Color(0xFF050508)
-                    )
-                )
-            )
             .pointerInput(Unit) {
                 detectHorizontalDragGestures { _, dragAmount ->
-                    if (dragAmount > 50) onPrevious()
-                    else if (dragAmount < -50) onNext()
+                    if (dragAmount > 50) {
+                        triggerHaptic()
+                        onPrevious()
+                    } else if (dragAmount < -50) {
+                        triggerHaptic()
+                        onNext()
+                    }
                 }
             }
             .testTag("now_playing_screen")
     ) {
-        // Ambient Halo / Background aura that breathes continuously
-        AmbientHalo(
-            analysisData = analysisData,
+        // IDEA 02, 08: Cinematic Living Atmosphere (Blurred album art + organic audio-reactive lighting)
+        CinematicAtmosphereBackground(
+            track = track,
             palette = palette,
-            modifier = Modifier.fillMaxSize(),
-            glowStrength = appSettings.visualizerGlow
+            analysisDataProvider = { analysisData },
+            glowStrength = if (isImmersive) appSettings.visualizerGlow * 1.25f else appSettings.visualizerGlow
         )
 
         Column(
@@ -101,11 +123,11 @@ fun NowPlayingScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = 22.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Top Bar
+            // Top Bar with Liquid Glass controls
             AnimatedVisibility(
                 visible = !isImmersive,
                 enter = fadeIn() + expandVertically(),
@@ -114,86 +136,112 @@ fun NowPlayingScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp),
+                        .padding(top = 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onCollapse, modifier = Modifier.testTag("collapse_now_playing")) {
+                    IconButton(
+                        onClick = onCollapse,
+                        modifier = Modifier
+                            .size(42.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = palette.primary,
+                                tintAlpha = 0.10f
+                            )
+                            .testTag("collapse_now_playing")
+                    ) {
                         Icon(
                             imageVector = Icons.Default.KeyboardArrowDown,
                             contentDescription = "Minimize",
                             tint = Color.White,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(28.dp)
                         )
                     }
 
-                    // Playing from album or playlist label
+                    // Album / Context title
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             text = "PLAYING FROM",
                             style = MaterialTheme.typography.labelSmall.copy(
-                                color = Color(0xFF9898B0),
+                                color = Color(0xFFA5A5BA),
                                 fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                letterSpacing = 1.sp
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.3.sp
                             )
                         )
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = track.album,
+                            text = track.album.ifBlank { track.artist },
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = Color.White,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.SemiBold
                             ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
 
-                    Row {
-                        // Visualizer mode menu button
-                        Box {
-                            IconButton(onClick = { showVisualizerDropdown = true }) {
-                                Icon(
-                                    imageVector = Icons.Default.GraphicEq,
-                                    contentDescription = "Visualizer Mode",
-                                    tint = palette.accent
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = showVisualizerDropdown,
-                                onDismissRequest = { showVisualizerDropdown = false },
-                                modifier = Modifier.background(Color(0xFF141424))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Sleep Timer active pill badge
+                        if (appSettings.sleepTimerMinutes > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .liquidGlass(
+                                        shape = RoundedCornerShape(14.dp),
+                                        thickness = GlassThickness.THIN,
+                                        tintColor = palette.primary,
+                                        tintAlpha = 0.25f
+                                    )
+                                    .clickable { onOpenSleepTimer() }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
                             ) {
-                                VisualizerMode.values().forEach { mode ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                text = mode.title,
-                                                color = if (appSettings.visualizerMode == mode) palette.primary else Color.White
-                                            )
-                                        },
-                                        onClick = {
-                                            onSelectVisualizerMode(mode)
-                                            showVisualizerDropdown = false
-                                        }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Timer,
+                                        contentDescription = null,
+                                        tint = palette.accent,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "${appSettings.sleepTimerMinutes}m",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
                         }
 
-                        // More options menu (EQ, Lyrics Editor, Sleep Timer, Info)
+                        // Options menu in Liquid Glass
                         Box {
-                            IconButton(onClick = { showMoreMenu = true }) {
+                            IconButton(
+                                onClick = { showMoreMenu = true },
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .liquidGlass(
+                                        shape = CircleShape,
+                                        thickness = GlassThickness.THIN,
+                                        tintColor = palette.primary,
+                                        tintAlpha = 0.10f
+                                    )
+                            ) {
                                 Icon(
                                     imageVector = Icons.Default.MoreVert,
                                     contentDescription = "Options",
-                                    tint = Color.White
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                             DropdownMenu(
                                 expanded = showMoreMenu,
                                 onDismissRequest = { showMoreMenu = false },
-                                modifier = Modifier.background(Color(0xFF141424))
+                                modifier = Modifier.background(Color(0xF212131F))
                             ) {
                                 DropdownMenuItem(
                                     text = { Text("Equalizer & DSP", color = Color.White) },
@@ -204,7 +252,7 @@ fun NowPlayingScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Lyrics Editor & Sync", color = Color.White) },
+                                    text = { Text("Lyrics Studio", color = Color.White) },
                                     leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = palette.accent) },
                                     onClick = {
                                         showMoreMenu = false
@@ -220,7 +268,7 @@ fun NowPlayingScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Edit Track Metadata", color = Color.White) },
+                                    text = { Text("Edit Metadata", color = Color.White) },
                                     leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = palette.accent) },
                                     onClick = {
                                         showMoreMenu = false
@@ -228,7 +276,7 @@ fun NowPlayingScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text(if (isImmersive) "Exit Immersive" else "Immersive Mode", color = Color.White) },
+                                    text = { Text(if (isImmersive) "Exit Focus Mode" else "Cinematic Focus Mode", color = Color.White) },
                                     leadingIcon = { Icon(Icons.Default.Fullscreen, contentDescription = null, tint = palette.secondary) },
                                     onClick = {
                                         showMoreMenu = false
@@ -241,46 +289,72 @@ fun NowPlayingScreen(
                 }
             }
 
-            // Center View Switcher Tabs (Artwork & Halo | Visualizer | Lyrics)
-            AnimatedVisibility(visible = !isImmersive) {
+            // Liquid Glass Capsule Switcher: Halo | Visualizer | Lyrics
+            AnimatedVisibility(
+                visible = !isImmersive,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0x33FFFFFF))
-                        .padding(3.dp),
+                        .liquidGlass(
+                            shape = RoundedCornerShape(22.dp),
+                            thickness = GlassThickness.THIN,
+                            tintColor = palette.primary,
+                            tintAlpha = 0.08f
+                        )
+                        .padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     FilterChip(
                         selected = centerView == NowPlayingCenterView.ARTWORK_AND_HALO,
-                        onClick = { centerView = NowPlayingCenterView.ARTWORK_AND_HALO },
-                        label = { Text("Halo", fontSize = 12.sp) },
+                        onClick = {
+                            triggerHaptic()
+                            centerView = NowPlayingCenterView.ARTWORK_AND_HALO
+                        },
+                        label = { Text("Artwork", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = palette.primary,
-                            selectedLabelColor = Color.White
-                        )
+                            selectedContainerColor = palette.primary.copy(alpha = 0.85f),
+                            selectedLabelColor = Color.White,
+                            containerColor = Color.Transparent,
+                            labelColor = Color(0xFFA5A5BA)
+                        ),
+                        border = null
                     )
                     FilterChip(
                         selected = centerView == NowPlayingCenterView.VISUALIZER_FULL,
-                        onClick = { centerView = NowPlayingCenterView.VISUALIZER_FULL },
-                        label = { Text(appSettings.visualizerMode.title, fontSize = 12.sp) },
+                        onClick = {
+                            triggerHaptic()
+                            centerView = NowPlayingCenterView.VISUALIZER_FULL
+                        },
+                        label = { Text(appSettings.visualizerMode.title, fontSize = 12.sp, fontWeight = FontWeight.Medium) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = palette.primary,
-                            selectedLabelColor = Color.White
-                        )
+                            selectedContainerColor = palette.primary.copy(alpha = 0.85f),
+                            selectedLabelColor = Color.White,
+                            containerColor = Color.Transparent,
+                            labelColor = Color(0xFFA5A5BA)
+                        ),
+                        border = null
                     )
                     FilterChip(
                         selected = centerView == NowPlayingCenterView.LYRICS,
-                        onClick = { centerView = NowPlayingCenterView.LYRICS },
-                        label = { Text("Lyrics", fontSize = 12.sp) },
+                        onClick = {
+                            triggerHaptic()
+                            centerView = NowPlayingCenterView.LYRICS
+                        },
+                        label = { Text("Lyrics", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = palette.primary,
-                            selectedLabelColor = Color.White
-                        )
+                            selectedContainerColor = palette.primary.copy(alpha = 0.85f),
+                            selectedLabelColor = Color.White,
+                            containerColor = Color.Transparent,
+                            labelColor = Color(0xFFA5A5BA)
+                        ),
+                        border = null
                     )
                 }
             }
 
-            // Center Display Content
+            // Center Stage (Artwork, Visualizer, or Lyrics)
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -288,23 +362,18 @@ fun NowPlayingScreen(
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onDoubleTap = { offset ->
+                                triggerHaptic()
+                                val cur = currentPositionProvider()
                                 if (offset.x < size.width / 2) {
-                                    onSeekTo((playbackState.currentPositionMs - 10000L).coerceAtLeast(0L))
+                                    onSeekTo((cur - 10000L).coerceAtLeast(0L))
                                 } else {
-                                    onSeekTo((playbackState.currentPositionMs + 10000L).coerceAtMost(playbackState.durationMs))
+                                    onSeekTo((cur + 10000L).coerceAtMost(playbackState.durationMs))
                                 }
                             },
                             onTap = {
-                                if (isImmersive) {
-                                    isImmersive = false
-                                } else {
-                                    // Cycle view on tap
-                                    centerView = when (centerView) {
-                                        NowPlayingCenterView.ARTWORK_AND_HALO -> NowPlayingCenterView.VISUALIZER_FULL
-                                        NowPlayingCenterView.VISUALIZER_FULL -> NowPlayingCenterView.LYRICS
-                                        NowPlayingCenterView.LYRICS -> NowPlayingCenterView.ARTWORK_AND_HALO
-                                    }
-                                }
+                                triggerHaptic()
+                                // IDEA 10: Cinematic Focus Mode toggle on tap
+                                isImmersive = !isImmersive
                             }
                         )
                     },
@@ -312,13 +381,30 @@ fun NowPlayingScreen(
             ) {
                 when (centerView) {
                     NowPlayingCenterView.ARTWORK_AND_HALO -> {
+                        // IDEA 01, 02: Album Aura with liquid glass concentric frame and dynamic reactive scale
                         Box(
                             modifier = Modifier
-                                .size(280.dp)
-                                .shadow(24.dp, RoundedCornerShape(24.dp), ambientColor = palette.primary, spotColor = palette.accent)
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(Color(0xFF16152B))
-                                .border(1.5.dp, palette.primary.copy(alpha = 0.4f), RoundedCornerShape(24.dp)),
+                                .size(if (isImmersive) 320.dp else 285.dp)
+                                .scale(artworkScale)
+                                .shadow(
+                                    elevation = 32.dp,
+                                    shape = RoundedCornerShape(28.dp),
+                                    ambientColor = palette.primary,
+                                    spotColor = palette.accent
+                                )
+                                .clip(RoundedCornerShape(28.dp))
+                                .background(Color(0xFF131322))
+                                .border(
+                                    width = 1.5.dp,
+                                    brush = Brush.verticalGradient(
+                                        listOf(
+                                            Color(0x60FFFFFF),
+                                            palette.primary.copy(alpha = 0.45f),
+                                            Color(0x10FFFFFF)
+                                        )
+                                    ),
+                                    shape = RoundedCornerShape(28.dp)
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             if (track.artworkUri != null) {
@@ -349,6 +435,22 @@ fun NowPlayingScreen(
                                     )
                                 }
                             }
+
+                            // Subtle specular reflection sheen over the artwork glass
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                Color(0x20FFFFFF),
+                                                Color.Transparent
+                                            ),
+                                            startY = 0f,
+                                            endY = 250f
+                                        )
+                                    )
+                            )
                         }
                     }
 
@@ -366,20 +468,21 @@ fun NowPlayingScreen(
                     NowPlayingCenterView.LYRICS -> {
                         LyricsView(
                             lyrics = currentLyrics,
-                            currentPositionMs = playbackState.currentPositionMs,
+                            currentPositionProvider = currentPositionProvider,
                             displayMode = appSettings.lyricsDisplayMode,
                             palette = palette,
                             onSeekTo = onSeekTo,
                             onOpenEditor = onOpenLyricsEditor,
                             modifier = Modifier.fillMaxSize(),
                             enableWordHighlight = appSettings.lyricsKaraokeWordHighlight,
-                            baseFontSize = appSettings.lyricsFontSize
+                            baseFontSize = appSettings.lyricsFontSize,
+                            activeTrackId = track.id
                         )
                     }
                 }
             }
 
-            // Metadata info: Title, Artist, Favorite Heart
+            // Typography & Metadata (Confidently sized, crisp hierarchy)
             AnimatedVisibility(visible = !isImmersive) {
                 Row(
                     modifier = Modifier
@@ -391,120 +494,144 @@ fun NowPlayingScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = track.title,
-                            style = MaterialTheme.typography.titleLarge.copy(
+                            style = MaterialTheme.typography.headlineSmall.copy(
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = Color.White,
+                                letterSpacing = (-0.4).sp
                             ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        Spacer(modifier = Modifier.height(3.dp))
                         Text(
                             text = track.artist,
-                            style = MaterialTheme.typography.bodyMedium.copy(
+                            style = MaterialTheme.typography.bodyLarge.copy(
                                 color = Color(0xFFA5A5BC),
-                                fontSize = 15.sp
+                                fontWeight = FontWeight.Medium
                             ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
 
+                    // Tactile Favorite button with Liquid Glass pill & burst
                     IconButton(
-                        onClick = { onToggleFavorite(track) },
-                        modifier = Modifier.testTag("toggle_favorite_button")
+                        onClick = {
+                            triggerHaptic()
+                            onToggleFavorite(track)
+                        },
+                        modifier = Modifier
+                            .size(46.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = if (track.isFavorite) Color(0xFFF43F5E) else Color.Transparent,
+                                tintAlpha = 0.20f
+                            )
+                            .testTag("toggle_favorite_button")
                     ) {
                         Icon(
                             imageVector = if (track.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = "Favorite",
                             tint = if (track.isFavorite) Color(0xFFF43F5E) else Color.White,
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }
             }
 
-            // Seek Bar & Timestamps
+            // IDEA 09: Liquid Glass Progress Scrubber
             AnimatedVisibility(visible = !isImmersive) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Slider(
-                        value = playbackState.currentPositionMs.toFloat(),
-                        onValueChange = { onSeekTo(it.toLong()) },
-                        valueRange = 0f..(playbackState.durationMs.toFloat().coerceAtLeast(1f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("seek_slider"),
-                        colors = SliderDefaults.colors(
-                            thumbColor = palette.accent,
-                            activeTrackColor = palette.primary,
-                            inactiveTrackColor = Color(0x33FFFFFF)
-                        )
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = playbackState.positionFormatted,
-                            style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B0), fontSize = 12.sp)
-                        )
-                        Text(
-                            text = playbackState.remainingFormatted,
-                            style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B0), fontSize = 12.sp)
-                        )
+                LiquidGlassProgressBar(
+                    currentPositionProvider = currentPositionProvider,
+                    durationMs = playbackState.durationMs,
+                    palette = palette,
+                    analysisDataProvider = { analysisData },
+                    onSeekTo = {
+                        triggerHaptic()
+                        onSeekTo(it)
                     }
-                }
+                )
             }
 
-            // Controls Bar: Shuffle, Previous, Play/Pause, Next, Repeat
+            // Controls Bar in Liquid Glass: Shuffle, Previous, Play/Pause, Next, Repeat
             AnimatedVisibility(visible = !isImmersive) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 12.dp),
+                        .padding(vertical = 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Shuffle
-                    IconButton(onClick = onToggleShuffle) {
+                    IconButton(
+                        onClick = {
+                            triggerHaptic()
+                            onToggleShuffle()
+                        },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = if (playbackState.isShuffle) palette.primary else Color.Transparent,
+                                tintAlpha = 0.2f
+                            )
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Shuffle,
                             contentDescription = "Shuffle",
-                            tint = if (playbackState.isShuffle) palette.primary else Color(0xFF707085),
-                            modifier = Modifier.size(24.dp)
+                            tint = if (playbackState.isShuffle) palette.accent else Color(0xFFA0A0B5),
+                            modifier = Modifier.size(22.dp)
                         )
                     }
 
                     // Previous
                     IconButton(
-                        onClick = onPrevious,
+                        onClick = {
+                            triggerHaptic()
+                            onPrevious()
+                        },
                         modifier = Modifier
-                            .size(52.dp)
+                            .size(54.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = Color.White,
+                                tintAlpha = 0.05f
+                            )
                             .testTag("previous_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipPrevious,
                             contentDescription = "Previous",
                             tint = Color.White,
-                            modifier = Modifier.size(34.dp)
+                            modifier = Modifier.size(32.dp)
                         )
                     }
 
-                    // Big Glowing Play / Pause Button
+                    // Glowing Liquid Glass Play / Pause Button with reactive pulse
                     Box(
                         modifier = Modifier
-                            .size(68.dp)
-                            .shadow(16.dp, CircleShape, ambientColor = palette.primary, spotColor = palette.primary)
+                            .size(72.dp)
+                            .shadow(22.dp, CircleShape, ambientColor = palette.primary, spotColor = palette.primary)
                             .clip(CircleShape)
                             .background(
                                 Brush.linearGradient(
-                                    colors = listOf(palette.primary, palette.secondary)
+                                    colors = listOf(
+                                        palette.primary,
+                                        palette.accent
+                                    )
                                 )
                             )
-                            .clickable { onTogglePlay() }
+                            .border(1.5.dp, Color(0x66FFFFFF), CircleShape)
+                            .clickable {
+                                triggerHaptic()
+                                onTogglePlay()
+                            }
                             .testTag("play_pause_button"),
                         contentAlignment = Alignment.Center
                     ) {
-                        val isPlaying = playbackState.status == PlayerStatus.PLAYING
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "Pause" else "Play",
@@ -515,31 +642,53 @@ fun NowPlayingScreen(
 
                     // Next
                     IconButton(
-                        onClick = onNext,
+                        onClick = {
+                            triggerHaptic()
+                            onNext()
+                        },
                         modifier = Modifier
-                            .size(52.dp)
+                            .size(54.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = Color.White,
+                                tintAlpha = 0.05f
+                            )
                             .testTag("next_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = "Next",
                             tint = Color.White,
-                            modifier = Modifier.size(34.dp)
+                            modifier = Modifier.size(32.dp)
                         )
                     }
 
                     // Repeat Mode
-                    IconButton(onClick = onCycleRepeat) {
-                        val (icon, color) = when (playbackState.repeatMode) {
-                            RepeatMode.OFF -> Icons.Default.Repeat to Color(0xFF707085)
-                            RepeatMode.ALL -> Icons.Default.Repeat to palette.primary
-                            RepeatMode.ONE -> Icons.Default.RepeatOne to palette.accent
+                    IconButton(
+                        onClick = {
+                            triggerHaptic()
+                            onCycleRepeat()
+                        },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = if (playbackState.repeatMode != PlaybackRepeatMode.OFF) palette.primary else Color.Transparent,
+                                tintAlpha = 0.2f
+                            )
+                    ) {
+                        val (icon, tint) = when (playbackState.repeatMode) {
+                            PlaybackRepeatMode.OFF -> Icons.Default.Repeat to Color(0xFFA0A0B5)
+                            PlaybackRepeatMode.ALL -> Icons.Default.Repeat to palette.accent
+                            PlaybackRepeatMode.ONE -> Icons.Default.RepeatOne to palette.accent
                         }
                         Icon(
                             imageVector = icon,
                             contentDescription = "Repeat",
-                            tint = color,
-                            modifier = Modifier.size(24.dp)
+                            tint = tint,
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
@@ -554,18 +703,43 @@ fun NowPlayingScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = onOpenLyricsEditor) {
+                    TextButton(
+                        onClick = {
+                            triggerHaptic()
+                            onOpenLyricsEditor()
+                        },
+                        modifier = Modifier.liquidGlass(
+                            shape = RoundedCornerShape(16.dp),
+                            thickness = GlassThickness.THIN,
+                            tintColor = palette.primary,
+                            tintAlpha = 0.08f
+                        )
+                    ) {
                         Icon(imageVector = Icons.Default.Lyrics, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Lyrics Studio", color = Color.White, fontSize = 13.sp)
                     }
 
-                    IconButton(onClick = onOpenQueue, modifier = Modifier.testTag("open_queue_button")) {
+                    IconButton(
+                        onClick = {
+                            triggerHaptic()
+                            onOpenQueue()
+                        },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = palette.primary,
+                                tintAlpha = 0.08f
+                            )
+                            .testTag("open_queue_button")
+                    ) {
                         Icon(
                             imageVector = Icons.Default.QueueMusic,
                             contentDescription = "Queue",
                             tint = Color.White,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }

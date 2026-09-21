@@ -27,6 +27,8 @@ import com.example.audio.AmbientPalette
 import com.example.data.model.PlaybackState
 import com.example.data.model.PlayerStatus
 import com.example.data.model.Track
+import com.example.ui.theme.GlassThickness
+import com.example.ui.theme.liquidGlass
 
 @Composable
 fun HomeScreen(
@@ -90,26 +92,20 @@ fun HomeScreen(
             }
         }
 
-        // Hero Quick Play Card
+        // Hero Quick Play Card in Liquid Glass
         item {
             val heroTrack = playbackState.currentTrack ?: allTracks.firstOrNull()
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                shape = RoundedCornerShape(22.dp),
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(170.dp)
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                palette.primary.copy(alpha = 0.4f),
-                                Color(0xFF141328),
-                                Color(0xFF0D0D1A)
-                            )
-                        )
+                    .height(175.dp)
+                    .liquidGlass(
+                        shape = RoundedCornerShape(24.dp),
+                        thickness = GlassThickness.REGULAR,
+                        tintColor = palette.primary,
+                        tintAlpha = 0.18f,
+                        borderWidth = 1.2.dp
                     )
-                    .border(1.dp, palette.primary.copy(alpha = 0.35f), RoundedCornerShape(22.dp))
                     .clickable {
                         heroTrack?.let { onPlayTrack(it, allTracks) }
                     }
@@ -218,13 +214,16 @@ fun HomeScreen(
                     Triple("Deep Sleep Halo", "Soft Slow Harmonic Sine", Color(0xFFF59E0B))
                 )
                 items(moods) { (title, subtitle, moodColor) ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF141426)),
-                        shape = RoundedCornerShape(16.dp),
+                    Box(
                         modifier = Modifier
-                            .width(170.dp)
-                            .height(115.dp)
-                            .border(1.dp, moodColor.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                            .width(172.dp)
+                            .height(118.dp)
+                            .liquidGlass(
+                                shape = RoundedCornerShape(18.dp),
+                                thickness = GlassThickness.THIN,
+                                tintColor = moodColor,
+                                tintAlpha = 0.15f
+                            )
                             .clickable {
                                 val target = allTracks.find { it.title.contains(title.take(5), ignoreCase = true) } ?: allTracks.firstOrNull()
                                 target?.let { onPlayTrack(it, allTracks) }

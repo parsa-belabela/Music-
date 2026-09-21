@@ -22,6 +22,8 @@ import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
 import com.example.data.model.PlaybackState
 import com.example.data.model.Track
+import com.example.ui.theme.GlassThickness
+import com.example.ui.theme.liquidGlass
 
 enum class SortOption(val label: String) {
     TITLE("Title"),
@@ -167,13 +169,24 @@ fun LibraryScreen(
         ) {
             items(sortedTracks) { track ->
                 val isCurrent = playbackState.currentTrack?.id == track.id
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isCurrent) palette.primary.copy(alpha = 0.2f) else Color(0xFF121220)
-                    ),
-                    shape = RoundedCornerShape(14.dp),
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .then(
+                            if (isCurrent) {
+                                Modifier.liquidGlass(
+                                    shape = RoundedCornerShape(16.dp),
+                                    thickness = GlassThickness.REGULAR,
+                                    tintColor = palette.primary,
+                                    tintAlpha = 0.22f,
+                                    borderWidth = 1.dp
+                                )
+                            } else {
+                                Modifier
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color(0xFF11111E))
+                            }
+                        )
                         .clickable { onPlayTrack(track, sortedTracks) }
                         .testTag("library_track_${track.id}")
                 ) {

@@ -20,81 +20,89 @@ fun AmbientHalo(
     modifier: Modifier = Modifier,
     glowStrength: Float = 0.85f
 ) {
+    AmbientHalo(
+        analysisDataProvider = { analysisData },
+        palette = palette,
+        modifier = modifier,
+        glowStrength = glowStrength
+    )
+}
+
+@Composable
+fun AmbientHalo(
+    analysisDataProvider: () -> AudioAnalysisData,
+    palette: AmbientPalette,
+    modifier: Modifier = Modifier,
+    glowStrength: Float = 0.85f
+) {
     val infiniteTransition = rememberInfiniteTransition(label = "haloBreathing")
     val idleBreathing by infiniteTransition.animateFloat(
-        initialValue = 0.95f,
-        targetValue = 1.05f,
+        initialValue = 0.96f,
+        targetValue = 1.04f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2800, easing = FastOutSlowInEasing),
+            animation = tween(3200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "idleBreathing"
     )
 
-    // Smooth dynamic bass & kick expansion
-    val animatedExpansion by animateFloatAsState(
-        targetValue = analysisData.haloExpansion,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "animatedExpansion"
-    )
-
-    val animatedKickPulse by animateFloatAsState(
-        targetValue = analysisData.kickPulse,
-        animationSpec = tween(durationMillis = 80, easing = LinearEasing),
-        label = "animatedKickPulse"
-    )
-
     Box(modifier = modifier) {
         Canvas(modifier = Modifier.fillMaxSize()) {
+            val data = analysisDataProvider()
             val center = Offset(size.width / 2f, size.height / 2f)
-            val baseRadius = min(size.width, size.height) * 0.42f
+            val baseRadius = min(size.width, size.height) * 0.44f
 
-            // Calculate dynamic halo radius based on bass expansion + kick pulse
-            val dynamicRadius = baseRadius * idleBreathing * (1f + animatedExpansion * 0.35f + animatedKickPulse * 0.25f)
-            val effectiveAlpha = (0.25f + animatedExpansion * 0.4f + animatedKickPulse * 0.3f) * glowStrength
+            // Fast Attack for transients, Smooth expansion for bass
+            val kick = data.kickPulse
+            val bassExpansion = data.haloExpansion
+            val totalEnergy = data.totalEnergy
 
-            // Layer 1: Outermost diffuse ambient glow
+            val dynamicRadius = baseRadius * idleBreathing * (1f + bassExpansion * 0.40f + kick * 0.28f)
+            val effectiveAlpha = (0.28f + bassExpansion * 0.42f + kick * 0.35f) * glowStrength
+
+            // Layer 1: Outermost diffuse ambient glow (Bass breathing & dark base blending)
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        palette.haloGlow.copy(alpha = (effectiveAlpha * 0.6f).coerceIn(0f, 1f)),
-                        palette.primary.copy(alpha = (effectiveAlpha * 0.3f).coerceIn(0f, 1f)),
+                        palette.haloGlow.copy(alpha = (effectiveAlpha * 0.65f).coerceIn(0f, 1f)),
+                        palette.primary.copy(alpha = (effectiveAlpha * 0.30f).coerceIn(0f, 1f)),
                         Color.Transparent
                     ),
                     center = center,
-                    radius = dynamicRadius * 1.5f
+                    radius = dynamicRadius * 1.6f
                 ),
-                radius = dynamicRadius * 1.5f,
+                radius = dynamicRadius * 1.6f,
                 center = center
             )
 
-            // Layer 2: Core energetic aura ring
+            // Layer 2: Core energetic aura ring (Secondary harmony)
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        palette.secondary.copy(alpha = (effectiveAlpha * 0.8f).coerceIn(0f, 1f)),
-                        palette.primary.copy(alpha = (effectiveAlpha * 0.45f).coerceIn(0f, 1f)),
+                        palette.secondary.copy(alpha = (effectiveAlpha * 0.85f).coerceIn(0f, 1f)),
+                        palette.primary.copy(alpha = (effectiveAlpha * 0.40f).coerceIn(0f, 1f)),
                         Color.Transparent
                     ),
                     center = center,
-                    radius = dynamicRadius
+                    radius = dynamicRadius * 1.1f
                 ),
-                radius = dynamicRadius,
+                radius = dynamicRadius * 1.1f,
                 center = center
             )
 
-            // Layer 3: Sharp Kick pulse inner halo
-            if (animatedKickPulse > 0.1f) {
+            // Layer 3: Sharp Kick pulse & transient highlight ring (Fast Attack & Decay)
+            if (kick > 0.05f) {
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            palette.accent.copy(alpha = (animatedKickPulse * 0.7f).coerceIn(0f, 0.9f)),
+                            palette.accent.copy(alpha = (kick * 0.85f * glowStrength).coerceIn(0f, 0.95f)),
+                            palette.secondary.copy(alpha = (kick * 0.40f * glowStrength).coerceIn(0f, 0.70f)),
                             Color.Transparent
                         ),
                         center = center,
-                        radius = dynamicRadius * 0.85f
+                        radius = dynamicRadius * 0.90f
                     ),
-                    radius = dynamicRadius * 0.85f,
+                    radius = dynamicRadius * 0.90f,
                     center = center
                 )
             }

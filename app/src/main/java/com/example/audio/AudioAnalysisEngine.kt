@@ -39,6 +39,10 @@ class AudioAnalysisEngine {
     private var rawFftBytes = ByteArray(128)
     private var rawWaveformBytes = ByteArray(128)
 
+    // Preallocated buffers to prevent GC allocations
+    private val bandsBuffer = FloatArray(32)
+    private val waveBuffer = FloatArray(64)
+
     // Decay smoothing variables
     private var smoothBass = 0f
     private var smoothEnergy = 0f
@@ -50,6 +54,9 @@ class AudioAnalysisEngine {
     var bassResponse: Float = 1.2f
     var kickResponse: Float = 1.3f
     var targetFps: Int = 60
+    var isAppForeground: Boolean = true
+    var isPlaybackActive: Boolean = false
+    var batterySaver: Boolean = false
 
     fun attachToAudioSession(audioSessionId: Int) {
         releaseVisualizer()
@@ -102,6 +109,24 @@ class AudioAnalysisEngine {
             var simulatedPhase = 0.0
 
             while (isActive && isAnalyzing) {
+                // If playback is paused or app in background or batterySaver active, throttle to save CPU & battery
+                if (!isPlaybackActive || !isAppForeground || batterySaver) {
+                    if (smoothKickPulse > 0.02f || smoothBass > 0.02f) {
+                        smoothKickPulse *= 0.75f
+                        smoothBass *= 0.75f
+                        smoothEnergy *= 0.75f
+                        _analysisState.value = _analysisState.value.copy(
+                            kickPulse = smoothKickPulse,
+                            haloExpansion = smoothBass,
+                            totalEnergy = smoothEnergy,
+                            isKick = false,
+                            isBeat = false
+                        )
+                    }
+                    delay(200L)
+                    continue
+                }
+
                 val frameStart = System.currentTimeMillis()
                 val deltaMs = (frameStart - loopTime).coerceAtLeast(1L)
                 loopTime = frameStart
@@ -134,8 +159,8 @@ class AudioAnalysisEngine {
     }
 
     private fun processFrame(deltaMs: Long, simulatedPhase: Double) {
-        val bands = FloatArray(32)
-        val wave = FloatArray(64)
+        val bands = bandsBuffer
+        val wave = waveBuffer
 
         var hasHardwareData = false
         var computedRms = 0f
@@ -203,19 +228,19 @@ class AudioAnalysisEngine {
         val bassDiff = bassBand - lastBassValue
         val now = System.currentTimeMillis()
         var isKick = false
-        if (bassDiff > 0.18f * (2.0f - kickResponse) && (now - lastBeatTimestamp) > 280) {
+        if (bassDiff > 0.16f * (2.0f - kickResponse) && (now - lastBeatTimestamp) > 260) {
             isKick = true
             lastBeatTimestamp = now
-            smoothKickPulse = 1.0f
+            smoothKickPulse = 1.0f // Instant fast attack
         }
         lastBassValue = bassBand
 
-        // Smooth decay calculations
-        smoothKickPulse = (smoothKickPulse * 0.82f).coerceAtLeast(0f)
-        smoothBass = smoothBass * 0.85f + bassBand * 0.15f
+        // Smooth decay calculations: Fast decay for Kick, Smooth breathing for Bass
+        smoothKickPulse = (smoothKickPulse * 0.78f).coerceAtLeast(0f)
+        smoothBass = smoothBass * 0.88f + bassBand * 0.12f
         smoothEnergy = smoothEnergy * 0.90f + totalEnergy * 0.10f
 
-        val haloExpansion = (smoothBass * 0.7f + smoothKickPulse * 0.3f).coerceIn(0f, 1f)
+        val haloExpansion = (smoothBass * 0.68f + smoothKickPulse * 0.32f).coerceIn(0f, 1f)
 
         _analysisState.value = AudioAnalysisData(
             rms = computedRms,
@@ -229,8 +254,8 @@ class AudioAnalysisEngine {
             isBeat = isKick || (totalEnergy > 0.65f),
             kickPulse = smoothKickPulse,
             haloExpansion = haloExpansion,
-            fftBands = bands,
-            waveform = wave,
+            fftBands = bands.clone(),
+            waveform = wave.clone(),
             currentFps = targetFps
         )
     }

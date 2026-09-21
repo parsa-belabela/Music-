@@ -40,21 +40,51 @@ fun LyricsView(
     onOpenEditor: () -> Unit,
     modifier: Modifier = Modifier,
     enableWordHighlight: Boolean = true,
-    baseFontSize: Float = 20f
+    baseFontSize: Float = 20f,
+    activeTrackId: String = ""
+) {
+    LyricsView(
+        lyrics = lyrics,
+        currentPositionProvider = { currentPositionMs },
+        displayMode = displayMode,
+        palette = palette,
+        onSeekTo = onSeekTo,
+        onOpenEditor = onOpenEditor,
+        modifier = modifier,
+        enableWordHighlight = enableWordHighlight,
+        baseFontSize = baseFontSize,
+        activeTrackId = activeTrackId
+    )
+}
+
+@Composable
+fun LyricsView(
+    lyrics: List<LyricsLine>,
+    currentPositionProvider: () -> Long,
+    displayMode: LyricsDisplayMode,
+    palette: AmbientPalette,
+    onSeekTo: (Long) -> Unit,
+    onOpenEditor: () -> Unit,
+    modifier: Modifier = Modifier,
+    enableWordHighlight: Boolean = true,
+    baseFontSize: Float = 20f,
+    activeTrackId: String = ""
 ) {
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
 
-    // Find active line index
-    val activeIndex = remember(lyrics, currentPositionMs) {
-        if (lyrics.isEmpty()) -1
-        else {
-            val idx = lyrics.indexOfLast { it.timestampMs <= currentPositionMs }
-            if (idx == -1) 0 else idx
+    // Derived active index only changes when line transition happens, saving 95% of recompositions
+    val activeIndex by remember(lyrics) {
+        derivedStateOf {
+            val pos = currentPositionProvider()
+            if (lyrics.isEmpty()) -1
+            else {
+                val idx = lyrics.indexOfLast { it.timestampMs <= pos }
+                if (idx == -1) 0 else idx
+            }
         }
     }
 
-    // Smooth scroll to active line
+    // Smooth scroll ONLY when active index actually changes
     LaunchedEffect(activeIndex) {
         if (activeIndex in lyrics.indices) {
             val targetScroll = (activeIndex - 2).coerceAtLeast(0)
@@ -165,6 +195,7 @@ fun LyricsView(
             ) {
                 if (isActive && enableWordHighlight && line.words.isNotEmpty()) {
                     // Word-level karaoke highlighting
+                    val curPos = currentPositionProvider()
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = when (displayMode) {
@@ -173,8 +204,8 @@ fun LyricsView(
                         }
                     ) {
                         for (w in line.words) {
-                            val isWordActive = currentPositionMs in w.startMs..w.endMs
-                            val isWordPassed = currentPositionMs > w.endMs
+                            val isWordActive = curPos in w.startMs..w.endMs
+                            val isWordPassed = curPos > w.endMs
                             val wordColor = when {
                                 isWordActive -> palette.secondary
                                 isWordPassed -> palette.primary

@@ -16,6 +16,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.data.model.Track
 import com.example.ui.components.*
+import com.example.ui.theme.GlassThickness
+import com.example.ui.theme.liquidGlass
 import com.example.ui.viewmodel.MusicPlayerViewModel
 import kotlinx.coroutines.launch
 
@@ -68,15 +70,27 @@ fun MainScreen(
                             palette = palette,
                             onTogglePlay = { viewModel.togglePlayPause() },
                             onNext = { viewModel.nextTrack() },
-                            onExpandNowPlaying = { viewModel.isNowPlayingExpanded.value = true }
+                            onExpandNowPlaying = { viewModel.isNowPlayingExpanded.value = true },
+                            analysisDataProvider = { analysisData }
                         )
                     }
 
-                    // Navigation Bar
-                    NavigationBar(
-                        containerColor = Color(0xF50D0D19),
-                        modifier = Modifier.testTag("main_navigation_bar")
+                    // Floating Liquid Glass Navigation Bar (iOS 26 dynamic tab philosophy)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                            .liquidGlass(
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                                thickness = GlassThickness.REGULAR,
+                                tintColor = palette.primary,
+                                tintAlpha = 0.08f
+                            )
                     ) {
+                        NavigationBar(
+                            containerColor = Color.Transparent,
+                            modifier = Modifier.testTag("main_navigation_bar")
+                        ) {
                         NavigationBarItem(
                             selected = currentTab == MainTab.HOME,
                             onClick = { currentTab = MainTab.HOME },
@@ -87,7 +101,7 @@ fun MainScreen(
                                 selectedTextColor = palette.accent,
                                 unselectedIconColor = Color(0xFF75758C),
                                 unselectedTextColor = Color(0xFF75758C),
-                                indicatorColor = palette.primary.copy(alpha = 0.2f)
+                                indicatorColor = palette.primary.copy(alpha = 0.25f)
                             )
                         )
                         NavigationBarItem(
@@ -100,7 +114,7 @@ fun MainScreen(
                                 selectedTextColor = palette.accent,
                                 unselectedIconColor = Color(0xFF75758C),
                                 unselectedTextColor = Color(0xFF75758C),
-                                indicatorColor = palette.primary.copy(alpha = 0.2f)
+                                indicatorColor = palette.primary.copy(alpha = 0.25f)
                             )
                         )
                         NavigationBarItem(
@@ -113,7 +127,7 @@ fun MainScreen(
                                 selectedTextColor = palette.accent,
                                 unselectedIconColor = Color(0xFF75758C),
                                 unselectedTextColor = Color(0xFF75758C),
-                                indicatorColor = palette.primary.copy(alpha = 0.2f)
+                                indicatorColor = palette.primary.copy(alpha = 0.25f)
                             )
                         )
                         NavigationBarItem(
@@ -126,7 +140,7 @@ fun MainScreen(
                                 selectedTextColor = palette.accent,
                                 unselectedIconColor = Color(0xFF75758C),
                                 unselectedTextColor = Color(0xFF75758C),
-                                indicatorColor = palette.primary.copy(alpha = 0.2f)
+                                indicatorColor = palette.primary.copy(alpha = 0.25f)
                             )
                         )
                         NavigationBarItem(
@@ -139,9 +153,10 @@ fun MainScreen(
                                 selectedTextColor = palette.accent,
                                 unselectedIconColor = Color(0xFF75758C),
                                 unselectedTextColor = Color(0xFF75758C),
-                                indicatorColor = palette.primary.copy(alpha = 0.2f)
+                                indicatorColor = palette.primary.copy(alpha = 0.25f)
                             )
                         )
+                    }
                     }
                 }
             }
@@ -235,6 +250,7 @@ fun MainScreen(
                     palette = palette,
                     currentLyrics = currentLyrics,
                     appSettings = appSettings,
+                    currentPositionProvider = { viewModel.currentPositionMs.value },
                     onCollapse = { viewModel.isNowPlayingExpanded.value = false },
                     onTogglePlay = { viewModel.togglePlayPause() },
                     onNext = { viewModel.nextTrack() },
