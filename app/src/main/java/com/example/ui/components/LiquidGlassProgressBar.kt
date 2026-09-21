@@ -22,6 +22,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
+import com.example.data.model.AppTheme
+import com.example.ui.theme.LocalAppTheme
 
 /**
  * Liquid Glass Progress Bar & High-Precision Scrubber
@@ -38,6 +40,7 @@ fun LiquidGlassProgressBar(
     onSeekTo: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val currentTheme = LocalAppTheme.current
     var isScrubbing by remember { mutableStateOf(false) }
     var scrubProgress by remember { mutableStateOf(0f) }
 
@@ -151,24 +154,54 @@ fun LiquidGlassProgressBar(
                         size = Size(progressWidth, size.height)
                     )
 
-                    // Scrubber Handle Glow Dot
+                    // Scrubber Handle (LEGO Stud or Glow Dot)
                     val thumbX = progressWidth.coerceIn(0f, size.width)
-                    val thumbRadius = (barHeight.dp.toPx() * (if (isScrubbing) 1.5f else 1.15f))
-                    drawCircle(
-                        color = Color.White,
-                        radius = thumbRadius * 0.75f,
-                        center = Offset(thumbX, size.height / 2f)
-                    )
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            listOf(
-                                palette.accent.copy(alpha = 0.85f),
-                                Color.Transparent
-                            )
-                        ),
-                        radius = thumbRadius * 2.2f,
-                        center = Offset(thumbX, size.height / 2f)
-                    )
+                    val thumbRadius = (barHeight.dp.toPx() * (if (isScrubbing) 1.6f else 1.25f))
+
+                    if (currentTheme == AppTheme.LEGO) {
+                        // LEGO Molded Plastic Stud Scrubber Handle
+                        val studCenter = Offset(thumbX, size.height / 2f)
+                        // Drop shadow
+                        drawCircle(
+                            color = Color.Black.copy(alpha = 0.65f),
+                            radius = thumbRadius + 1.5f,
+                            center = Offset(thumbX + 1.2f, size.height / 2f + 1.5f)
+                        )
+                        // Gold/Amber or Scarlet Stud Outer Rim
+                        drawCircle(
+                            color = palette.secondary,
+                            radius = thumbRadius,
+                            center = studCenter
+                        )
+                        // Specular Bevel Highlight
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.55f),
+                            radius = thumbRadius * 0.78f,
+                            center = Offset(thumbX - 0.8f, size.height / 2f - 0.8f)
+                        )
+                        // Stud Inner Mold Cavity
+                        drawCircle(
+                            color = Color(0xFF16171C),
+                            radius = thumbRadius * 0.42f,
+                            center = studCenter
+                        )
+                    } else {
+                        drawCircle(
+                            color = Color.White,
+                            radius = thumbRadius * 0.75f,
+                            center = Offset(thumbX, size.height / 2f)
+                        )
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                listOf(
+                                    palette.accent.copy(alpha = 0.85f),
+                                    Color.Transparent
+                                )
+                            ),
+                            radius = thumbRadius * 2.2f,
+                            center = Offset(thumbX, size.height / 2f)
+                        )
+                    }
                 }
             }
         }

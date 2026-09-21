@@ -60,11 +60,11 @@ object ArtworkPaletteExtractor {
                 deepAtmosphere = Color(0xFF050B16)
             )
             AppTheme.LEGO -> AmbientPalette(
-                primary = Color(0xFFFF2D20),
-                secondary = Color(0xFFFFD600),
-                haloGlow = Color(0x66FF2D20),
-                accent = Color(0xFF00E5FF),
-                deepAtmosphere = Color(0xFF180A0A)
+                primary = Color(0xFFE51D24), // Molded LEGO Glossy Scarlet
+                secondary = Color(0xFFFFC700), // Construction Gold / Spotlight Amber
+                haloGlow = Color(0x75E51D24),
+                accent = Color(0xFF00E5FF), // Bat-Computer Arc Cyan
+                deepAtmosphere = Color(0xFF101115) // Deep Gotham Onyx
             )
             AppTheme.CARTOON -> AmbientPalette(
                 primary = Color(0xFFFF4081),

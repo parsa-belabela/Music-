@@ -22,9 +22,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.example.audio.AmbientPalette
 import com.example.data.model.*
 import com.example.ui.components.FeedbackDialog
+import com.example.ui.theme.GlassThickness
+import com.example.ui.theme.liquidGlass
 import com.example.util.Localization
 import kotlinx.coroutines.launch
 
@@ -46,6 +49,8 @@ fun SettingsScreen(
     val coroutineScope = rememberCoroutineScope()
     var showBackupDialog by remember { mutableStateOf(false) }
     var showFeedbackDialog by remember { mutableStateOf(false) }
+    var showThemeRestartDialog by remember { mutableStateOf(false) }
+    var pendingTheme by remember { mutableStateOf<AppTheme?>(null) }
     var backupJsonText by remember { mutableStateOf("") }
     var isExportMode by remember { mutableStateOf(true) }
 
@@ -57,6 +62,93 @@ fun SettingsScreen(
             palette = palette,
             onDismiss = { showFeedbackDialog = false }
         )
+    }
+
+    if (showThemeRestartDialog && pendingTheme != null) {
+        val targetTheme = pendingTheme!!
+        Dialog(onDismissRequest = { showThemeRestartDialog = false }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp)
+                    .liquidGlass(
+                        shape = RoundedCornerShape(24.dp),
+                        thickness = GlassThickness.THICK,
+                        tintColor = palette.primary,
+                        tintAlpha = 0.28f,
+                        appTheme = targetTheme
+                    )
+                    .padding(24.dp)
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(palette.primary.copy(alpha = 0.25f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Palette,
+                            contentDescription = null,
+                            tint = palette.accent,
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = if (lang == AppLanguage.PERSIAN) "تغییر تم برنامه" else "Apply Theme & Restart",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        ),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = if (lang == AppLanguage.PERSIAN)
+                            "برای اعمال کامل تم «${targetTheme.titleFa}» و بافت‌های سه‌بعدی آن، برنامه باید یک‌بار بسته شود تا با ظاهر جدید اجرا گردد. آیا برنامه اکنون بسته شود؟"
+                        else
+                            "To fully apply the \"${targetTheme.titleEn}\" theme and textures across the app, the app will close and apply your selection. Would you like to proceed?",
+                        style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFFC8C8DC), lineHeight = 22.sp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { showThemeRestartDialog = false },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                        ) {
+                            Text(if (lang == AppLanguage.PERSIAN) "انصراف" else "Cancel")
+                        }
+
+                        Button(
+                            onClick = {
+                                onUpdateSettings(settings.copy(theme = targetTheme))
+                                showThemeRestartDialog = false
+                                (context as? android.app.Activity)?.finishAffinity()
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = palette.primary)
+                        ) {
+                            Text(if (lang == AppLanguage.PERSIAN) "تأیید و خروج" else "OK & Close")
+                        }
+                    }
+                }
+            }
+        }
     }
 
     LazyColumn(
@@ -372,7 +464,12 @@ fun SettingsScreen(
                         items(AppTheme.values().toList()) { t ->
                             FilterChip(
                                 selected = settings.theme == t,
-                                onClick = { onUpdateSettings(settings.copy(theme = t)) },
+                                onClick = {
+                                    if (settings.theme != t) {
+                                        pendingTheme = t
+                                        showThemeRestartDialog = true
+                                    }
+                                },
                                 label = { Text(if (lang == AppLanguage.PERSIAN) t.titleFa else t.titleEn, fontSize = 12.sp) }
                             )
                         }

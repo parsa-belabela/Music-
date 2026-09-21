@@ -61,12 +61,15 @@ fun HomeScreen(
     val lang = appSettings.language
     val context = LocalContext.current
 
+    val isPlaying = playbackState.status == PlayerStatus.PLAYING
+    val rotationDuration = if (isPlaying) 2800 else 14000
+
     val infiniteTransition = rememberInfiniteTransition(label = "heroLightBeam")
     val rotationAngle by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3500, easing = LinearEasing),
+            animation = tween(durationMillis = rotationDuration, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "lightBeamAngle"
@@ -191,9 +194,9 @@ fun HomeScreen(
                                             palette.accent,
                                             palette.secondary,
                                             palette.primary,
-                                            Color.Transparent,
-                                            Color.Transparent,
-                                            Color.Transparent,
+                                            palette.accent.copy(alpha = 0.8f),
+                                            palette.secondary.copy(alpha = 0.9f),
+                                            palette.primary.copy(alpha = 0.75f),
                                             palette.accent
                                         )
                                     ),
@@ -339,7 +342,7 @@ fun HomeScreen(
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
                                 .width(140.dp)
-                                .clickable { onPlayTrack(track, recentlyPlayed) }
+                                .clickable { onPlayTrack(track, allTracks) }
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
                                 TrackArtworkThumbnail(
@@ -397,7 +400,7 @@ fun HomeScreen(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onPlayTrack(track, displayList) }
+                            .clickable { onPlayTrack(track, allTracks) }
                     ) {
                         Row(
                             modifier = Modifier

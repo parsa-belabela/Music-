@@ -177,12 +177,12 @@ class MusicRepository(
     // Playlists
     suspend fun createPlaylist(name: String, description: String = "") = withContext(Dispatchers.IO) {
         val newId = "pl_${System.currentTimeMillis()}"
-        musicDao.insertPlaylist(Playlist(id = newId, name = name, description = description))
+        musicDao.insertPlaylist(Playlist(id = newId, name = name, description = description, trackIds = emptyList()))
     }
 
     suspend fun createPlaylistWithTracks(name: String, trackIds: List<String>, description: String = "") = withContext(Dispatchers.IO) {
         val newId = "pl_${System.currentTimeMillis()}"
-        musicDao.insertPlaylist(Playlist(id = newId, name = name, description = description))
+        musicDao.insertPlaylist(Playlist(id = newId, name = name, description = description, trackIds = trackIds))
         trackIds.forEachIndexed { index, trackId ->
             musicDao.insertPlaylistTrack(PlaylistTrackCrossRef(newId, trackId, index))
         }
@@ -194,10 +194,18 @@ class MusicRepository(
 
     suspend fun addTrackToPlaylist(playlistId: String, trackId: String) = withContext(Dispatchers.IO) {
         musicDao.insertPlaylistTrack(PlaylistTrackCrossRef(playlistId, trackId, System.currentTimeMillis().toInt()))
+        val existing = musicDao.getPlaylistById(playlistId)
+        if (existing != null && !existing.trackIds.contains(trackId)) {
+            musicDao.insertPlaylist(existing.copy(trackIds = existing.trackIds + trackId))
+        }
     }
 
     suspend fun removeTrackFromPlaylist(playlistId: String, trackId: String) = withContext(Dispatchers.IO) {
         musicDao.removeTrackFromPlaylist(playlistId, trackId)
+        val existing = musicDao.getPlaylistById(playlistId)
+        if (existing != null && existing.trackIds.contains(trackId)) {
+            musicDao.insertPlaylist(existing.copy(trackIds = existing.trackIds - trackId))
+        }
     }
 
     // Backup & Restore

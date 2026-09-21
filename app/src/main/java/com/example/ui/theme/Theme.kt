@@ -18,7 +18,7 @@ fun createAuraColorScheme(appTheme: AppTheme, accentColor: Color = RadiantPurple
     tertiary = NeonRose,
     background = when (appTheme) {
         AppTheme.GLASS -> GlassBackground
-        AppTheme.LEGO -> Color(0xFF140707)
+        AppTheme.LEGO -> Color(0xFF101115)
         AppTheme.CARTOON -> Color(0xFF13091B)
         AppTheme.CYBER_CHROME -> Color(0xFF040711)
         AppTheme.VAPORWAVE -> Color(0xFF110820)
@@ -27,7 +27,7 @@ fun createAuraColorScheme(appTheme: AppTheme, accentColor: Color = RadiantPurple
     onBackground = TextPrimary,
     surface = when (appTheme) {
         AppTheme.OBSIDIAN_MATRIX -> Color(0xFF030E06)
-        AppTheme.LEGO -> Color(0xFF1C0D0D)
+        AppTheme.LEGO -> Color(0xFF1B1D23)
         AppTheme.CARTOON -> Color(0xFF1B0F24)
         AppTheme.CYBER_CHROME -> Color(0xFF080D1A)
         AppTheme.VAPORWAVE -> Color(0xFF190C2C)

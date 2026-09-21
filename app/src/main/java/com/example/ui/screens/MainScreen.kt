@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.example.data.model.Track
 import com.example.ui.components.*
 import com.example.ui.theme.GlassThickness
+import com.example.ui.theme.LocalAppTheme
 import com.example.ui.theme.liquidGlass
 import com.example.ui.viewmodel.MusicPlayerViewModel
 import com.example.util.Localization
@@ -80,14 +81,15 @@ fun MainScreen(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        // Living RGB Motion Graphic Aurora Background behind the entire application
-        ModernAuroraMotionBackground(
-            palette = palette,
-            appTheme = appSettings.theme,
-            energyReactiveBoost = analysisData.haloExpansion,
-            modifier = Modifier.fillMaxSize()
-        )
+    CompositionLocalProvider(LocalAppTheme provides appSettings.theme) {
+        Box(modifier = modifier.fillMaxSize()) {
+            // Living RGB Motion Graphic Aurora Background behind the entire application
+            ModernAuroraMotionBackground(
+                palette = palette,
+                appTheme = appSettings.theme,
+                energyReactiveBoost = analysisData.haloExpansion,
+                modifier = Modifier.fillMaxSize()
+            )
 
         Scaffold(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -396,4 +398,5 @@ fun MainScreen(
             )
         }
     }
+}
 }
