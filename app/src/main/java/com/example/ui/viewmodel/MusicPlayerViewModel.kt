@@ -97,6 +97,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private var activePlayingTrackRef: Track? = null
 
     init {
+        _activePalette.value = ArtworkPaletteExtractor.extract(null, _appSettings.value)
         // Apply persisted audio engine settings
         applySettingsToEngines(_appSettings.value)
 
@@ -134,6 +135,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                         title = track.title,
                         artist = track.artist,
                         album = track.album,
+                        artworkUri = track.artworkUri,
                         isPlaying = isPlaying,
                         durationMs = _playbackState.value.durationMs,
                         positionMs = audioEngine.currentPosition.value
@@ -242,12 +244,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
         // 3. Extract palette and record metadata in background
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-            val fallback = Color(_appSettings.value.customAccentColor)
-            val palette = if (_appSettings.value.autoColorFromArtwork) {
-                ArtworkPaletteExtractor.extract(track, fallback)
-            } else {
-                AmbientPalette(fallback, fallback.copy(alpha = 0.5f), fallback.copy(alpha = 0.25f), fallback)
-            }
+            val palette = ArtworkPaletteExtractor.extract(track, _appSettings.value)
             _activePalette.value = palette
 
             repository.recordPlay(track.id)
@@ -270,6 +267,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             title = track.title,
             artist = track.artist,
             album = track.album,
+            artworkUri = track.artworkUri,
             isPlaying = true,
             durationMs = track.durationMs,
             positionMs = startPositionMs
@@ -517,6 +515,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun updateSettings(newSettings: AppSettings) {
         _appSettings.value = newSettings
+        _activePalette.value = ArtworkPaletteExtractor.extract(_playbackState.value.currentTrack, newSettings)
         savePersistedSettings(newSettings)
         applySettingsToEngines(newSettings)
     }
@@ -546,7 +545,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             visualizerMode = vizMode,
             visualizerSensitivity = prefs.getFloat("viz_sens", 1.0f),
             visualizerGlow = prefs.getFloat("viz_glow", 0.65f),
-            visualizerFps = prefs.getInt("viz_fps", 60),
+            visualizerFps = prefs.getInt("viz_fps", 120),
             autoColorFromArtwork = prefs.getBoolean("auto_color", true),
             customAccentColor = prefs.getLong("accent_color", 0xFF8B5CF6L),
             lyricsFontSize = prefs.getFloat("lyrics_size", 20.0f),
@@ -697,12 +696,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
         val qIdx = restoredQueue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
 
-        val fallback = Color(_appSettings.value.customAccentColor)
-        val palette = if (_appSettings.value.autoColorFromArtwork) {
-            ArtworkPaletteExtractor.extract(track, fallback)
-        } else {
-            AmbientPalette(fallback, fallback.copy(alpha = 0.5f), fallback.copy(alpha = 0.25f), fallback)
-        }
+        val palette = ArtworkPaletteExtractor.extract(track, _appSettings.value)
         _activePalette.value = palette
         loadLyricsForTrack(track.id)
 

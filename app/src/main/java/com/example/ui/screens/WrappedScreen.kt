@@ -193,7 +193,113 @@ fun WrappedScreen(
             }
         }
 
-        if (wrappedStats == null || (wrappedStats.totalTracksPlayed == 0 && wrappedStats.totalListeningTimeMs == 0L)) {
+        if (selectedPeriod?.isLocked == true) {
+            // Locked Period Experience with Countdown Timer
+            item {
+                val daysRemaining = selectedPeriod.daysRemainingUntilUnlock
+                val isYearly = selectedPeriod.isYearly
+                val unlockTarget = if (lang == AppLanguage.PERSIAN) selectedPeriod.unlockTargetDateFa else selectedPeriod.unlockTargetDateEn
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .liquidGlass(
+                            shape = RoundedCornerShape(28.dp),
+                            thickness = GlassThickness.THICK,
+                            tintColor = palette.primary,
+                            tintAlpha = 0.28f,
+                            borderWidth = 1.4.dp
+                        )
+                        .padding(26.dp)
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        // Lock Icon with glowing halo
+                        Box(
+                            modifier = Modifier
+                                .size(76.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.radialGradient(
+                                        listOf(palette.accent.copy(alpha = 0.35f), palette.primary.copy(alpha = 0.12f), Color.Transparent)
+                                    )
+                                )
+                                .border(1.5.dp, palette.accent.copy(alpha = 0.6f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Lock,
+                                contentDescription = "Locked",
+                                tint = palette.accent,
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+
+                        // Title
+                        Text(
+                            text = if (lang == AppLanguage.PERSIAN) {
+                                if (isYearly) "رپد سالانه در حال گردآوری است" else "خلاصه ماهانه در حال پردازش است"
+                            } else {
+                                if (isYearly) "Yearly Wrapped in Progress" else "Monthly Wrapped in Progress"
+                            },
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                textAlign = TextAlign.Center
+                            )
+                        )
+
+                        // Countdown Timer Badge
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = palette.accent.copy(alpha = 0.20f),
+                            border = androidx.compose.foundation.BorderStroke(1.2.dp, palette.accent.copy(alpha = 0.7f))
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.HourglassTop,
+                                    contentDescription = null,
+                                    tint = palette.accent,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = if (lang == AppLanguage.PERSIAN) {
+                                        "$daysRemaining روز تا باز شدن قفل مانده است"
+                                    } else {
+                                        "$daysRemaining days remaining until unlock"
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = palette.accent
+                                    )
+                                )
+                            }
+                        }
+
+                        // Unlock target detail
+                        Text(
+                            text = if (lang == AppLanguage.PERSIAN) {
+                                "تاریخ انتشار: $unlockTarget\nبرای ثبت آمار واقعی و دقیق، خلاصه پس از پایان کامل دوره محاسبه و نمایش داده می‌شود."
+                            } else {
+                                "Target Unlock: $unlockTarget\nTo guarantee authentic playback stats, your full listening summary unlocks at the conclusion of this cycle."
+                            },
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = Color(0xFFA0A0BA),
+                                textAlign = TextAlign.Center,
+                                lineHeight = 20.sp
+                            )
+                        )
+                    }
+                }
+            }
+        } else if (wrappedStats == null || (wrappedStats.totalTracksPlayed == 0 && wrappedStats.totalListeningTimeMs == 0L)) {
             // Empty State
             item {
                 Box(

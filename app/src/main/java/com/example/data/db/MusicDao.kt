@@ -99,4 +99,7 @@ interface MusicDao {
 
     @Query("DELETE FROM playback_events")
     suspend fun clearAllPlaybackEvents()
+
+    @Query("DELETE FROM tracks WHERE isDemo = 1 OR id LIKE 'aura_demo_%'")
+    suspend fun deleteDemoTracks()
 }

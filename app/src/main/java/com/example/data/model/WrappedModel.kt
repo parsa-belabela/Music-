@@ -8,7 +8,11 @@ data class WrappedPeriod(
     val year: Int,
     val month: Int, // 1-12 for monthly, 0 for yearly
     val startTimestamp: Long,
-    val endTimestamp: Long
+    val endTimestamp: Long,
+    val isLocked: Boolean = false,
+    val daysRemainingUntilUnlock: Int = 0,
+    val unlockTargetDateEn: String = "",
+    val unlockTargetDateFa: String = ""
 )
 
 data class TopSongItem(

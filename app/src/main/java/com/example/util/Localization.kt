@@ -7,6 +7,11 @@ object Localization {
     fun getString(key: String, language: AppLanguage): String {
         val faMap = mapOf(
             // Navigation
+            "home" to "خانه",
+            "library" to "کتابخانه",
+            "playlists" to "پلی‌لیست‌ها",
+            "search" to "جستجو",
+            "wrapped" to "خلاصه من (رپد)",
             "nav_home" to "خانه",
             "nav_library" to "کتابخانه",
             "nav_playlists" to "پلی‌لیست‌ها",
@@ -36,6 +41,9 @@ object Localization {
             "recent" to "به تازگی پخش شده",
             "all_songs" to "تمام آهنگ‌ها",
             "playlists" to "لیست‌های پخش",
+            "create_playlist" to "ایجاد پلی‌لیست جدید",
+            "new_playlist_hint" to "نام پلی‌لیست را وارد کنید...",
+            "playlists_and_genres" to "پلی‌لیست‌ها و دسته‌بندی‌ها",
             "tracks" to "آهنگ",
             "artists" to "هنرمندان",
             "albums" to "آلبوم‌ها",
@@ -124,6 +132,11 @@ object Localization {
 
         val enMap = mapOf(
             // Navigation
+            "home" to "Home",
+            "library" to "Library",
+            "playlists" to "Playlists",
+            "search" to "Search",
+            "wrapped" to "Wrapped",
             "nav_home" to "Home",
             "nav_library" to "Library",
             "nav_playlists" to "Playlists",
@@ -153,6 +166,9 @@ object Localization {
             "recent" to "Recently Played",
             "all_songs" to "All Songs",
             "playlists" to "Playlists",
+            "create_playlist" to "Create New Playlist",
+            "new_playlist_hint" to "Enter playlist name...",
+            "playlists_and_genres" to "Playlists & Soundscapes",
             "tracks" to "Tracks",
             "artists" to "Artists",
             "albums" to "Albums",

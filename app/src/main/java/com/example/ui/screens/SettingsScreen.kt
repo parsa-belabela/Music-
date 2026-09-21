@@ -574,21 +574,32 @@ fun SettingsScreen(
             }
         }
 
-        // Section: About
+        // Section: About & Warm Note
         item {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(top = 16.dp, bottom = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Heartfelt user message requested
                 Text(
-                    text = "Aura Music Player v1.0.0",
-                    style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.Bold)
+                    text = if (lang == AppLanguage.PERSIAN) "امیدوارم با لذت بیشتری بتونید آهنگ گوش کنید 💙" else "Hope you enjoy your music with even greater pleasure 💙",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        color = Color(0xFFC7D7FE),
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 0.4.sp
+                    ),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
                 Text(
-                    text = "High-Fidelity Audio • Real-Time DSP • Synced Lyrics",
-                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF88889C))
+                    text = "Aura Music Player v1.0.0",
+                    style = MaterialTheme.typography.labelMedium.copy(color = Color(0xFFA0A0B8), fontWeight = FontWeight.Bold)
+                )
+                Text(
+                    text = "High-Fidelity Audio • 120 FPS Real-Time DSP • Dynamic Aurora",
+                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF707086))
                 )
             }
         }

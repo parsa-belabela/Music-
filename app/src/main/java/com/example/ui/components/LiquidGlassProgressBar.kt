@@ -3,18 +3,14 @@ package com.example.ui.components
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -26,16 +22,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
-import com.example.ui.theme.GlassThickness
-import com.example.ui.theme.liquidGlass
 
 /**
- * IDEA 09: Liquid Glass Progress Bar & Scrubber
- * - Translucent glass track with internal specular refraction
- * - Played segment is bathed in dynamic glowing gradient
- * - Reacts subtly to audio bass & energy during playback
- * - Smooth interactive drag scrubber with real-time feedback
- * - Expand on touch/scrub with radiant bloom
+ * Liquid Glass Progress Bar & High-Precision Scrubber
+ * - Buttery smooth drag scrubber with zero jumping or lag
+ * - Real-time audio energy reactivity and radiant bloom
+ * - Precise millisecond seeking
  */
 @Composable
 fun LiquidGlassProgressBar(
@@ -56,7 +48,7 @@ fun LiquidGlassProgressBar(
 
     val barHeight by animateFloatAsState(
         targetValue = if (isScrubbing) 8.5f else 5.5f,
-        animationSpec = tween(180),
+        animationSpec = tween(150),
         label = "progressBarHeight"
     )
 
@@ -65,18 +57,6 @@ fun LiquidGlassProgressBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(34.dp)
-                .pointerInput(safeDuration) {
-                    detectTapGestures(
-                        onPress = { offset ->
-                            val targetFraction = (offset.x / size.width).coerceIn(0f, 1f)
-                            isScrubbing = true
-                            scrubProgress = targetFraction
-                            tryAwaitRelease()
-                            onSeekTo((scrubProgress * safeDuration).toLong())
-                            isScrubbing = false
-                        }
-                    )
-                }
                 .pointerInput(safeDuration) {
                     detectDragGestures(
                         onDragStart = { offset ->
@@ -92,6 +72,18 @@ fun LiquidGlassProgressBar(
                             isScrubbing = false
                         },
                         onDragCancel = {
+                            isScrubbing = false
+                        }
+                    )
+                }
+                .pointerInput(safeDuration) {
+                    detectTapGestures(
+                        onPress = { offset ->
+                            val target = (offset.x / size.width).coerceIn(0f, 1f)
+                            isScrubbing = true
+                            scrubProgress = target
+                            tryAwaitRelease()
+                            onSeekTo((target * safeDuration).toLong())
                             isScrubbing = false
                         }
                     )
@@ -174,7 +166,7 @@ fun LiquidGlassProgressBar(
                                 Color.Transparent
                             )
                         ),
-                        radius = thumbRadius * 2f,
+                        radius = thumbRadius * 2.2f,
                         center = Offset(thumbX, size.height / 2f)
                     )
                 }

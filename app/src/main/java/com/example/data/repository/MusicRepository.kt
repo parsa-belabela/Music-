@@ -9,6 +9,7 @@ import android.util.Log
 import com.example.data.db.MusicDao
 import com.example.data.model.*
 import com.example.lyrics.LrcParser
+import com.example.util.WrappedEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
@@ -30,35 +31,8 @@ class MusicRepository(
     val playlists: Flow<List<Playlist>> = musicDao.getAllPlaylists()
 
     suspend fun initDefaultDataIfNeeded() = withContext(Dispatchers.IO) {
-        val existing = musicDao.getAllTracks().firstOrNull()
-        if (existing.isNullOrEmpty()) {
-            val sampleTracks = getSampleDemoTracks()
-            musicDao.insertTracks(sampleTracks)
-
-            // Seed sample lyrics for demo tracks
-            for (track in sampleTracks) {
-                val sampleLrc = getSampleLrcForTrack(track.id, track.title, track.artist)
-                musicDao.insertLyrics(LyricsEntity(trackId = track.id, rawLrc = sampleLrc))
-            }
-
-            // Seed default playlists
-            val smartPlaylists = listOf(
-                Playlist(id = "pl_favorites", name = "Favorite Echoes", description = "Your starred tracks", isSmart = true, smartRule = "FAVORITES"),
-                Playlist(id = "pl_ambient", name = "Ambient & Neon", description = "Atmospheric late night soundscapes", isSmart = false),
-                Playlist(id = "pl_cyber", name = "Cyber Resonance", description = "Heavy bass & reactive kicks", isSmart = false)
-            )
-            for (pl in smartPlaylists) {
-                musicDao.insertPlaylist(pl)
-            }
-        } else {
-            // Update any existing demo tracks that had outdated content://aura URIs
-            for (track in existing) {
-                if (track.isDemo && (track.uri.contains("content://aura") || !java.io.File(track.uri).exists())) {
-                    val realWav = com.example.audio.DemoAudioGenerator.getOrCreateDemoAudio(context, track.id)
-                    musicDao.updateTrack(track.copy(uri = realWav.absolutePath))
-                }
-            }
-        }
+        // Explicitly purge any demo/sample tracks to keep the library 100% clean with zero preloaded songs
+        musicDao.deleteDemoTracks()
     }
 
     suspend fun scanDeviceMusic(): Int = withContext(Dispatchers.IO) {

@@ -104,10 +104,11 @@ class AudioPlaybackService : Service() {
                 val title = intent.getStringExtra("EXTRA_TITLE") ?: "Aura Music"
                 val artist = intent.getStringExtra("EXTRA_ARTIST") ?: "Ready to Play"
                 val album = intent.getStringExtra("EXTRA_ALBUM") ?: "Aura Sound"
+                val artworkUri = intent.getStringExtra("EXTRA_ARTWORK_URI")
                 val isPlaying = intent.getBooleanExtra("EXTRA_IS_PLAYING", false)
                 val durationMs = intent.getLongExtra("EXTRA_DURATION", 0L)
                 val positionMs = intent.getLongExtra("EXTRA_POSITION", 0L)
-                updateNotification(title, artist, album, isPlaying, durationMs, positionMs)
+                updateNotification(title, artist, album, artworkUri, isPlaying, durationMs, positionMs)
             }
         }
         return START_STICKY
@@ -132,6 +133,7 @@ class AudioPlaybackService : Service() {
         title: String,
         artist: String,
         album: String,
+        artworkUri: String?,
         isPlaying: Boolean,
         durationMs: Long,
         positionMs: Long
@@ -154,8 +156,8 @@ class AudioPlaybackService : Service() {
             .build()
         session.setPlaybackState(playbackState)
 
-        // 2. Generate artwork bitmap for system media notification
-        val artBitmap = createArtworkPlaceholder(title, artist)
+        // 2. Resolve Artwork Bitmap (from Uri or fallback placeholder)
+        val artBitmap = loadArtworkBitmap(artworkUri) ?: createArtworkPlaceholder(title, artist)
 
         // 3. Update MediaMetadata
         val metadata = MediaMetadata.Builder()
@@ -245,6 +247,25 @@ class AudioPlaybackService : Service() {
         }
     }
 
+    private fun loadArtworkBitmap(artworkUriString: String?): Bitmap? {
+        if (artworkUriString.isNullOrBlank()) return null
+        return try {
+            val uri = android.net.Uri.parse(artworkUriString)
+            if (uri.scheme == "content" || uri.scheme == "file") {
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    android.graphics.BitmapFactory.decodeStream(stream)
+                }
+            } else {
+                val file = java.io.File(artworkUriString)
+                if (file.exists()) {
+                    android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                } else null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private fun createArtworkPlaceholder(title: String, artist: String): Bitmap {
         val size = 256
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
@@ -288,6 +309,7 @@ class AudioPlaybackService : Service() {
             title: String,
             artist: String,
             album: String = "Aura Music",
+            artworkUri: String? = null,
             isPlaying: Boolean,
             durationMs: Long = 0L,
             positionMs: Long = 0L
@@ -297,6 +319,7 @@ class AudioPlaybackService : Service() {
                 putExtra("EXTRA_TITLE", title)
                 putExtra("EXTRA_ARTIST", artist)
                 putExtra("EXTRA_ALBUM", album)
+                putExtra("EXTRA_ARTWORK_URI", artworkUri)
                 putExtra("EXTRA_IS_PLAYING", isPlaying)
                 putExtra("EXTRA_DURATION", durationMs)
                 putExtra("EXTRA_POSITION", positionMs)

@@ -16,10 +16,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * Material Thickness levels for Liquid Glass in iOS 26 philosophy:
- * - THIN: Small floating buttons, chip pills, micro controls
- * - REGULAR: Floating capsule MiniPlayer, navigation bar, playback controls
- * - THICK: Modals, bottom sheets, menus, high-readability text panels
+ * Material Thickness levels for Liquid Glass:
+ * - THIN: Floating buttons, small pills, chip filters
+ * - REGULAR: Floating capsule MiniPlayer, navigation bar, cards
+ * - THICK: Modals, bottom sheets, menus, dialogs
  */
 enum class GlassThickness {
     THIN,
@@ -27,9 +27,6 @@ enum class GlassThickness {
     THICK
 }
 
-/**
- * Liquid Glass Material specification
- */
 data class LiquidGlassSpec(
     val surfaceGradient: Brush,
     val borderGradient: Brush,
@@ -48,64 +45,64 @@ object LiquidGlassDesign {
             GlassThickness.THIN -> LiquidGlassSpec(
                 surfaceGradient = Brush.verticalGradient(
                     listOf(
-                        Color(0x28FFFFFF),
-                        Color(0x0CFFFFFF)
+                        Color(0x30FFFFFF),
+                        Color(0x10FFFFFF)
                     )
                 ),
                 borderGradient = Brush.verticalGradient(
                     listOf(
-                        Color(0x45FFFFFF),
-                        Color(0x10FFFFFF)
+                        Color(0x55FFFFFF),
+                        Color(0x15FFFFFF)
                     )
                 ),
                 shadowElevation = 8.dp,
-                shadowColor = accentColor.copy(alpha = 0.15f),
-                specularReflectionAlpha = 0.22f
+                shadowColor = accentColor.copy(alpha = 0.12f),
+                specularReflectionAlpha = 0.28f
             )
 
             GlassThickness.REGULAR -> LiquidGlassSpec(
                 surfaceGradient = Brush.verticalGradient(
                     listOf(
-                        Color(0x24202838),
-                        Color(0x18121622)
+                        Color(0x35283248),
+                        Color(0x1F121828)
                     )
                 ),
                 borderGradient = Brush.verticalGradient(
                     listOf(
-                        Color(0x38FFFFFF),
-                        accentColor.copy(alpha = 0.28f),
-                        Color(0x0EFFFFFF)
+                        Color(0x45FFFFFF),
+                        accentColor.copy(alpha = 0.35f),
+                        Color(0x12FFFFFF)
                     )
                 ),
-                shadowElevation = 16.dp,
-                shadowColor = Color.Black.copy(alpha = 0.45f),
-                specularReflectionAlpha = 0.18f
+                shadowElevation = 14.dp,
+                shadowColor = Color.Black.copy(alpha = 0.38f),
+                specularReflectionAlpha = 0.22f
             )
 
             GlassThickness.THICK -> LiquidGlassSpec(
                 surfaceGradient = Brush.verticalGradient(
                     listOf(
-                        Color(0xF013141F),
-                        Color(0xFA0B0C14)
+                        Color(0xEB131626),
+                        Color(0xF50C0E1A)
                     )
                 ),
                 borderGradient = Brush.verticalGradient(
                     listOf(
-                        Color(0x2AFFFFFF),
-                        Color(0x0DFFFFFF)
+                        Color(0x38FFFFFF),
+                        Color(0x10FFFFFF)
                     )
                 ),
-                shadowElevation = 28.dp,
-                shadowColor = Color.Black.copy(alpha = 0.65f),
-                specularReflectionAlpha = 0.12f
+                shadowElevation = 24.dp,
+                shadowColor = Color.Black.copy(alpha = 0.55f),
+                specularReflectionAlpha = 0.15f
             )
         }
     }
 }
 
 /**
- * Modifier for applying Liquid Glass effect with layered specular highlights,
- * delicate border lighting, dynamic tint and soft diffuse shadow.
+ * Modifier for applying Liquid Glass effect with crystal translucency,
+ * delicate border illumination, dynamic tint and soft specular highlight.
  */
 fun Modifier.liquidGlass(
     shape: Shape = RoundedCornerShape(20.dp),
@@ -120,7 +117,7 @@ fun Modifier.liquidGlass(
         .shadow(
             elevation = spec.shadowElevation,
             shape = shape,
-            ambientColor = if (tintColor != Color.Transparent) tintColor else spec.shadowColor,
+            ambientColor = if (tintColor != Color.Transparent) tintColor.copy(alpha = 0.25f) else spec.shadowColor,
             spotColor = spec.shadowColor
         )
         .clip(shape)
@@ -128,8 +125,8 @@ fun Modifier.liquidGlass(
             brush = if (tintColor != Color.Transparent) {
                 Brush.verticalGradient(
                     listOf(
-                        tintColor.copy(alpha = (tintAlpha * 1.6f).coerceIn(0.05f, 0.45f)),
-                        Color(0xD00E0E18)
+                        tintColor.copy(alpha = (tintAlpha * 1.5f).coerceIn(0.06f, 0.40f)),
+                        Color(0x950E101D)
                     )
                 )
             } else {
@@ -143,9 +140,9 @@ fun Modifier.liquidGlass(
         )
         .drawWithContent {
             drawContent()
-            // Subtle top-edge light reflection / specular sheen
+            // Top-edge light reflection / glass specular sheen
             if (spec.specularReflectionAlpha > 0f) {
-                val highlightHeight = size.height * 0.35f
+                val highlightHeight = (size.height * 0.35f).coerceAtLeast(12f)
                 drawRect(
                     brush = Brush.verticalGradient(
                         colors = listOf(
