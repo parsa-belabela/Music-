@@ -52,146 +52,146 @@ object LiquidGlassDesign {
             AppTheme.PURE_LIQUID_GLASS -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
                     surfaceGradient = Brush.linearGradient(
-                        listOf(Color(0x28FFFFFF), Color(0x10FFFFFF), Color(0x0800E5FF))
+                        listOf(Color(0x0EFFFFFF), Color(0x05FFFFFF), Color(0x0400E5FF))
                     ),
                     borderGradient = Brush.linearGradient(
-                        listOf(Color(0x80FFFFFF), Color(0x3500E5FF), Color(0x18FFFFFF))
+                        listOf(Color(0x30FFFFFF), Color(0x1800E5FF), Color(0x0EFFFFFF))
                     ),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent,
-                    specularReflectionAlpha = 0.45f
+                    specularReflectionAlpha = 0.2f
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
                     surfaceGradient = Brush.verticalGradient(
-                        listOf(Color(0x2DFFFFFF), Color(0x120A1020), Color(0x1C182642))
+                        listOf(Color(0xF0121728), Color(0xEA0B101E), Color(0xEE10182A))
                     ),
                     borderGradient = Brush.linearGradient(
                         listOf(
-                            Color(0x90FFFFFF),
-                            Color(0x5000E5FF),
-                            Color(0x308B5CF6),
+                            Color(0x80FFFFFF),
+                            Color(0x4000E5FF),
+                            Color(0x258B5CF6),
                             Color(0x15FFFFFF)
                         )
                     ),
-                    shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent,
-                    specularReflectionAlpha = 0.6f
+                    shadowElevation = 8.dp,
+                    shadowColor = Color.Black.copy(alpha = 0.45f),
+                    specularReflectionAlpha = 0.5f
                 )
                 GlassThickness.THICK -> LiquidGlassSpec(
                     surfaceGradient = Brush.verticalGradient(
-                        listOf(Color(0x401A2438), Color(0x280D1525), Color(0x35060A14))
+                        listOf(Color(0xF5141B2D), Color(0xEE0A0F1D), Color(0xF2060A14))
                     ),
                     borderGradient = Brush.linearGradient(
-                        listOf(Color(0x75FFFFFF), Color(0x4000E5FF), Color(0x208B5CF6))
+                        listOf(Color(0x70FFFFFF), Color(0x3500E5FF), Color(0x1A8B5CF6))
                     ),
-                    shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent,
-                    specularReflectionAlpha = 0.75f
+                    shadowElevation = 16.dp,
+                    shadowColor = Color.Black.copy(alpha = 0.6f),
+                    specularReflectionAlpha = 0.65f
                 )
             }
 
             AppTheme.CYBER_NIGHTS -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x3000F0FF), Color(0x120F172A))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x7500F0FF), Color(0x25FF007F))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x1000F0FF), Color(0x050F172A))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x3500F0FF), Color(0x15FF007F))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x4000F0FF), Color(0x25060F26), Color(0x35020614))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x8500F0FF), Color(0x50FF007F), Color(0x2000F0FF))),
-                    shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF0081224), Color(0xEA050D1C), Color(0xEE030814))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x8000F0FF), Color(0x45FF007F), Color(0x1A00F0FF))),
+                    shadowElevation = 8.dp,
+                    shadowColor = Color.Black.copy(alpha = 0.45f)
                 )
                 GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x50020B1C), Color(0x35050D20))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x6000F0FF), Color(0x35FF007F))),
-                    shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF5040C1A), Color(0xEE030814))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x6000F0FF), Color(0x30FF007F))),
+                    shadowElevation = 16.dp,
+                    shadowColor = Color.Black.copy(alpha = 0.6f)
                 )
             }
 
             AppTheme.Y2K_CHROME -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.linearGradient(listOf(Color(0x35E2E8F0), Color(0x1594A3B8))),
-                    borderGradient = Brush.linearGradient(listOf(Color(0xFFFFFFFF), Color(0xFF38BDF8), Color(0xFF64748B))),
+                    surfaceGradient = Brush.linearGradient(listOf(Color(0x10E2E8F0), Color(0x0594A3B8))),
+                    borderGradient = Brush.linearGradient(listOf(Color(0x40FFFFFF), Color(0x2038BDF8), Color(0x1264748B))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x45CBD5E1), Color(0x251E2330), Color(0x350F131C))),
-                    borderGradient = Brush.linearGradient(listOf(Color(0xFFE2E8F0), Color(0xFF38BDF8), Color(0xFF818CF8))),
-                    shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF0181F2C), Color(0xEA121724), Color(0xEE0D111A))),
+                    borderGradient = Brush.linearGradient(listOf(Color(0x90E2E8F0), Color(0x4538BDF8), Color(0x25818CF8))),
+                    shadowElevation = 8.dp,
+                    shadowColor = Color.Black.copy(alpha = 0.45f)
                 )
                 GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x501E2536), Color(0x350F131E))),
-                    borderGradient = Brush.linearGradient(listOf(Color(0xFFCBD5E1), Color(0xFF818CF8), Color(0xFF38BDF8))),
-                    shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF5141924), Color(0xEE0B0E16))),
+                    borderGradient = Brush.linearGradient(listOf(Color(0x80CBD5E1), Color(0x35818CF8), Color(0x2038BDF8))),
+                    shadowElevation = 16.dp,
+                    shadowColor = Color.Black.copy(alpha = 0.6f)
                 )
             }
 
             AppTheme.VELVET_NOIR -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x35FFD700), Color(0x153B0746))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x85FFD700), Color(0x30A855F7))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x10FFD700), Color(0x053B0746))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x3AFFD700), Color(0x18A855F7))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x38FFD700), Color(0x28380844), Color(0x3015021C))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x85FFD700), Color(0x45A855F7), Color(0x20FFD700))),
-                    shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF01E0624), Color(0xEA15031A), Color(0xEE0F0112))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x80FFD700), Color(0x40A855F7), Color(0x1AFFD700))),
+                    shadowElevation = 8.dp,
+                    shadowColor = Color.Black.copy(alpha = 0.45f)
                 )
                 GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x4525042D), Color(0x30100115))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x70FFD700), Color(0x30701A75))),
-                    shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF518041E), Color(0xEE0B010E))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x65FFD700), Color(0x28701A75))),
+                    shadowElevation = 16.dp,
+                    shadowColor = Color.Black.copy(alpha = 0.6f)
                 )
             }
 
             AppTheme.SUNSET_RAVE -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.linearGradient(listOf(Color(0x35FF6D00), Color(0x18FF007F))),
-                    borderGradient = Brush.linearGradient(listOf(Color(0x80FF6D00), Color(0x40FF007F))),
+                    surfaceGradient = Brush.linearGradient(listOf(Color(0x10FF6D00), Color(0x05FF007F))),
+                    borderGradient = Brush.linearGradient(listOf(Color(0x35FF6D00), Color(0x18FF007F))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x38FF6D00), Color(0x253B0B32), Color(0x301A031E))),
-                    borderGradient = Brush.linearGradient(listOf(Color(0x85FF6D00), Color(0x55FF007F), Color(0x30FFD600))),
-                    shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF020081C), Color(0xEA160414), Color(0xEE0F020E))),
+                    borderGradient = Brush.linearGradient(listOf(Color(0x80FF6D00), Color(0x45FF007F), Color(0x20FFD600))),
+                    shadowElevation = 8.dp,
+                    shadowColor = Color.Black.copy(alpha = 0.45f)
                 )
                 GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x452D082A), Color(0x30140217))),
-                    borderGradient = Brush.linearGradient(listOf(Color(0x70FF6D00), Color(0x35FF007F))),
-                    shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF51A0518), Color(0xEE0D020C))),
+                    borderGradient = Brush.linearGradient(listOf(Color(0x65FF6D00), Color(0x25FF007F))),
+                    shadowElevation = 16.dp,
+                    shadowColor = Color.Black.copy(alpha = 0.6f)
                 )
             }
 
             AppTheme.DIGITAL_ACID -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x3039FF14), Color(0x10051205))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x8039FF14), Color(0x2500FF66))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x1039FF14), Color(0x05051205))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x3539FF14), Color(0x1200FF66))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x3039FF14), Color(0x20071C07), Color(0x28020802))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x8539FF14), Color(0x4000FF66), Color(0x2039FF14))),
-                    shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF0061506), Color(0xEA030E03), Color(0xEE010701))),
+                    borderGradient = Brush.linearGradient(listOf(Color(0x8039FF14), Color(0x3500FF66), Color(0x1A39FF14))),
+                    shadowElevation = 8.dp,
+                    shadowColor = Color.Black.copy(alpha = 0.45f)
                 )
                 GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x45081E08), Color(0x30020A02))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x6539FF14), Color(0x30059669))),
-                    shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF5041004), Color(0xEE010601))),
+                    borderGradient = Brush.linearGradient(listOf(Color(0x5539FF14), Color(0x20059669))),
+                    shadowElevation = 16.dp,
+                    shadowColor = Color.Black.copy(alpha = 0.6f)
                 )
             }
         }

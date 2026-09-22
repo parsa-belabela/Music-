@@ -40,7 +40,7 @@ fun CinematicGlassSplashScreen(
     var isVisible by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-        delay(2200)
+        delay(1200)
         onSplashFinished()
     }
 

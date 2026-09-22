@@ -184,29 +184,29 @@ fun LiquidGlassVolumeControl(
         modifier = modifier
             .fillMaxWidth()
             .liquidGlass(
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(20.dp),
                 thickness = GlassThickness.THIN,
                 tintColor = palette.primary,
-                tintAlpha = 0.08f,
-                borderWidth = 1.dp,
+                tintAlpha = 0.07f,
+                borderWidth = 0.8.dp,
                 appTheme = currentTheme
             )
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .padding(horizontal = 8.dp, vertical = 2.dp)
             .testTag("liquid_glass_volume_control"),
         contentAlignment = Alignment.Center
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             // Left Icon: Mute / Low volume button
             IconButton(
                 onClick = toggleMute,
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(30.dp)
                     .clip(CircleShape)
-                    .background(if (displayedFraction <= 0.01f) Color(0x33F43F5E) else Color(0x12FFFFFF))
+                    .background(if (displayedFraction <= 0.01f) Color(0x33F43F5E) else Color(0x0EFFFFFF))
                     .testTag("volume_mute_button")
             ) {
                 val icon = when {
@@ -223,7 +223,7 @@ fun LiquidGlassVolumeControl(
                     imageVector = icon,
                     contentDescription = "Volume Down / Mute",
                     tint = iconTint,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
 
@@ -231,7 +231,7 @@ fun LiquidGlassVolumeControl(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(38.dp)
+                    .height(28.dp)
                     .onSizeChanged { size ->
                         trackWidthPx = size.width.toFloat().coerceAtLeast(1f)
                     }
@@ -402,16 +402,16 @@ fun LiquidGlassVolumeControl(
             IconButton(
                 onClick = setMaxVolume,
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(30.dp)
                     .clip(CircleShape)
-                    .background(if (displayedFraction >= 0.98f) palette.accent.copy(alpha = 0.25f) else Color(0x12FFFFFF))
+                    .background(if (displayedFraction >= 0.98f) palette.accent.copy(alpha = 0.25f) else Color(0x0EFFFFFF))
                     .testTag("volume_max_button")
             ) {
                 Icon(
                     imageVector = Icons.Default.VolumeUp,
                     contentDescription = "Max Volume",
                     tint = if (displayedFraction >= 0.98f) palette.accent else Color(0xFFD5D5E8),
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
