@@ -111,19 +111,19 @@ class AudioAnalysisEngine {
             while (isActive && isAnalyzing) {
                 // If playback is paused or app in background or batterySaver active, throttle to save CPU & battery
                 if (!isPlaybackActive || !isAppForeground || batterySaver) {
-                    if (smoothKickPulse > 0.02f || smoothBass > 0.02f) {
-                        smoothKickPulse *= 0.75f
-                        smoothBass *= 0.75f
-                        smoothEnergy *= 0.75f
+                    if (smoothKickPulse > 0.01f || smoothBass > 0.01f) {
+                        smoothKickPulse = 0f
+                        smoothBass = 0f
+                        smoothEnergy = 0f
                         _analysisState.value = _analysisState.value.copy(
-                            kickPulse = smoothKickPulse,
-                            haloExpansion = smoothBass,
-                            totalEnergy = smoothEnergy,
+                            kickPulse = 0f,
+                            haloExpansion = 0f,
+                            totalEnergy = 0f,
                             isKick = false,
                             isBeat = false
                         )
                     }
-                    delay(200L)
+                    delay(500L)
                     continue
                 }
 

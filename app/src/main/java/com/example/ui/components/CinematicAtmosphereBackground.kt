@@ -14,8 +14,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import androidx.compose.ui.platform.LocalContext
+import coil.request.ImageRequest
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
 import com.example.data.model.Track
@@ -72,7 +72,8 @@ fun CinematicAtmosphereBackground(
     )
 
     Box(modifier = modifier.fillMaxSize().background(Color(0xFF06060A))) {
-        // Layer 1: Heavily blurred, soft, darkened Album Art with seamless crossfade
+        // Layer 1: Hardware-scaled, soft ambient album art with seamless crossfade
+        val context = LocalContext.current
         AnimatedContent(
             targetState = track?.artworkUri,
             transitionSpec = {
@@ -83,13 +84,15 @@ fun CinematicAtmosphereBackground(
             modifier = Modifier.fillMaxSize()
         ) { uri ->
             if (uri != null) {
-                AsyncImage(
-                    model = uri,
+                coil.compose.AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(uri)
+                        .size(80, 80)
+                        .crossfade(true)
+                        .build(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .blur(20.dp)
+                    modifier = Modifier.fillMaxSize()
                 )
             } else {
                 Box(modifier = Modifier.fillMaxSize())

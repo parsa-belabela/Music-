@@ -51,7 +51,6 @@ enum class NowPlayingCenterView {
 @Composable
 fun NowPlayingScreen(
     playbackState: PlaybackState,
-    analysisData: AudioAnalysisData,
     palette: AmbientPalette,
     currentLyrics: List<LyricsLine>,
     appSettings: AppSettings,
@@ -73,6 +72,7 @@ fun NowPlayingScreen(
     connectedDevice: ConnectedAudioDevice? = null,
     onShareSong: (Track) -> Unit = {},
     onPlaybackSpeedChange: (Float) -> Unit = {},
+    analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() },
     currentPositionProvider: () -> Long = { playbackState.currentPositionMs }
 ) {
     val track = playbackState.currentTrack ?: return
@@ -112,7 +112,7 @@ fun NowPlayingScreen(
         CinematicAtmosphereBackground(
             track = track,
             palette = palette,
-            analysisDataProvider = { analysisData },
+            analysisDataProvider = analysisDataProvider,
             glowStrength = if (isImmersive) appSettings.visualizerGlow * 1.25f else appSettings.visualizerGlow
         )
 
@@ -407,8 +407,9 @@ fun NowPlayingScreen(
                                 modifier = Modifier
                                     .size(if (isImmersive) 320.dp else 285.dp)
                                     .graphicsLayer {
-                                        val bass = if (isPlaying) analysisData.haloExpansion else 0f
-                                        val kick = if (isPlaying) analysisData.kickPulse else 0f
+                                        val data = analysisDataProvider()
+                                        val bass = if (isPlaying) data.haloExpansion else 0f
+                                        val kick = if (isPlaying) data.kickPulse else 0f
                                         val s = if (isImmersive) 1.08f else (1f + bass * 0.035f + kick * 0.025f)
                                         scaleX = s
                                         scaleY = s
@@ -485,11 +486,11 @@ fun NowPlayingScreen(
                     NowPlayingCenterView.VISUALIZER_FULL -> {
                         AudioVisualizer(
                             mode = appSettings.visualizerMode,
-                            analysisData = analysisData,
                             palette = palette,
                             modifier = Modifier.fillMaxSize(),
                             sensitivity = appSettings.visualizerSensitivity,
-                            glow = appSettings.visualizerGlow
+                            glow = appSettings.visualizerGlow,
+                            analysisDataProvider = analysisDataProvider
                         )
                     }
 
@@ -583,7 +584,7 @@ fun NowPlayingScreen(
                     currentPositionProvider = currentPositionProvider,
                     durationMs = playbackState.durationMs,
                     palette = palette,
-                    analysisDataProvider = { analysisData },
+                    analysisDataProvider = analysisDataProvider,
                     onSeekTo = {
                         triggerHaptic()
                         onSeekTo(it)
@@ -737,7 +738,7 @@ fun NowPlayingScreen(
             AnimatedVisibility(visible = !isImmersive) {
                 LiquidGlassVolumeControl(
                     palette = palette,
-                    analysisDataProvider = { analysisData },
+                    analysisDataProvider = analysisDataProvider,
                     hapticFeedbackEnabled = appSettings.hapticFeedbackEnabled,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -855,7 +856,7 @@ fun NowPlayingScreen(
         // Developer Mode HUD if enabled
         if (appSettings.developerModeEnabled) {
             DeveloperHud(
-                analysisData = analysisData,
+                analysisDataProvider = analysisDataProvider,
                 playbackState = playbackState,
                 modifier = Modifier
                     .align(Alignment.TopStart)

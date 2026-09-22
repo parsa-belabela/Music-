@@ -3,6 +3,7 @@ package com.example.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -236,29 +237,57 @@ fun LyricsView(
                     }
                 ) {
                     if (isActive && enableWordHighlight && line.words.isNotEmpty()) {
-                        // Word-level karaoke highlighting
+                        // Word-level karaoke highlighting with continuous gradient sweep & glow
                         val curPos = currentPositionProvider()
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = when (displayMode) {
                                 LyricsDisplayMode.CENTER, LyricsDisplayMode.CINEMATIC, LyricsDisplayMode.FLOATING -> Arrangement.Center
                                 else -> Arrangement.Start
-                            }
+                            },
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             for (w in line.words) {
                                 val isWordActive = curPos in w.startMs..w.endMs
                                 val isWordPassed = curPos > w.endMs
-                                val wordColor = when {
-                                    isWordActive -> palette.accent
-                                    isWordPassed -> Color.White
-                                    else -> Color.White.copy(alpha = 0.6f)
+
+                                val sweepFraction = if (isWordActive) {
+                                    val duration = (w.endMs - w.startMs).coerceAtLeast(1L)
+                                    ((curPos - w.startMs).toFloat() / duration).coerceIn(0f, 1f)
+                                } else if (isWordPassed) 1f else 0f
+
+                                val wordScale by animateFloatAsState(
+                                    targetValue = if (isWordActive) 1.06f else 1.0f,
+                                    animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f),
+                                    label = "wordScale"
+                                )
+
+                                val wordBrush = if (isWordActive) {
+                                    Brush.horizontalGradient(
+                                        0.0f to palette.accent,
+                                        (sweepFraction * 0.95f).coerceIn(0f, 1f) to palette.accent,
+                                        sweepFraction.coerceIn(0f, 1f) to Color.White,
+                                        (sweepFraction + 0.15f).coerceIn(0f, 1f) to Color.White.copy(alpha = 0.55f),
+                                        1.0f to Color.White.copy(alpha = 0.55f)
+                                    )
+                                } else if (isWordPassed) {
+                                    Brush.linearGradient(listOf(Color.White, Color.White))
+                                } else {
+                                    Brush.linearGradient(listOf(Color.White.copy(alpha = 0.45f), Color.White.copy(alpha = 0.45f)))
                                 }
 
                                 Text(
                                     text = "${w.word} ",
                                     fontSize = (baseFontSize + 2f).sp,
-                                    fontWeight = if (isWordActive) FontWeight.Bold else FontWeight.SemiBold,
-                                    color = wordColor,
+                                    fontWeight = if (isWordActive) FontWeight.Black else if (isWordPassed) FontWeight.Bold else FontWeight.SemiBold,
+                                    style = androidx.compose.ui.text.TextStyle(
+                                        brush = wordBrush,
+                                        shadow = if (isWordActive) androidx.compose.ui.graphics.Shadow(
+                                            color = palette.accent.copy(alpha = 0.8f),
+                                            blurRadius = 14f
+                                        ) else null
+                                    ),
+                                    modifier = Modifier.scale(wordScale),
                                     lineHeight = ((baseFontSize + 2f) * 1.45f).sp
                                 )
                             }

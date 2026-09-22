@@ -179,9 +179,18 @@ object ArtworkPaletteExtractor {
                 }
             }
 
-            val primary = dominantColors.getOrNull(0) ?: Color(0xFF00E5FF)
-            val secondary = dominantColors.getOrNull(1) ?: Color(0xFF8B5CF6)
-            val accent = dominantColors.getOrNull(2) ?: Color(0xFFFF007F)
+            val rawPrimary = dominantColors.getOrNull(0) ?: Color(0xFF00E5FF)
+            val rawSecondary = dominantColors.getOrNull(1) ?: Color(0xFF8B5CF6)
+            val rawAccent = dominantColors.getOrNull(2) ?: Color(0xFFFF007F)
+
+            // Cinematic color grading: boost saturation and vibrance like a movie poster
+            val primary = enhanceCinematicVibrance(rawPrimary, boostSat = 1.25f, boostVal = 1.15f)
+            val secondary = enhanceCinematicVibrance(rawSecondary, boostSat = 1.20f, boostVal = 1.10f)
+            val accent = enhanceCinematicVibrance(rawAccent, boostSat = 1.30f, boostVal = 1.20f)
+
+            // Compute perceived luminance (Rec. 709 / W3C formula)
+            val perceivedLuminance = (0.299f * primary.red + 0.587f * primary.green + 0.114f * primary.blue)
+            val isLightLuminance = perceivedLuminance > 0.62f
 
             // Deep background atmosphere derived cleanly from primary color hue
             val deepHsv = FloatArray(3)
@@ -195,11 +204,19 @@ object ArtworkPaletteExtractor {
                 haloGlow = primary.copy(alpha = 0.65f),
                 accent = accent,
                 deepAtmosphere = deepAtmosphere,
-                isLightLuminance = false
+                isLightLuminance = isLightLuminance
             )
         } catch (_: Exception) {
             getDefaultPalette(theme)
         }
+    }
+
+    private fun enhanceCinematicVibrance(color: Color, boostSat: Float, boostVal: Float): Color {
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(color.toArgb(), hsv)
+        hsv[1] = (hsv[1] * boostSat).coerceIn(0.45f, 1.0f)
+        hsv[2] = (hsv[2] * boostVal).coerceIn(0.70f, 1.0f)
+        return Color(android.graphics.Color.HSVToColor(hsv))
     }
 
     private fun colorDistance(c1: Color, c2: Color): Double {

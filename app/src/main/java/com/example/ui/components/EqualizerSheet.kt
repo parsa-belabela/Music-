@@ -295,14 +295,14 @@ fun EqualizerSheet(
 
             Spacer(modifier = Modifier.height(22.dp))
 
-            // 10-Band Graphic EQ representation
+            // 10-Band Graphic EQ representation & Interactive Frequency Response Curve
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "10-BAND FREQUENCY SPECTRUM",
+                    text = "ACOUSTIC FREQUENCY RESPONSE",
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = Color(0xFFA5ABC0),
                         letterSpacing = 1.2.sp,
@@ -318,6 +318,97 @@ fun EqualizerSheet(
                 )
             }
             Spacer(modifier = Modifier.height(10.dp))
+
+            // Live Spline Acoustic Curve Visualizer
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(90.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF0C0E1A))
+                    .border(1.dp, palette.primary.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
+                    .padding(8.dp)
+            ) {
+                androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                    val w = size.width
+                    val h = size.height
+                    val zeroY = h / 2f
+
+                    // Draw 0dB reference line
+                    drawLine(
+                        color = Color(0x33FFFFFF),
+                        start = androidx.compose.ui.geometry.Offset(0f, zeroY),
+                        end = androidx.compose.ui.geometry.Offset(w, zeroY),
+                        strokeWidth = 1.dp.toPx(),
+                        pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
+                    )
+
+                    val count = bandGains.size
+                    if (count >= 2) {
+                        val points = List(count) { i ->
+                            val px = (i.toFloat() / (count - 1)) * (w - 24f) + 12f
+                            val gain = bandGains[i].coerceIn(-12f, 12f)
+                            // Map -12dB..+12dB to bottom..top
+                            val py = zeroY - (gain / 12f) * (h * 0.40f)
+                            androidx.compose.ui.geometry.Offset(px, py)
+                        }
+
+                        val curvePath = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(points[0].x, points[0].y)
+                            for (i in 0 until points.size - 1) {
+                                val p0 = points[i]
+                                val p1 = points[i + 1]
+                                val midX = (p0.x + p1.x) / 2f
+                                cubicTo(midX, p0.y, midX, p1.y, p1.x, p1.y)
+                            }
+                        }
+
+                        val fillPath = androidx.compose.ui.graphics.Path().apply {
+                            addPath(curvePath)
+                            lineTo(points.last().x, zeroY)
+                            lineTo(points.first().x, zeroY)
+                            close()
+                        }
+
+                        // Gradient fill under curve
+                        drawPath(
+                            path = fillPath,
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    palette.primary.copy(alpha = 0.35f),
+                                    palette.secondary.copy(alpha = 0.10f),
+                                    Color.Transparent
+                                ),
+                                startY = 0f,
+                                endY = h
+                            )
+                        )
+
+                        // Glowing curve stroke
+                        drawPath(
+                            path = curvePath,
+                            brush = Brush.horizontalGradient(
+                                listOf(palette.primary, palette.accent, palette.secondary)
+                            ),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 2.5.dp.toPx(),
+                                cap = androidx.compose.ui.graphics.StrokeCap.Round
+                            )
+                        )
+
+                        // Points
+                        points.forEach { pt ->
+                            drawCircle(
+                                color = palette.accent,
+                                radius = 3.dp.toPx(),
+                                center = pt
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
 
             Box(
                 modifier = Modifier

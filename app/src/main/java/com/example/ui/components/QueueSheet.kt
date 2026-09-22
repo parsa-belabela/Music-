@@ -38,6 +38,8 @@ fun QueueSheet(
     var showSaveDialog by remember { mutableStateOf(false) }
     var playlistName by remember { mutableStateOf("") }
 
+    var disintegratingIndex by remember { mutableStateOf<Int?>(null) }
+
     ModalBottomSheet(
         onDismissRequest = onClose,
         containerColor = Color(0xFF0E0E1B),
@@ -88,88 +90,107 @@ fun QueueSheet(
                     .weight(1f),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                itemsIndexed(playbackState.queue) { index, track ->
+                itemsIndexed(playbackState.queue, key = { _, track -> track.id }) { index, track ->
                     val isCurrent = index == playbackState.queueIndex
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isCurrent) palette.primary.copy(alpha = 0.2f) else Color(0xFF141424)
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onPlayTrack(track) }
-                    ) {
-                        Row(
+                    val isDisintegrating = disintegratingIndex == index
+
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isCurrent) palette.primary.copy(alpha = 0.2f) else Color(0xFF141424)
+                            ),
+                            shape = RoundedCornerShape(10.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .clickable { onPlayTrack(track) }
                         ) {
-                            TrackArtworkThumbnail(
-                                artworkUri = track.artworkUri,
-                                accentColor = if (isCurrent) palette.accent else palette.primary,
-                                size = 38.dp,
-                                shape = RoundedCornerShape(8.dp),
-                                iconSize = 18.dp
-                            )
-
-                            Spacer(modifier = Modifier.width(10.dp))
-
-                            if (isCurrent) {
-                                Icon(
-                                    imageVector = Icons.Default.VolumeUp,
-                                    contentDescription = "Playing",
-                                    tint = palette.accent,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                            }
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = track.title,
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isCurrent) palette.accent else Color.White
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = "${track.artist} • ${track.durationFormatted}",
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B0)),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            // Move up
-                            if (index > 0) {
-                                IconButton(
-                                    onClick = { onReorder(index, index - 1) },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(imageVector = Icons.Default.KeyboardArrowUp, contentDescription = "Move Up", tint = Color(0xFF888899))
-                                }
-                            }
-
-                            // Move down
-                            if (index < playbackState.queue.size - 1) {
-                                IconButton(
-                                    onClick = { onReorder(index, index + 1) },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(imageVector = Icons.Default.KeyboardArrowDown, contentDescription = "Move Down", tint = Color(0xFF888899))
-                                }
-                            }
-
-                            // Remove
-                            IconButton(
-                                onClick = { onRemoveFromQueue(index) },
-                                modifier = Modifier.size(32.dp)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(imageVector = Icons.Default.Close, contentDescription = "Remove", tint = Color(0xFF888899))
+                                TrackArtworkThumbnail(
+                                    artworkUri = track.artworkUri,
+                                    accentColor = if (isCurrent) palette.accent else palette.primary,
+                                    size = 38.dp,
+                                    shape = RoundedCornerShape(8.dp),
+                                    iconSize = 18.dp
+                                )
+
+                                Spacer(modifier = Modifier.width(10.dp))
+
+                                if (isCurrent) {
+                                    Icon(
+                                        imageVector = Icons.Default.VolumeUp,
+                                        contentDescription = "Playing",
+                                        tint = palette.accent,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                }
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = track.title,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isCurrent) palette.accent else Color.White
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "${track.artist} • ${track.durationFormatted}",
+                                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B0)),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                // Move up
+                                if (index > 0) {
+                                    IconButton(
+                                        onClick = { onReorder(index, index - 1) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.KeyboardArrowUp, contentDescription = "Move Up", tint = Color(0xFF888899))
+                                    }
+                                }
+
+                                // Move down
+                                if (index < playbackState.queue.size - 1) {
+                                    IconButton(
+                                        onClick = { onReorder(index, index + 1) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.KeyboardArrowDown, contentDescription = "Move Down", tint = Color(0xFF888899))
+                                    }
+                                }
+
+                                // Remove with shatter effect
+                                IconButton(
+                                    onClick = {
+                                        disintegratingIndex = index
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(imageVector = Icons.Default.Close, contentDescription = "Remove", tint = Color(0xFF888899))
+                                }
                             }
+                        }
+
+                        if (isDisintegrating) {
+                            DisintegrationOverlay(
+                                isDisintegrating = true,
+                                primaryColor = palette.primary,
+                                accentColor = palette.accent,
+                                onAnimationEnd = {
+                                    disintegratingIndex = null
+                                    onRemoveFromQueue(index)
+                                },
+                                modifier = Modifier.matchParentSize()
+                            )
                         }
                     }
                 }

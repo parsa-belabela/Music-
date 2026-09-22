@@ -82,10 +82,19 @@ fun WrappedScreen(
             append("\n🌌 Powered by Aura High-Fidelity Music Player")
         }
 
+        val imageUri = com.example.util.WrappedCardGenerator.generateWrappedStoryBitmap(context, stats, palette, lang)
+
         val sendIntent = Intent().apply {
             action = Intent.ACTION_SEND
-            putExtra(Intent.EXTRA_TEXT, shareText)
-            type = "text/plain"
+            if (imageUri != null) {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, imageUri)
+                putExtra(Intent.EXTRA_TEXT, shareText)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } else {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, shareText)
+            }
         }
         val shareIntent = Intent.createChooser(sendIntent, Localization.getString("share_wrapped", lang))
         context.startActivity(shareIntent)

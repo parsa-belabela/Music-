@@ -414,11 +414,29 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun toggleFavorite(track: Track) {
+        val newFavState = !track.isFavorite
+        // Optimistic UI updates across current track and queue immediately
+        if (_playbackState.value.currentTrack?.id == track.id) {
+            _playbackState.update {
+                it.copy(currentTrack = it.currentTrack?.copy(isFavorite = newFavState))
+            }
+        }
+        _playbackState.update { state ->
+            val updatedQueue = state.queue.map { qTrack ->
+                if (qTrack.id == track.id) qTrack.copy(isFavorite = newFavState) else qTrack
+            }
+            state.copy(queue = updatedQueue)
+        }
+
         viewModelScope.launch {
-            repository.toggleFavorite(track.id, track.isFavorite)
-            if (_playbackState.value.currentTrack?.id == track.id) {
-                _playbackState.update {
-                    it.copy(currentTrack = it.currentTrack?.copy(isFavorite = !track.isFavorite))
+            try {
+                repository.toggleFavorite(track.id, track.isFavorite)
+            } catch (e: Exception) {
+                // Rollback on error
+                if (_playbackState.value.currentTrack?.id == track.id) {
+                    _playbackState.update {
+                        it.copy(currentTrack = it.currentTrack?.copy(isFavorite = track.isFavorite))
+                    }
                 }
             }
         }

@@ -16,7 +16,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
@@ -35,26 +34,25 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
-import com.example.data.model.AppTheme
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.LocalAppTheme
 import com.example.ui.theme.liquidGlass
@@ -67,6 +65,7 @@ import kotlin.math.roundToInt
  * - Multi-layer frosted liquid glass capsule with dynamic specular reflection & neon glow
  * - Dynamic tactile mute toggle and max volume quick-set
  * - Real-time hardware volume button listener for two-way synchronization
+ * - Full RTL / LTR layout direction awareness
  */
 @Composable
 fun LiquidGlassVolumeControl(
@@ -79,6 +78,8 @@ fun LiquidGlassVolumeControl(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val currentTheme = LocalAppTheme.current
+    val layoutDirection = LocalLayoutDirection.current
+    val isRtl = layoutDirection == LayoutDirection.Rtl
 
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val maxVolume = remember { audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
@@ -92,6 +93,7 @@ fun LiquidGlassVolumeControl(
     var dragFraction by remember { mutableFloatStateOf(deviceVolumeInt.toFloat() / maxVolume.toFloat()) }
     var lastNonZeroVolumeFraction by remember { mutableFloatStateOf(0.5f) }
     var trackWidthPx by remember { mutableFloatStateOf(1f) }
+    var lastTickStep by remember { mutableIntStateOf(-1) }
 
     val triggerHaptic = {
         if (hapticFeedbackEnabled) {
@@ -110,9 +112,10 @@ fun LiquidGlassVolumeControl(
                     val currentSysVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
                     deviceVolumeInt = currentSysVol
                     if (!isDragging) {
-                        dragFraction = (currentSysVol.toFloat() / maxVolume.toFloat()).coerceIn(0f, 1f)
+                        val frac = (currentSysVol.toFloat() / maxVolume.toFloat()).coerceIn(0f, 1f)
+                        dragFraction = frac
                         if (currentSysVol > 0) {
-                            lastNonZeroVolumeFraction = dragFraction
+                            lastNonZeroVolumeFraction = frac
                         }
                     }
                 }
@@ -139,7 +142,7 @@ fun LiquidGlassVolumeControl(
     )
 
     val thumbRadiusDp by animateDpAsState(
-        targetValue = if (isDragging) 9.5.dp else 6.5.dp,
+        targetValue = if (isDragging) 9.dp else 6.5.dp,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
         label = "volumeThumbRadius"
     )
@@ -184,11 +187,11 @@ fun LiquidGlassVolumeControl(
         modifier = modifier
             .fillMaxWidth()
             .liquidGlass(
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(22.dp),
                 thickness = GlassThickness.THIN,
                 tintColor = palette.primary,
-                tintAlpha = 0.07f,
-                borderWidth = 0.8.dp,
+                tintAlpha = 0.08f,
+                borderWidth = 0.9.dp,
                 appTheme = currentTheme
             )
             .padding(horizontal = 8.dp, vertical = 2.dp)
@@ -200,11 +203,11 @@ fun LiquidGlassVolumeControl(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            // Left Icon: Mute / Low volume button
+            // Left/Start Icon: Mute / Low volume button
             IconButton(
                 onClick = toggleMute,
                 modifier = Modifier
-                    .size(30.dp)
+                    .size(32.dp)
                     .clip(CircleShape)
                     .background(if (displayedFraction <= 0.01f) Color(0x33F43F5E) else Color(0x0EFFFFFF))
                     .testTag("volume_mute_button")
@@ -231,17 +234,18 @@ fun LiquidGlassVolumeControl(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(28.dp)
+                    .height(32.dp)
                     .onSizeChanged { size ->
                         trackWidthPx = size.width.toFloat().coerceAtLeast(1f)
                     }
-                    .pointerInput(maxVolume) {
+                    .pointerInput(maxVolume, isRtl) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
                             isDragging = true
                             triggerHaptic()
 
-                            val initialFraction = (down.position.x / trackWidthPx).coerceIn(0f, 1f)
+                            val rawFraction = (down.position.x / trackWidthPx).coerceIn(0f, 1f)
+                            val initialFraction = if (isRtl) (1f - rawFraction) else rawFraction
                             dragFraction = initialFraction
                             val targetVolInt = (initialFraction * maxVolume).roundToInt().coerceIn(0, maxVolume)
                             if (targetVolInt != deviceVolumeInt) {
@@ -257,14 +261,20 @@ fun LiquidGlassVolumeControl(
                                 if (!change.pressed) break
 
                                 val currentX = change.position.x
-                                val fraction = (currentX / trackWidthPx).coerceIn(0f, 1f)
+                                val rawFrac = (currentX / trackWidthPx).coerceIn(0f, 1f)
+                                val fraction = if (isRtl) (1f - rawFrac) else rawFrac
                                 dragFraction = fraction
+
+                                val currentStep = (fraction * 20f).toInt() // 5% ticks
+                                if (currentStep != lastTickStep) {
+                                    lastTickStep = currentStep
+                                    triggerHaptic()
+                                }
 
                                 val newVolInt = (fraction * maxVolume).roundToInt().coerceIn(0, maxVolume)
                                 if (newVolInt != deviceVolumeInt) {
                                     deviceVolumeInt = newVolInt
                                     audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVolInt, 0)
-                                    triggerHaptic()
                                 }
                                 onVolumeFractionChange?.invoke(fraction)
                                 change.consume()
@@ -312,17 +322,19 @@ fun LiquidGlassVolumeControl(
 
                     // 2. Active Volume Filled Track
                     val activeWidth = (width * displayedFraction).coerceIn(0f, width)
+                    val startX = if (isRtl) (width - activeWidth) else 0f
+                    val thumbX = if (isRtl) (width - activeWidth) else activeWidth
+
                     if (activeWidth > 0f) {
                         // Ambient Neon Bloom Layer behind active progress
                         drawRoundRect(
                             brush = Brush.horizontalGradient(
-                                colors = listOf(
-                                    primaryColor.copy(alpha = glowAlpha * 0.7f),
-                                    accentColor.copy(alpha = glowAlpha * 0.9f)
-                                ),
-                                startX = 0f,
-                                endX = activeWidth
+                                colors = if (isRtl) listOf(accentColor.copy(alpha = glowAlpha * 0.9f), primaryColor.copy(alpha = glowAlpha * 0.7f))
+                                else listOf(primaryColor.copy(alpha = glowAlpha * 0.7f), accentColor.copy(alpha = glowAlpha * 0.9f)),
+                                startX = startX,
+                                endX = startX + activeWidth
                             ),
+                            topLeft = Offset(startX, 0f),
                             size = Size(activeWidth, height),
                             cornerRadius = cornerRadius
                         )
@@ -330,13 +342,12 @@ fun LiquidGlassVolumeControl(
                         // Vivid Solid Gradient Core
                         drawRoundRect(
                             brush = Brush.horizontalGradient(
-                                colors = listOf(
-                                    primaryColor.copy(alpha = 0.95f),
-                                    accentColor
-                                ),
-                                startX = 0f,
-                                endX = activeWidth
+                                colors = if (isRtl) listOf(accentColor, primaryColor.copy(alpha = 0.95f))
+                                else listOf(primaryColor.copy(alpha = 0.95f), accentColor),
+                                startX = startX,
+                                endX = startX + activeWidth
                             ),
+                            topLeft = Offset(startX, 0f),
                             size = Size(activeWidth, height),
                             cornerRadius = cornerRadius
                         )
@@ -344,15 +355,14 @@ fun LiquidGlassVolumeControl(
                         // Specular Highlight line along top of filled progress
                         drawLine(
                             color = Color.White.copy(alpha = 0.65f),
-                            start = Offset(height / 2f, 0.8f),
-                            end = Offset(activeWidth - 1f, 0.8f),
+                            start = Offset(startX + (if (isRtl) 0f else height / 2f), 0.8f),
+                            end = Offset(startX + activeWidth - (if (isRtl) height / 2f else 0f), 0.8f),
                             strokeWidth = 1f,
                             cap = StrokeCap.Round
                         )
                     }
 
                     // 3. Glowing Prismatic Thumb
-                    val thumbX = activeWidth.coerceIn(0f, width)
                     val thumbRadiusPx = thumbRadiusDp.toPx()
 
                     // Ambient thumb glow aura
@@ -398,11 +408,11 @@ fun LiquidGlassVolumeControl(
                 }
             }
 
-            // Right Icon: Volume High / Max button
+            // Right/End Icon: Volume High / Max button
             IconButton(
                 onClick = setMaxVolume,
                 modifier = Modifier
-                    .size(30.dp)
+                    .size(32.dp)
                     .clip(CircleShape)
                     .background(if (displayedFraction >= 0.98f) palette.accent.copy(alpha = 0.25f) else Color(0x0EFFFFFF))
                     .testTag("volume_max_button")

@@ -30,7 +30,7 @@ fun ModernAuroraMotionBackground(
     palette: AmbientPalette,
     appTheme: AppTheme,
     modifier: Modifier = Modifier,
-    energyReactiveBoost: Float = 0f,
+    energyBoostProvider: () -> Float = { 0f },
     intensity: Float = 1.0f
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "iosAuroraMotion")
@@ -94,7 +94,8 @@ fun ModernAuroraMotionBackground(
             val rad1 = Math.toRadians(angle1.toDouble())
             val rad2 = Math.toRadians(angle2.toDouble())
 
-            val effectiveScale = pulseScale * (1f + energyReactiveBoost * 0.45f) * intensity
+            val currentBoost = energyBoostProvider()
+            val effectiveScale = pulseScale * (1f + currentBoost * 0.45f) * intensity
 
             // Node 1: Primary Radiant Living Orb (Top Right to Center)
             val orb1X = width * 0.65f + (cos(rad1).toFloat() * width * 0.24f)

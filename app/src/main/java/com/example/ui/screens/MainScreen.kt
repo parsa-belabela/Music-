@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.Track
 import com.example.ui.components.*
 import com.example.ui.theme.GlassThickness
@@ -38,32 +39,30 @@ fun MainScreen(
 ) {
     val context = LocalContext.current
 
-    val playbackState by viewModel.playbackState.collectAsState()
-    val analysisData by viewModel.analysisData.collectAsState()
-    val palette by viewModel.activePalette.collectAsState()
-    val appSettings by viewModel.appSettings.collectAsState()
-    val allTracks by viewModel.allTracks.collectAsState()
-    val favoriteTracks by viewModel.favoriteTracks.collectAsState()
-    val recentlyPlayed by viewModel.recentlyPlayed.collectAsState()
-    val mostPlayed by viewModel.mostPlayed.collectAsState()
-    val recentlyAdded by viewModel.recentlyAdded.collectAsState()
-    val playlists by viewModel.playlists.collectAsState()
-    val currentLyrics by viewModel.currentLyrics.collectAsState()
+    val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val palette by viewModel.activePalette.collectAsStateWithLifecycle()
+    val appSettings by viewModel.appSettings.collectAsStateWithLifecycle()
+    val allTracks by viewModel.allTracks.collectAsStateWithLifecycle()
+    val favoriteTracks by viewModel.favoriteTracks.collectAsStateWithLifecycle()
+    val recentlyPlayed by viewModel.recentlyPlayed.collectAsStateWithLifecycle()
+    val mostPlayed by viewModel.mostPlayed.collectAsStateWithLifecycle()
+    val recentlyAdded by viewModel.recentlyAdded.collectAsStateWithLifecycle()
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val currentLyrics by viewModel.currentLyrics.collectAsStateWithLifecycle()
 
     // Wrapped States
-    val wrappedPeriods by viewModel.wrappedPeriods.collectAsState()
-    val selectedWrappedPeriod by viewModel.selectedWrappedPeriod.collectAsState()
-    val wrappedStats by viewModel.wrappedStats.collectAsState()
+    val wrappedPeriods by viewModel.wrappedPeriods.collectAsStateWithLifecycle()
+    val selectedWrappedPeriod by viewModel.selectedWrappedPeriod.collectAsStateWithLifecycle()
+    val wrappedStats by viewModel.wrappedStats.collectAsStateWithLifecycle()
 
-    val currentPositionMs by viewModel.currentPositionMs.collectAsState()
-    val isNowPlayingExpanded by viewModel.isNowPlayingExpanded.collectAsState()
-    val showLyricsEditor by viewModel.showLyricsEditor.collectAsState()
-    val showEqualizer by viewModel.showEqualizer.collectAsState()
-    val showQueue by viewModel.showQueue.collectAsState()
-    val showSleepTimer by viewModel.showSleepTimer.collectAsState()
-    val editingTrackMetadata by viewModel.editingTrackMetadata.collectAsState()
-    val connectedDevice by viewModel.connectedAudioDevice.collectAsState()
-    val showShareCard by viewModel.showShareCard.collectAsState()
+    val isNowPlayingExpanded by viewModel.isNowPlayingExpanded.collectAsStateWithLifecycle()
+    val showLyricsEditor by viewModel.showLyricsEditor.collectAsStateWithLifecycle()
+    val showEqualizer by viewModel.showEqualizer.collectAsStateWithLifecycle()
+    val showQueue by viewModel.showQueue.collectAsStateWithLifecycle()
+    val showSleepTimer by viewModel.showSleepTimer.collectAsStateWithLifecycle()
+    val editingTrackMetadata by viewModel.editingTrackMetadata.collectAsStateWithLifecycle()
+    val connectedDevice by viewModel.connectedAudioDevice.collectAsStateWithLifecycle()
+    val showShareCard by viewModel.showShareCard.collectAsStateWithLifecycle()
 
     var showInitialSplash by remember { mutableStateOf(true) }
     var currentTab by remember { mutableStateOf(MainTab.HOME) }
@@ -87,11 +86,11 @@ fun MainScreen(
 
     CompositionLocalProvider(LocalAppTheme provides appSettings.theme) {
         Box(modifier = modifier.fillMaxSize()) {
-            // Living RGB Motion Graphic Aurora Background behind the entire application
+            // Living RGB Motion Graphic Aurora Background behind the entire application (Draw phase dynamic energy reading)
             ModernAuroraMotionBackground(
                 palette = palette,
                 appTheme = appSettings.theme,
-                energyReactiveBoost = analysisData.haloExpansion,
+                energyBoostProvider = { viewModel.analysisData.value.haloExpansion },
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -110,8 +109,8 @@ fun MainScreen(
                                 onPrevious = { viewModel.previousTrack() },
                                 onExpandNowPlaying = { viewModel.isNowPlayingExpanded.value = true },
                                 connectedDevice = connectedDevice,
-                                analysisDataProvider = { analysisData },
-                                currentPositionProvider = { currentPositionMs }
+                                analysisDataProvider = { viewModel.analysisData.value },
+                                currentPositionProvider = { viewModel.currentPositionMs.value }
                             )
                         }
 
@@ -344,11 +343,11 @@ fun MainScreen(
                 ) {
                     NowPlayingScreen(
                         playbackState = playbackState,
-                        analysisData = analysisData,
                         palette = palette,
                         currentLyrics = currentLyrics,
                         appSettings = appSettings,
-                        currentPositionProvider = { currentPositionMs },
+                        analysisDataProvider = { viewModel.analysisData.value },
+                        currentPositionProvider = { viewModel.currentPositionMs.value },
                         onCollapse = { viewModel.isNowPlayingExpanded.value = false },
                         onTogglePlay = { viewModel.togglePlayPause() },
                         onNext = { viewModel.nextTrack() },
@@ -396,7 +395,7 @@ fun MainScreen(
             LyricsEditorSheet(
                 track = playbackState.currentTrack,
                 currentLyrics = currentLyrics,
-                currentPositionMs = currentPositionMs,
+                currentPositionMs = viewModel.currentPositionMs.value,
                 palette = palette,
                 onSave = { rawLrc, offsetMs ->
                     playbackState.currentTrack?.let {

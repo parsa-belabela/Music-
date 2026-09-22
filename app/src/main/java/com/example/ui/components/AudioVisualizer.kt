@@ -31,11 +31,11 @@ class Particle(
 @Composable
 fun AudioVisualizer(
     mode: VisualizerMode,
-    analysisData: AudioAnalysisData,
     palette: AmbientPalette,
     modifier: Modifier = Modifier,
     sensitivity: Float = 1.0f,
-    glow: Float = 0.85f
+    glow: Float = 0.85f,
+    analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() }
 ) {
     val currentTheme = LocalAppTheme.current
 
@@ -54,6 +54,7 @@ fun AudioVisualizer(
     }
 
     Canvas(modifier = modifier.fillMaxSize()) {
+        val analysisData = analysisDataProvider()
         val w = size.width
         val h = size.height
         val center = Offset(w / 2f, h / 2f)

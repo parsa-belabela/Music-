@@ -504,16 +504,16 @@ class AudioEngine(private val context: Context) {
         }
 
         fadeJob = engineScope.launch {
-            val steps = 12
-            val totalDurationMs = 280L
+            val steps = 16
+            val totalDurationMs = 300L
             val stepDelay = totalDurationMs / steps
 
             for (i in 1..steps) {
                 if (transitionId.get() != currentTransitionId || !_isPlayWhenReady.value) break
-                val progress = i.toFloat() / steps
-                // Smooth exponential ease-in curve
-                val curve = progress * progress
-                val currentVol = curve * targetVolume
+                val t = i.toFloat() / steps
+                // Equal-power fade in curve: sin(pi/2 * t)
+                val equalPowerCurve = kotlin.math.sin((Math.PI / 2.0) * t).toFloat()
+                val currentVol = equalPowerCurve * targetVolume
                 try {
                     mp.setVolume(currentVol, currentVol)
                 } catch (_: Exception) {}
@@ -626,11 +626,14 @@ class AudioEngine(private val context: Context) {
             return
         }
         fadeJob = engineScope.launch {
-            val steps = 20
+            val steps = 24
             val delayMs = (durationSeconds * 1000L) / steps
             val headroom = getHeadroomScale()
             for (i in steps downTo 0) {
-                val vol = (i.toFloat() / steps) * masterVolume * headroom
+                val t = i.toFloat() / steps
+                // Equal-power fade out curve: sin(pi/2 * t)
+                val equalPowerFactor = kotlin.math.sin((Math.PI / 2.0) * t).toFloat()
+                val vol = equalPowerFactor * masterVolume * headroom
                 try {
                     currentMp.setVolume(vol, vol)
                 } catch (_: Exception) {}

@@ -58,6 +58,8 @@ fun SettingsScreen(
     var backupJsonText by remember { mutableStateOf("") }
     var isExportMode by remember { mutableStateOf(true) }
 
+    var devTapCount by remember { mutableStateOf(0) }
+
     val lang = settings.language
 
     if (showFeaturesGuideDialog) {
@@ -831,7 +833,33 @@ fun SettingsScreen(
                 )
                 Text(
                     text = "Aura Music Player v1.0.0",
-                    style = MaterialTheme.typography.labelMedium.copy(color = Color(0xFFA0A0B8), fontWeight = FontWeight.Bold)
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        color = if (settings.developerModeEnabled) palette.accent else Color(0xFFA0A0B8),
+                        fontWeight = FontWeight.Bold
+                    ),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            devTapCount++
+                            if (devTapCount in 3..6) {
+                                val remaining = 7 - devTapCount
+                                Toast.makeText(
+                                    context,
+                                    if (lang == AppLanguage.PERSIAN) "$remaining ضربه تا فعال‌سازی حالت توسعه‌دهنده" else "You are $remaining steps away from Developer Mode",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else if (devTapCount >= 7) {
+                                val newDevState = !settings.developerModeEnabled
+                                onUpdateSettings(settings.copy(developerModeEnabled = newDevState))
+                                Toast.makeText(
+                                    context,
+                                    if (newDevState) "🚀 Developer HUD Activated!" else "Developer Mode Disabled",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                devTapCount = 0
+                            }
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
                 )
                 Text(
                     text = "High-Fidelity Audio • 120 FPS Real-Time DSP • Dynamic Aurora",

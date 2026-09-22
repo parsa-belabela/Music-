@@ -17,10 +17,11 @@ import com.example.data.model.PlaybackState
 
 @Composable
 fun DeveloperHud(
-    analysisData: AudioAnalysisData,
     playbackState: PlaybackState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() }
 ) {
+    val analysisData = analysisDataProvider()
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
