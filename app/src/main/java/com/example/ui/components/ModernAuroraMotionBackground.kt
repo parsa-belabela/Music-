@@ -166,11 +166,11 @@ fun ModernAuroraMotionBackground(
             }
         }
 
-        // Multi-node blurred RGB mesh layer with enriched vibrancy and alive light nodes
+        // Multi-node dynamic RGB mesh layer with high-energy vibrancy and living light nodes
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .blur(68.dp)
+                .blur(36.dp)
         ) {
             val width = size.width
             val height = size.height
@@ -179,19 +179,19 @@ fun ModernAuroraMotionBackground(
             val rad1 = Math.toRadians(angle1.toDouble())
             val rad2 = Math.toRadians(angle2.toDouble())
 
-            val effectiveScale = pulseScale * (1f + energyReactiveBoost * 0.38f) * intensity
+            val effectiveScale = pulseScale * (1f + energyReactiveBoost * 0.45f) * intensity
 
-            // Node 1: Primary Radiant Orb (Top Right to Center)
+            // Node 1: Primary Radiant Living Orb (Top Right to Center)
             val orb1X = width * 0.65f + (cos(rad1).toFloat() * width * 0.24f)
             val orb1Y = height * 0.24f + (sin(rad1).toFloat() * height * 0.20f)
-            val orb1Radius = (width * 0.60f) * effectiveScale
+            val orb1Radius = (width * 0.62f) * effectiveScale
 
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        palette.primary.copy(alpha = 0.68f * intensity),
-                        palette.primary.copy(alpha = 0.30f * intensity),
-                        Color.Transparent
+                        palette.primary.copy(alpha = 0.85f * intensity),
+                        palette.primary.copy(alpha = 0.45f * intensity),
+                        palette.primary.copy(alpha = 0f)
                     ),
                     center = Offset(orb1X, orb1Y),
                     radius = orb1Radius
@@ -200,17 +200,17 @@ fun ModernAuroraMotionBackground(
                 radius = orb1Radius
             )
 
-            // Node 2: Secondary / Cyan-Blue Fluid Orb (Bottom Left to Center)
+            // Node 2: Secondary Electric Azure/Cyan Fluid Orb (Bottom Left to Center)
             val orb2X = width * 0.30f + (sin(rad2).toFloat() * width * 0.26f)
             val orb2Y = height * 0.58f + (cos(rad2).toFloat() * height * 0.22f)
-            val orb2Radius = (width * 0.64f) * effectiveScale
+            val orb2Radius = (width * 0.66f) * effectiveScale
 
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        palette.secondary.copy(alpha = 0.62f * intensity),
-                        palette.secondary.copy(alpha = 0.26f * intensity),
-                        Color.Transparent
+                        palette.secondary.copy(alpha = 0.80f * intensity),
+                        palette.secondary.copy(alpha = 0.40f * intensity),
+                        palette.secondary.copy(alpha = 0f)
                     ),
                     center = Offset(orb2X, orb2Y),
                     radius = orb2Radius
@@ -219,17 +219,17 @@ fun ModernAuroraMotionBackground(
                 radius = orb2Radius
             )
 
-            // Node 3: Vivid Accent / Neon Glow Orb (Top Left to Bottom Right)
+            // Node 3: Vivid Accent / Neon Electric Glow Orb (Top Left to Bottom Right)
             val orb3X = width * 0.22f + (cos(rad2 * 0.85).toFloat() * width * 0.22f)
             val orb3Y = height * 0.16f + (sin(rad1 * 0.75).toFloat() * height * 0.18f)
-            val orb3Radius = (width * 0.50f) * effectiveScale
+            val orb3Radius = (width * 0.54f) * effectiveScale
 
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        palette.accent.copy(alpha = 0.66f * intensity),
-                        palette.accent.copy(alpha = 0.24f * intensity),
-                        Color.Transparent
+                        palette.accent.copy(alpha = 0.85f * intensity),
+                        palette.accent.copy(alpha = 0.38f * intensity),
+                        palette.accent.copy(alpha = 0f)
                     ),
                     center = Offset(orb3X, orb3Y),
                     radius = orb3Radius
@@ -238,23 +238,42 @@ fun ModernAuroraMotionBackground(
                 radius = orb3Radius
             )
 
-            // Node 4: Deep Atmosphere Core (Bottom Right & Center-Bottom)
-            val orb4X = width * 0.78f + (sin(rad1 * 1.1).toFloat() * width * 0.18f)
-            val orb4Y = height * 0.80f + (cos(rad2 * 1.05).toFloat() * height * 0.15f)
-            val orb4Radius = (width * 0.56f) * effectiveScale
+            // Node 4: Dynamic Center Fusion Core (Breathing Harmonic Hearth)
+            val orb4X = width * 0.50f + (sin(rad1 * 0.5).toFloat() * width * 0.12f)
+            val orb4Y = height * 0.42f + (cos(rad2 * 0.5).toFloat() * height * 0.12f)
+            val orb4Radius = (width * 0.48f) * effectiveScale
 
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        palette.deepAtmosphere.copy(alpha = 0.72f * intensity),
-                        palette.primary.copy(alpha = 0.28f * intensity),
-                        Color.Transparent
+                        palette.accent.copy(alpha = 0.60f * intensity),
+                        palette.primary.copy(alpha = 0.25f * intensity),
+                        palette.primary.copy(alpha = 0f)
                     ),
                     center = Offset(orb4X, orb4Y),
                     radius = orb4Radius
                 ),
                 center = Offset(orb4X, orb4Y),
                 radius = orb4Radius
+            )
+
+            // Node 5: Deep Atmosphere Floor (Bottom Depth)
+            val orb5X = width * 0.78f + (sin(rad1 * 1.1).toFloat() * width * 0.18f)
+            val orb5Y = height * 0.82f + (cos(rad2 * 1.05).toFloat() * height * 0.15f)
+            val orb5Radius = (width * 0.58f) * effectiveScale
+
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        palette.deepAtmosphere.copy(alpha = 0.80f * intensity),
+                        palette.primary.copy(alpha = 0.35f * intensity),
+                        palette.primary.copy(alpha = 0f)
+                    ),
+                    center = Offset(orb5X, orb5Y),
+                    radius = orb5Radius
+                ),
+                center = Offset(orb5X, orb5Y),
+                radius = orb5Radius
             )
         }
 
@@ -265,9 +284,9 @@ fun ModernAuroraMotionBackground(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            baseBackgroundColor.copy(alpha = 0.22f),
+                            baseBackgroundColor.copy(alpha = 0.15f),
                             Color.Transparent,
-                            baseBackgroundColor.copy(alpha = 0.68f)
+                            baseBackgroundColor.copy(alpha = 0.55f)
                         )
                     )
                 )

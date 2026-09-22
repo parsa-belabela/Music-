@@ -1,12 +1,13 @@
 package com.example.ui.components
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -28,9 +30,10 @@ import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
 
 /**
- * Premium Apple-inspired A-Z Scrubber navigation for fast alphabet scrolling.
- * Supports both Persian and English alphabets with real-time haptic feedback
- * and floating magnifier preview bubble.
+ * Ultra-Smooth High-Performance A-Z Scrubber navigation for fast alphabet scrolling.
+ * - Single-pass unified gesture detection with instant touch response & zero touch-slop lag
+ * - Prevents coroutine piling and abrupt jumping by smooth nearest-neighbor indexing
+ * - Apple-grade Liquid Glass Magnifier preview with glowing neon halo
  */
 @Composable
 fun AlphabetIndexScrubber(
@@ -44,8 +47,8 @@ fun AlphabetIndexScrubber(
     var activeLetter by remember { mutableStateOf<String?>(null) }
     val haptic = LocalHapticFeedback.current
 
-    val selectLetterAtY = { y: Float ->
-        if (componentHeight > 0 && alphabet.isNotEmpty()) {
+    val selectLetterAtY: (Float) -> Unit = { y ->
+        if (componentHeight > 0f && alphabet.isNotEmpty()) {
             val fraction = (y / componentHeight).coerceIn(0f, 0.999f)
             val index = (fraction * alphabet.size).toInt().coerceIn(0, alphabet.lastIndex)
             val letter = alphabet[index]
@@ -64,35 +67,40 @@ fun AlphabetIndexScrubber(
     Box(
         modifier = modifier
             .fillMaxHeight()
-            .padding(vertical = 16.dp),
+            .padding(vertical = 12.dp),
         contentAlignment = Alignment.CenterEnd
     ) {
-        // Floating Magnifier Bubble
+        // Floating Magnifier Bubble (Lightweight fast animation, no frame-drop springs)
         AnimatedVisibility(
             visible = activeLetter != null,
-            enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
-                    scaleIn(initialScale = 0.7f),
-            exit = fadeOut(spring(stiffness = Spring.StiffnessHigh)) +
-                    scaleOut(targetScale = 0.7f),
+            enter = fadeIn(animationSpec = tween(90)),
+            exit = fadeOut(animationSpec = tween(120)),
             modifier = Modifier
                 .align(Alignment.Center)
-                .padding(end = 46.dp)
+                .padding(end = 40.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(54.dp)
-                    .shadow(16.dp, CircleShape, ambientColor = palette.primary, spotColor = palette.accent)
+                    .size(56.dp)
+                    .shadow(20.dp, CircleShape, ambientColor = palette.primary, spotColor = palette.accent)
                     .clip(CircleShape)
-                    .background(palette.primary)
-                    .border(1.5.dp, Color(0x66FFFFFF), CircleShape),
+                    .background(
+                        Brush.radialGradient(
+                            listOf(
+                                palette.primary,
+                                Color(0xFF161628)
+                            )
+                        )
+                    )
+                    .border(1.5.dp, palette.accent.copy(alpha = 0.8f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = activeLetter ?: "",
                     style = MaterialTheme.typography.titleLarge.copy(
                         color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 24.sp
+                        fontWeight = FontWeight.Black,
+                        fontSize = 26.sp
                     )
                 )
             }
@@ -101,37 +109,29 @@ fun AlphabetIndexScrubber(
         // The Alphabet Strip
         Column(
             modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0x18000000))
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0x280B0C16))
+                .border(0.8.dp, Color(0x18FFFFFF), RoundedCornerShape(16.dp))
                 .padding(horizontal = 4.dp, vertical = 6.dp)
                 .onGloballyPositioned { coordinates ->
                     componentHeight = coordinates.size.height.toFloat()
                 }
-                .pointerInput(alphabet) {
-                    detectTapGestures(
-                        onPress = { offset ->
-                            selectLetterAtY(offset.y)
-                            tryAwaitRelease()
-                            activeLetter = null
-                        }
-                    )
-                }
-                .pointerInput(alphabet) {
-                    detectVerticalDragGestures(
-                        onDragStart = { offset ->
-                            selectLetterAtY(offset.y)
-                        },
-                        onDragEnd = {
-                            activeLetter = null
-                        },
-                        onDragCancel = {
-                            activeLetter = null
-                        },
-                        onVerticalDrag = { change, _ ->
+                .pointerInput(alphabet, letterIndices) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        selectLetterAtY(down.position.y)
+                        val pointerId = down.id
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                            if (!change.pressed) {
+                                break
+                            }
                             change.consume()
                             selectLetterAtY(change.position.y)
                         }
-                    )
+                        activeLetter = null
+                    }
                 },
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceEvenly
@@ -143,15 +143,15 @@ fun AlphabetIndexScrubber(
                 Text(
                     text = letter,
                     style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = if (alphabet.size > 26) 8.5.sp else 9.5.sp,
+                        fontSize = if (alphabet.size > 26) 8.5.sp else 10.sp,
                         fontWeight = if (isSelected) FontWeight.Black else if (hasSongs) FontWeight.Bold else FontWeight.Normal,
                         color = when {
                             isSelected -> palette.accent
                             hasSongs -> Color.White
-                            else -> Color(0x35FFFFFF)
+                            else -> Color(0x38FFFFFF)
                         }
                     ),
-                    modifier = Modifier.padding(vertical = 1.dp)
+                    modifier = Modifier.padding(vertical = 0.5.dp)
                 )
             }
         }

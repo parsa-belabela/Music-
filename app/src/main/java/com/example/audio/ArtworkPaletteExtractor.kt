@@ -117,6 +117,8 @@ object ArtworkPaletteExtractor {
             val hsv = FloatArray(3)
             val colorBuckets = HashMap<Int, Int>() // Key -> pixel count
             val colorVibrancy = HashMap<Int, Float>() // Key -> total saturation * value
+            val bucketBestColor = HashMap<Int, Color>()
+            val bucketBestScore = HashMap<Int, Float>()
 
             for (pixel in pixels) {
                 val alpha = (pixel ushr 24) and 0xff
@@ -128,7 +130,7 @@ object ArtworkPaletteExtractor {
                 val value = hsv[2]
 
                 // Discard extreme near-black or extreme washed-out white
-                if (value < 0.12f || (sat < 0.08f && value > 0.90f)) continue
+                if (value < 0.15f || (sat < 0.10f && value > 0.88f)) continue
 
                 // Quantize hue into 18 bins (20 deg each), sat into 3 bins, value into 3 bins
                 val hueBin = (hue / 20f).toInt().coerceIn(0, 17)
@@ -137,54 +139,60 @@ object ArtworkPaletteExtractor {
                 val key = (hueBin shl 4) or (satBin shl 2) or valBin
 
                 colorBuckets[key] = (colorBuckets[key] ?: 0) + 1
-                colorVibrancy[key] = (colorVibrancy[key] ?: 0f) + (sat * value)
+                val pixelVibrancy = (sat * sat) * value
+                colorVibrancy[key] = (colorVibrancy[key] ?: 0f) + pixelVibrancy
+
+                if (pixelVibrancy > (bucketBestScore[key] ?: -1f)) {
+                    bucketBestScore[key] = pixelVibrancy
+                    val boostedHsv = floatArrayOf(
+                        hue,
+                        (sat * 1.30f + 0.18f).coerceIn(0.65f, 1.0f),
+                        (value * 1.25f + 0.15f).coerceIn(0.85f, 1.0f)
+                    )
+                    bucketBestColor[key] = Color(android.graphics.Color.HSVToColor(boostedHsv))
+                }
             }
 
             if (colorBuckets.isEmpty()) {
                 return getDefaultPalette(theme)
             }
 
-            // Sort keys by count multiplied by vibrancy
+            // Heavily reward saturation and vibrancy so lights pop
             val rankedKeys = colorBuckets.keys.sortedByDescending { key ->
                 val count = colorBuckets[key] ?: 1
-                val avgVibrancy = (colorVibrancy[key] ?: 0f) / count
-                count * (0.35f + avgVibrancy * 0.65f)
+                val totalVibrancy = colorVibrancy[key] ?: 0f
+                count * 0.3f + totalVibrancy * 2.5f
             }
 
             val dominantColors = mutableListOf<Color>()
             for (key in rankedKeys) {
-                val hueBin = (key shr 4) and 0x1F
-                val satBin = (key shr 2) and 0x03
-                val valBin = key and 0x03
-
-                val hue = (hueBin * 20f + 10f).coerceIn(0f, 360f)
-                val sat = ((satBin + 1) * 0.32f).coerceIn(0.40f, 0.95f)
-                val value = ((valBin + 1) * 0.32f).coerceIn(0.50f, 0.95f)
-
-                val rgb = android.graphics.Color.HSVToColor(floatArrayOf(hue, sat, value))
-                val color = Color(rgb)
+                val candidateColor = bucketBestColor[key] ?: run {
+                    val hueBin = (key shr 4) and 0x1F
+                    val hue = (hueBin * 20f + 10f).coerceIn(0f, 360f)
+                    Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.85f, 0.95f)))
+                }
 
                 // Distinct color separation check
-                if (dominantColors.isEmpty() || dominantColors.none { colorDistance(it, color) < 45 }) {
-                    dominantColors.add(color)
+                if (dominantColors.isEmpty() || dominantColors.none { colorDistance(it, candidateColor) < 55 }) {
+                    dominantColors.add(candidateColor)
                     if (dominantColors.size >= 3) break
                 }
             }
 
-            val primary = dominantColors.getOrNull(0) ?: Color(0xFF8B5CF6)
-            val secondary = dominantColors.getOrNull(1) ?: Color(0xFF38BDF8)
-            val accent = dominantColors.getOrNull(2) ?: Color(0xFFC084FC)
+            val primary = dominantColors.getOrNull(0) ?: Color(0xFF00E5FF)
+            val secondary = dominantColors.getOrNull(1) ?: Color(0xFF8B5CF6)
+            val accent = dominantColors.getOrNull(2) ?: Color(0xFFFF007F)
 
             // Deep background atmosphere derived cleanly from primary color hue
             val deepHsv = FloatArray(3)
             android.graphics.Color.colorToHSV(primary.toArgb(), deepHsv)
-            val deepRgb = android.graphics.Color.HSVToColor(floatArrayOf(deepHsv[0], 0.65f, 0.08f))
+            val deepRgb = android.graphics.Color.HSVToColor(floatArrayOf(deepHsv[0], 0.70f, 0.08f))
             val deepAtmosphere = Color(deepRgb)
 
             AmbientPalette(
                 primary = primary,
                 secondary = secondary,
-                haloGlow = primary.copy(alpha = 0.45f),
+                haloGlow = primary.copy(alpha = 0.65f),
                 accent = accent,
                 deepAtmosphere = deepAtmosphere,
                 isLightLuminance = false

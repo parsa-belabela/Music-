@@ -583,6 +583,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             duckVolumeOnInterruption = prefs.getBoolean("duck_volume", true),
             bassBoostStrength = prefs.getInt("bass_boost", 300),
             equalizerEnabled = prefs.getBoolean("eq_enabled", true),
+            eqPreset = prefs.getString("eq_preset", "Flat") ?: "Flat",
             eqBands = bands,
             playbackSpeed = prefs.getFloat("playback_speed", 1.0f)
         )
@@ -608,6 +609,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             .putBoolean("duck_volume", settings.duckVolumeOnInterruption)
             .putFloat("playback_speed", settings.playbackSpeed)
             .putBoolean("eq_enabled", settings.equalizerEnabled)
+            .putString("eq_preset", settings.eqPreset)
             .putInt("bass_boost", settings.bassBoostStrength)
             .putString("eq_bands", settings.eqBands.joinToString(","))
             .apply()

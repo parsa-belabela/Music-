@@ -558,7 +558,11 @@ class AudioEngine(private val context: Context) {
         val mp = mediaPlayer
         if (mp != null && isPlayerPrepared) {
             try {
-                mp.seekTo(safePos.toInt())
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    mp.seekTo(safePos, android.media.MediaPlayer.SEEK_CLOSEST)
+                } else {
+                    mp.seekTo(safePos.toInt())
+                }
             } catch (e: Exception) {
                 Log.e(tag, "Error seeking to $safePos", e)
             }

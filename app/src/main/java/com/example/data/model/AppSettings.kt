@@ -28,6 +28,7 @@ data class AppSettings(
     val gaplessEnabled: Boolean = true,
     val bassBoostStrength: Int = 300, // 0 - 1000
     val equalizerEnabled: Boolean = true,
+    val eqPreset: String = "Flat",
     val eqBands: List<Float> = listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f), // 10 bands dB (-12 to +12)
     val pauseOnInterruption: Boolean = true,
     val duckVolumeOnInterruption: Boolean = true,

@@ -1,11 +1,15 @@
 package com.example.ui.components
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -16,8 +20,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
@@ -26,10 +36,11 @@ import com.example.data.model.AppTheme
 import com.example.ui.theme.LocalAppTheme
 
 /**
- * Liquid Glass Progress Bar & High-Precision Scrubber
- * - Buttery smooth drag scrubber with zero jumping or lag
- * - Real-time audio energy reactivity and radiant bloom
- * - Precise millisecond seeking
+ * Premium Spotify-grade Cinematic Liquid Glass Progress Bar & High-Precision Scrubber.
+ * - Continuous, buttery-smooth dragging with instant second-by-second feedback
+ * - Neon luminous glowing progress track with soft ambient bloom
+ * - Beautifully illuminated responsive thumb with interactive expansion
+ * - Zero jitter, zero snapping, immediate seek responsiveness
  */
 @Composable
 fun LiquidGlassProgressBar(
@@ -41,53 +52,83 @@ fun LiquidGlassProgressBar(
     modifier: Modifier = Modifier
 ) {
     val currentTheme = LocalAppTheme.current
-    var isScrubbing by remember { mutableStateOf(false) }
-    var scrubProgress by remember { mutableStateOf(0f) }
+    var isDragging by remember { mutableStateOf(false) }
+    var dragProgress by remember { mutableFloatStateOf(0f) }
+    var componentWidthPx by remember { mutableFloatStateOf(1f) }
 
-    val currentMs = currentPositionProvider()
     val safeDuration = durationMs.coerceAtLeast(1L)
-    val actualProgress = (currentMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
-    val displayedProgress = if (isScrubbing) scrubProgress else actualProgress
+    val currentMs = currentPositionProvider()
+    val playbackFraction = (currentMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
 
-    val barHeight by animateFloatAsState(
-        targetValue = if (isScrubbing) 8.5f else 5.5f,
-        animationSpec = tween(150),
-        label = "progressBarHeight"
+    // Current visual progress: exactly tracks finger position during drag, else real audio position
+    val displayedProgress = if (isDragging) dragProgress else playbackFraction
+
+    // Dynamic track height animation on interaction
+    val trackHeight by animateDpAsState(
+        targetValue = if (isDragging) 7.5.dp else 4.5.dp,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "trackHeight"
     )
 
-    Column(modifier = modifier.fillMaxWidth()) {
+    // Dynamic thumb size animation on interaction
+    val thumbRadiusDp by animateDpAsState(
+        targetValue = if (isDragging) 9.5.dp else 6.5.dp,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "thumbRadius"
+    )
+
+    // Ambient halo expansion during drag
+    val haloExpansion by animateFloatAsState(
+        targetValue = if (isDragging) 1.0f else 0.0f,
+        animationSpec = tween(180),
+        label = "haloExpansion"
+    )
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        // High-precision touch scrubber target container (44dp tall for easy touch accessibility)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(34.dp)
-                .pointerInput(safeDuration) {
-                    detectDragGestures(
-                        onDragStart = { offset ->
-                            isScrubbing = true
-                            scrubProgress = (offset.x / size.width).coerceIn(0f, 1f)
-                        },
-                        onDrag = { change, _ ->
-                            change.consume()
-                            scrubProgress = (change.position.x / size.width).coerceIn(0f, 1f)
-                        },
-                        onDragEnd = {
-                            onSeekTo((scrubProgress * safeDuration).toLong())
-                            isScrubbing = false
-                        },
-                        onDragCancel = {
-                            isScrubbing = false
-                        }
-                    )
+                .height(44.dp)
+                .onSizeChanged { size ->
+                    componentWidthPx = size.width.toFloat().coerceAtLeast(1f)
                 }
                 .pointerInput(safeDuration) {
                     detectTapGestures(
                         onPress = { offset ->
-                            val target = (offset.x / size.width).coerceIn(0f, 1f)
-                            isScrubbing = true
-                            scrubProgress = target
-                            tryAwaitRelease()
-                            onSeekTo((target * safeDuration).toLong())
-                            isScrubbing = false
+                            val targetFraction = (offset.x / componentWidthPx).coerceIn(0f, 1f)
+                            isDragging = true
+                            dragProgress = targetFraction
+                            val released = tryAwaitRelease()
+                            if (released) {
+                                val targetMs = (dragProgress * safeDuration).toLong()
+                                onSeekTo(targetMs)
+                            }
+                            isDragging = false
+                        }
+                    )
+                }
+                .pointerInput(safeDuration) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            isDragging = true
+                            dragProgress = (offset.x / componentWidthPx).coerceIn(0f, 1f)
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            dragProgress = (change.position.x / componentWidthPx).coerceIn(0f, 1f)
+                        },
+                        onDragEnd = {
+                            val targetMs = (dragProgress * safeDuration).toLong()
+                            onSeekTo(targetMs)
+                            isDragging = false
+                        },
+                        onDragCancel = {
+                            isDragging = false
                         }
                     )
                 }
@@ -97,133 +138,185 @@ fun LiquidGlassProgressBar(
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(barHeight.dp)
+                    .height(26.dp)
             ) {
-                val data = analysisDataProvider()
-                val bassReactiveBoost = if (!isScrubbing) data.haloExpansion * 0.18f else 0.35f
-                val corner = CornerRadius(barHeight.dp.toPx() / 2f)
+                val w = size.width
+                val h = size.height
+                val centerY = h / 2f
+                val trackH = trackHeight.toPx()
+                val corner = CornerRadius(trackH / 2f, trackH / 2f)
+                val trackTop = centerY - (trackH / 2f)
 
-                // Glass Track Background (Translucent layered base)
+                val audioData = analysisDataProvider()
+                val bassPulse = if (!isDragging) audioData.haloExpansion * 0.15f else 0.28f
+
+                // 1. Inactive Glass Track Bed (Translucent smoked glass channel)
                 drawRoundRect(
                     brush = Brush.verticalGradient(
                         listOf(
-                            Color(0x30FFFFFF),
-                            Color(0x12FFFFFF)
+                            Color(0x35FFFFFF),
+                            Color(0x15FFFFFF)
                         )
                     ),
-                    cornerRadius = corner,
-                    size = size
+                    topLeft = Offset(0f, trackTop),
+                    size = Size(w, trackH),
+                    cornerRadius = corner
                 )
 
-                // Track Border Sheen
+                // Refraction Sheen Border along inactive track
                 drawRoundRect(
                     brush = Brush.verticalGradient(
                         listOf(
-                            Color(0x40FFFFFF),
-                            Color(0x0AFFFFFF)
+                            Color(0x45FFFFFF),
+                            Color(0x08FFFFFF)
                         )
                     ),
+                    topLeft = Offset(0f, trackTop),
+                    size = Size(w, trackH),
                     cornerRadius = corner,
-                    size = size,
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1f)
+                    style = Stroke(width = 0.8f)
                 )
 
-                // Active Played Track (Glowing radiant liquid)
-                val progressWidth = size.width * displayedProgress
-                if (progressWidth > 0f) {
+                // 2. Active Played Track (Electric Neon Radiant Liquid)
+                val activeWidth = (w * displayedProgress).coerceIn(0f, w)
+                if (activeWidth > 0f) {
+                    // Outer Neon Bloom Veil (Underglow)
+                    val glowHeight = trackH * (2.8f + bassPulse + haloExpansion * 0.6f)
+                    val glowTop = centerY - (glowHeight / 2f)
+                    drawRoundRect(
+                        brush = Brush.horizontalGradient(
+                            listOf(
+                                palette.primary.copy(alpha = 0.35f + haloExpansion * 0.25f),
+                                palette.accent.copy(alpha = 0.55f + haloExpansion * 0.30f)
+                            )
+                        ),
+                        topLeft = Offset(0f, glowTop),
+                        size = Size(activeWidth, glowHeight),
+                        cornerRadius = CornerRadius(glowHeight / 2f, glowHeight / 2f)
+                    )
+
+                    // Core Saturated Neon Track
                     drawRoundRect(
                         brush = Brush.horizontalGradient(
                             listOf(
                                 palette.primary,
-                                palette.accent
-                            )
+                                palette.accent,
+                                Color.White.copy(alpha = 0.95f)
+                            ),
+                            startX = 0f,
+                            endX = activeWidth
                         ),
-                        cornerRadius = corner,
-                        size = Size(progressWidth, size.height)
+                        topLeft = Offset(0f, trackTop),
+                        size = Size(activeWidth, trackH),
+                        cornerRadius = corner
                     )
 
-                    // Ambient bloom emitting above active track
+                    // Specular Highlight Stroke on Active Track
                     drawRoundRect(
                         brush = Brush.verticalGradient(
                             listOf(
-                                palette.accent.copy(alpha = (0.35f + bassReactiveBoost).coerceIn(0f, 0.7f)),
+                                Color.White.copy(alpha = 0.60f),
                                 Color.Transparent
                             )
                         ),
-                        cornerRadius = corner,
-                        size = Size(progressWidth, size.height)
+                        topLeft = Offset(0f, trackTop),
+                        size = Size(activeWidth, trackH * 0.5f),
+                        cornerRadius = corner
+                    )
+                }
+
+                // 3. Illuminated Cinematic Thumb
+                val thumbCenter = Offset(activeWidth.coerceIn(0f, w), centerY)
+                val thumbRadiusPx = thumbRadiusDp.toPx()
+
+                if (currentTheme == AppTheme.LEGO) {
+                    // LEGO 3D Molded Plastic Stud Scrubber Handle
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.70f),
+                        radius = thumbRadiusPx + 2f,
+                        center = Offset(thumbCenter.x + 1.5f, thumbCenter.y + 2f)
+                    )
+                    drawCircle(
+                        color = palette.secondary,
+                        radius = thumbRadiusPx,
+                        center = thumbCenter
+                    )
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.65f),
+                        radius = thumbRadiusPx * 0.75f,
+                        center = Offset(thumbCenter.x - 1f, thumbCenter.y - 1f)
+                    )
+                    drawCircle(
+                        color = Color(0xFF14151B),
+                        radius = thumbRadiusPx * 0.40f,
+                        center = thumbCenter
+                    )
+                } else {
+                    // Modern Illuminated Neon Orb Thumb
+                    // A. Outermost Soft Luminous Bloom
+                    val bloomRadius = thumbRadiusPx * (2.8f + haloExpansion * 0.8f + bassPulse * 0.5f)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                palette.accent.copy(alpha = 0.60f + haloExpansion * 0.25f),
+                                palette.primary.copy(alpha = 0.25f),
+                                Color.Transparent
+                            ),
+                            center = thumbCenter,
+                            radius = bloomRadius
+                        ),
+                        radius = bloomRadius,
+                        center = thumbCenter
                     )
 
-                    // Scrubber Handle (LEGO Stud or Glow Dot)
-                    val thumbX = progressWidth.coerceIn(0f, size.width)
-                    val thumbRadius = (barHeight.dp.toPx() * (if (isScrubbing) 1.6f else 1.25f))
+                    // B. Tactile Ambient Drop Shadow
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.50f),
+                        radius = thumbRadiusPx + 1.5f,
+                        center = Offset(thumbCenter.x, thumbCenter.y + 1.5f)
+                    )
 
-                    if (currentTheme == AppTheme.LEGO) {
-                        // LEGO Molded Plastic Stud Scrubber Handle
-                        val studCenter = Offset(thumbX, size.height / 2f)
-                        // Drop shadow
-                        drawCircle(
-                            color = Color.Black.copy(alpha = 0.65f),
-                            radius = thumbRadius + 1.5f,
-                            center = Offset(thumbX + 1.2f, size.height / 2f + 1.5f)
-                        )
-                        // Gold/Amber or Scarlet Stud Outer Rim
-                        drawCircle(
-                            color = palette.secondary,
-                            radius = thumbRadius,
-                            center = studCenter
-                        )
-                        // Specular Bevel Highlight
-                        drawCircle(
-                            color = Color.White.copy(alpha = 0.55f),
-                            radius = thumbRadius * 0.78f,
-                            center = Offset(thumbX - 0.8f, size.height / 2f - 0.8f)
-                        )
-                        // Stud Inner Mold Cavity
-                        drawCircle(
-                            color = Color(0xFF16171C),
-                            radius = thumbRadius * 0.42f,
-                            center = studCenter
-                        )
-                    } else {
-                        drawCircle(
-                            color = Color.White,
-                            radius = thumbRadius * 0.75f,
-                            center = Offset(thumbX, size.height / 2f)
-                        )
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                listOf(
-                                    palette.accent.copy(alpha = 0.85f),
-                                    Color.Transparent
-                                )
-                            ),
-                            radius = thumbRadius * 2.2f,
-                            center = Offset(thumbX, size.height / 2f)
-                        )
-                    }
+                    // C. Luminous Outer Ring
+                    drawCircle(
+                        color = palette.accent,
+                        radius = thumbRadiusPx,
+                        center = thumbCenter
+                    )
+
+                    // D. Brilliant Specular White Center Core
+                    drawCircle(
+                        color = Color.White,
+                        radius = thumbRadiusPx * 0.65f,
+                        center = thumbCenter
+                    )
                 }
             }
         }
 
-        // Timestamps
-        val displayedMs = if (isScrubbing) (scrubProgress * safeDuration).toLong() else currentMs
+        // Precision Timestamps: Elapsed Time & Remaining Time
+        val displayedMs = if (isDragging) (dragProgress * safeDuration).toLong() else currentMs
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = formatDuration(displayedMs),
                 style = MaterialTheme.typography.bodySmall.copy(
-                    color = Color(0xFFA0A5BA),
-                    fontSize = 12.sp
+                    color = if (isDragging) palette.accent else Color(0xFFA5ABC0),
+                    fontSize = 12.sp,
+                    fontWeight = if (isDragging) FontWeight.Bold else FontWeight.SemiBold
                 )
             )
+
             Text(
                 text = "-${formatDuration((safeDuration - displayedMs).coerceAtLeast(0L))}",
                 style = MaterialTheme.typography.bodySmall.copy(
-                    color = Color(0xFFA0A5BA),
-                    fontSize = 12.sp
+                    color = Color(0xFFA5ABC0),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
             )
         }

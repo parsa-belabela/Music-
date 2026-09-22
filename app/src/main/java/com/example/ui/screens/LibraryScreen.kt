@@ -89,6 +89,7 @@ fun LibraryScreen(
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    var scrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     val alphabet = remember(lang) {
         if (lang == AppLanguage.PERSIAN) {
@@ -109,8 +110,11 @@ fun LibraryScreen(
 
     val letterIndices = remember(sortedTracks, alphabet, selectedSort) {
         val map = mutableMapOf<String, Int>()
+        if (sortedTracks.isEmpty()) return@remember map
+
+        var runningIdx = 0
         alphabet.forEach { letter ->
-            val idx = sortedTracks.indexOfFirst { track ->
+            val exactIdx = sortedTracks.indexOfFirst { track ->
                 val primaryText = when (selectedSort) {
                     SortOption.ARTIST -> track.artist
                     else -> track.title
@@ -122,8 +126,11 @@ fun LibraryScreen(
                     primaryText.startsWith(letter, ignoreCase = true)
                 }
             }
-            if (idx != -1) {
-                map[letter] = idx
+            if (exactIdx != -1) {
+                map[letter] = exactIdx
+                runningIdx = exactIdx
+            } else {
+                map[letter] = runningIdx
             }
         }
         map
@@ -374,7 +381,8 @@ fun LibraryScreen(
                 alphabet = alphabet,
                 letterIndices = letterIndices,
                 onLetterSelected = { _, index ->
-                    coroutineScope.launch {
+                    scrollJob?.cancel()
+                    scrollJob = coroutineScope.launch {
                         listState.scrollToItem(index)
                     }
                 },
