@@ -20,7 +20,10 @@ data class Track(
     val playCount: Int = 0,
     val lastPlayedTimestamp: Long = 0L,
     val dateAdded: Long = System.currentTimeMillis(),
-    val isDemo: Boolean = false
+    val isDemo: Boolean = false,
+    val duplicateGroupId: String? = null,
+    val isHiddenDuplicate: Boolean = false,
+    val isInstrumental: Boolean = false
 ) {
     val durationFormatted: String
         get() {

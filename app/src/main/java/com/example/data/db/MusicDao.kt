@@ -10,26 +10,41 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface MusicDao {
-    @Query("SELECT * FROM tracks ORDER BY title ASC")
+    @Query("SELECT * FROM tracks WHERE isHiddenDuplicate = 0 ORDER BY title ASC")
     fun getAllTracks(): Flow<List<Track>>
 
-    @Query("SELECT * FROM tracks WHERE isFavorite = 1 ORDER BY title ASC")
+    @Query("SELECT * FROM tracks ORDER BY title ASC")
+    suspend fun getAllTracksSync(): List<Track>
+
+    @Query("SELECT * FROM tracks WHERE isFavorite = 1 AND isHiddenDuplicate = 0 ORDER BY title ASC")
     fun getFavoriteTracks(): Flow<List<Track>>
 
-    @Query("SELECT * FROM tracks WHERE lastPlayedTimestamp > 0 ORDER BY lastPlayedTimestamp DESC LIMIT 10")
+    @Query("SELECT * FROM tracks WHERE lastPlayedTimestamp > 0 AND isHiddenDuplicate = 0 ORDER BY lastPlayedTimestamp DESC LIMIT 10")
     fun getRecentlyPlayedTracks(): Flow<List<Track>>
 
     @Query("SELECT * FROM tracks WHERE lastPlayedTimestamp > 0 ORDER BY lastPlayedTimestamp DESC")
     suspend fun getAllRecentlyPlayedTracksSync(): List<Track>
 
-    @Query("SELECT * FROM tracks ORDER BY playCount DESC LIMIT 30")
+    @Query("SELECT * FROM tracks WHERE isHiddenDuplicate = 0 ORDER BY playCount DESC LIMIT 30")
     fun getMostPlayedTracks(): Flow<List<Track>>
 
-    @Query("SELECT * FROM tracks ORDER BY dateAdded DESC LIMIT 30")
+    @Query("SELECT * FROM tracks WHERE isHiddenDuplicate = 0 ORDER BY dateAdded DESC LIMIT 30")
     fun getRecentlyAddedTracks(): Flow<List<Track>>
+
+    @Query("SELECT * FROM tracks WHERE isHiddenDuplicate = 1")
+    fun getHiddenDuplicates(): Flow<List<Track>>
+
+    @Query("SELECT * FROM tracks WHERE isInstrumental = 1 AND isHiddenDuplicate = 0 ORDER BY playCount DESC")
+    fun getInstrumentalTracks(): Flow<List<Track>>
 
     @Query("SELECT * FROM tracks WHERE id = :id LIMIT 1")
     suspend fun getTrackById(id: String): Track?
+
+    @Query("UPDATE tracks SET isHiddenDuplicate = :isHidden, duplicateGroupId = :groupId WHERE id = :trackId")
+    suspend fun setTrackDuplicateState(trackId: String, isHidden: Boolean, groupId: String?)
+
+    @Query("UPDATE tracks SET isInstrumental = :isInstrumental WHERE id = :trackId")
+    suspend fun setTrackInstrumental(trackId: String, isInstrumental: Boolean)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTracks(tracks: List<Track>)

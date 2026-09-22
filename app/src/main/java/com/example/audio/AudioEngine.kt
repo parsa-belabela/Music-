@@ -74,6 +74,7 @@ class AudioEngine(private val context: Context) {
     private var currentBassBoostStrength: Int = 0
     var currentPlaybackSpeed: Float = 1.0f
         private set
+    var continuousMixEnabled: Boolean = false
 
     private var deviceCallback: AudioDeviceCallback? = null
 

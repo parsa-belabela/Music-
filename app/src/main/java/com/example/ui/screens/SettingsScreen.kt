@@ -46,6 +46,10 @@ fun SettingsScreen(
     onClearPlaybackHistory: () -> Unit,
     onOpenEqualizer: () -> Unit,
     bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
+    unlockedStyles: List<String> = listOf("default"),
+    onOpenHearingProfileTest: () -> Unit = {},
+    onOpenDuplicatesReview: () -> Unit = {},
+    onSelectNowPlayingStyle: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -140,9 +144,7 @@ fun SettingsScreen(
                     ) {
                         OutlinedButton(
                             onClick = { showThemeRestartDialog = false },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                            modifier = Modifier.weight(1f)
                         ) {
                             Text(if (lang == AppLanguage.PERSIAN) "انصراف" else "Cancel")
                         }
@@ -151,13 +153,12 @@ fun SettingsScreen(
                             onClick = {
                                 onUpdateSettings(settings.copy(theme = targetTheme))
                                 showThemeRestartDialog = false
-                                (context as? android.app.Activity)?.finishAffinity()
+                                android.os.Process.killProcess(android.os.Process.myPid())
                             },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = palette.primary)
+                            colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Text(if (lang == AppLanguage.PERSIAN) "تأیید و خروج" else "OK & Close")
+                            Text(if (lang == AppLanguage.PERSIAN) "بستن و اعمال" else "Apply & Exit")
                         }
                     }
                 }
@@ -170,101 +171,37 @@ fun SettingsScreen(
             .fillMaxSize()
             .padding(horizontal = 16.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = maxOf(bottomPadding + 20.dp, 120.dp)),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Header
         item {
-            Column {
-                Text(
-                    text = Localization.getString("preferences", lang),
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        letterSpacing = 1.5.sp,
-                        color = palette.accent,
-                        fontWeight = FontWeight.Bold
-                    )
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
                     text = Localization.getString("settings", lang),
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
+                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold, color = Color.White)
                 )
-            }
-        }
 
-        // Section: Features Guide & Capabilities Showcase Card
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(22.dp),
-                        thickness = GlassThickness.THICK,
-                        tintColor = palette.primary,
-                        tintAlpha = 0.25f,
-                        borderWidth = 1.2.dp,
-                        appTheme = settings.theme
-                    )
-                    .clickable { showFeaturesGuideDialog = true }
-                    .padding(18.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                IconButton(
+                    onClick = { showFeaturesGuideDialog = true },
+                    modifier = Modifier
+                        .size(40.dp)
+                        .liquidGlass(
+                            shape = CircleShape,
+                            thickness = GlassThickness.THIN,
+                            tintColor = palette.accent,
+                            tintAlpha = 0.15f
+                        )
                 ) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(palette.primary.copy(alpha = 0.28f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                tint = palette.accent,
-                                modifier = Modifier.size(26.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(14.dp))
-
-                        Column {
-                            Text(
-                                text = Localization.getString("features_guide_btn", lang),
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            )
-                            Text(
-                                text = Localization.getString("features_guide_desc", lang),
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    color = Color(0xFFB4B4CC)
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-
-                    Icon(
-                        imageVector = Icons.Default.ChevronRight,
-                        contentDescription = null,
-                        tint = palette.accent,
-                        modifier = Modifier.size(24.dp)
-                    )
+                    Icon(Icons.Default.HelpOutline, contentDescription = "Help Guide", tint = palette.accent)
                 }
             }
         }
 
-        // Section: Language Selection
+        // Section: Now Playing Visualizer Styles
         item {
             Box(
                 modifier = Modifier
@@ -273,162 +210,55 @@ fun SettingsScreen(
                         shape = RoundedCornerShape(18.dp),
                         thickness = GlassThickness.REGULAR,
                         tintColor = palette.primary,
-                        tintAlpha = 0.12f,
+                        tintAlpha = 0.14f,
                         borderWidth = 1.dp,
                         appTheme = settings.theme
                     )
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Language, contentDescription = null, tint = palette.accent)
+                        Icon(imageVector = Icons.Default.Style, contentDescription = null, tint = palette.accent)
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = Localization.getString("language_settings", lang),
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(Localization.getString("unlocked_styles", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = settings.selectedNowPlayingStyle == "default",
+                            onClick = {
+                                onSelectNowPlayingStyle("default")
+                                onUpdateSettings(settings.copy(selectedNowPlayingStyle = "default"))
+                            },
+                            label = { Text(if (lang == AppLanguage.PERSIAN) "طراحی شیشه‌ای Liquid Glass" else "Liquid Glass Standard", fontSize = 12.sp) }
                         )
-                    }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                        AppLanguage.values().forEach { l ->
-                            val isSelected = settings.language == l
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { onUpdateSettings(settings.copy(language = l)) },
-                                label = { Text(if (lang == AppLanguage.PERSIAN) l.titleFa else l.titleEn, fontSize = 13.sp) },
-                                modifier = Modifier.weight(1f),
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = palette.primary.copy(alpha = 0.35f),
-                                    selectedLabelColor = Color.White
-                                ),
-                                border = FilterChipDefaults.filterChipBorder(
-                                    enabled = true,
-                                    selected = isSelected,
-                                    borderColor = if (isSelected) palette.accent else Color(0xFF2A2840),
-                                    selectedBorderColor = palette.accent
-                                ),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Section: Visualizer & Ambient Halo
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
-                        thickness = GlassThickness.REGULAR,
-                        tintColor = palette.secondary,
-                        tintAlpha = 0.12f,
-                        borderWidth = 1.dp,
-                        appTheme = settings.theme
-                    )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.GraphicEq, contentDescription = null, tint = palette.accent)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = Localization.getString("visualizer_dsp", lang),
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Text(Localization.getString("visualizer_presets", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)))
-                    Spacer(modifier = Modifier.height(6.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(VisualizerPreset.DEFAULT_PRESETS) { p ->
-                            FilterChip(
-                                selected = settings.visualizerMode == p.mode,
-                                onClick = { onSetPreset(p) },
-                                label = { Text(p.name, fontSize = 12.sp) }
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Mode Selection Dropdown / Selector
-                    Text("Current Mode: ${settings.visualizerMode.title}", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
-                    Spacer(modifier = Modifier.height(6.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(VisualizerMode.values().toList()) { mode ->
-                            SuggestionChip(
-                                onClick = { onUpdateSettings(settings.copy(visualizerMode = mode)) },
-                                label = { Text(mode.title, fontSize = 11.sp) }
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Sensitivity Slider
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(Localization.getString("audio_sensitivity", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color.White))
-                        Text("${"%.1f".format(settings.visualizerSensitivity)}x", color = palette.accent, style = MaterialTheme.typography.bodySmall)
-                    }
-                    Slider(
-                        value = settings.visualizerSensitivity,
-                        onValueChange = { onUpdateSettings(settings.copy(visualizerSensitivity = it)) },
-                        valueRange = 0.5f..2.5f,
-                        colors = SliderDefaults.colors(thumbColor = palette.primary, activeTrackColor = palette.primary)
-                    )
-
-                    // Glow Strength Slider
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(Localization.getString("halo_glow", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color.White))
-                        Text("${(settings.visualizerGlow * 100).toInt()}%", color = palette.accent, style = MaterialTheme.typography.bodySmall)
-                    }
-                    Slider(
-                        value = settings.visualizerGlow,
-                        onValueChange = { onUpdateSettings(settings.copy(visualizerGlow = it)) },
-                        valueRange = 0.2f..1.0f,
-                        colors = SliderDefaults.colors(thumbColor = palette.secondary, activeTrackColor = palette.secondary)
-                    )
-
-                    // Target FPS (30 / 60 / 120)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(Localization.getString("engine_fps", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color.White))
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            listOf(30, 60, 120).forEach { fps ->
-                                FilterChip(
-                                    selected = settings.visualizerFps == fps,
-                                    onClick = { onUpdateSettings(settings.copy(visualizerFps = fps)) },
-                                    label = { Text("${fps} FPS", fontSize = 11.sp) }
-                                )
+                        val isVinylUnlocked = unlockedStyles.contains("vinyl_turntable")
+                        FilterChip(
+                            selected = settings.selectedNowPlayingStyle == "vinyl_turntable",
+                            onClick = {
+                                if (isVinylUnlocked) {
+                                    onSelectNowPlayingStyle("vinyl_turntable")
+                                    onUpdateSettings(settings.copy(selectedNowPlayingStyle = "vinyl_turntable"))
+                                } else {
+                                    Toast.makeText(context, if (lang == AppLanguage.PERSIAN) "این استایل پس از ۵ ساعت گوش دادن باز می‌شود!" else "Unlocked after 5 hours of total listening!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            label = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (!isVinylUnlocked) {
+                                        Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(12.dp), tint = Color.Gray)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                    }
+                                    Text(Localization.getString("vinyl_style", lang), fontSize = 12.sp)
+                                }
                             }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Auto Color from Artwork toggle
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(Localization.getString("auto_color", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
-                        Switch(
-                            checked = settings.autoColorFromArtwork,
-                            onCheckedChange = { onUpdateSettings(settings.copy(autoColorFromArtwork = it)) }
                         )
                     }
                 }
             }
         }
 
-        // Section: Audio DSP, Crossfade & Equalizer
+        // Section: Audio Hardware, DSP & Continuous Mix
         item {
             Box(
                 modifier = Modifier
@@ -447,6 +277,46 @@ fun SettingsScreen(
                         Icon(imageVector = Icons.Default.Equalizer, contentDescription = null, tint = palette.accent)
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(Localization.getString("audio_hardware", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
+                    }
+
+                    // Continuous Mix
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(Localization.getString("continuous_mix", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.SemiBold))
+                            Text(Localization.getString("continuous_mix_desc", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)))
+                        }
+                        Switch(
+                            checked = settings.continuousMixEnabled,
+                            onCheckedChange = { onUpdateSettings(settings.copy(continuousMixEnabled = it)) }
+                        )
+                    }
+
+                    // Hearing Calibration Profile Button
+                    Button(
+                        onClick = onOpenHearingProfileTest,
+                        colors = ButtonDefaults.buttonColors(containerColor = palette.accent.copy(alpha = 0.35f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Hearing, contentDescription = null, modifier = Modifier.size(18.dp), tint = palette.accent)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(Localization.getString("hearing_profile", lang), color = Color.White)
+                    }
+
+                    // Open Standard Equalizer Button
+                    Button(
+                        onClick = onOpenEqualizer,
+                        colors = ButtonDefaults.buttonColors(containerColor = palette.primary.copy(alpha = 0.35f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp), tint = palette.accent)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(Localization.getString("equalizer", lang), color = Color.White)
                     }
 
                     // Crossfade duration slider
@@ -476,23 +346,11 @@ fun SettingsScreen(
                             onCheckedChange = { onUpdateSettings(settings.copy(gaplessEnabled = it)) }
                         )
                     }
-
-                    // Open Equalizer Button
-                    Button(
-                        onClick = onOpenEqualizer,
-                        colors = ButtonDefaults.buttonColors(containerColor = palette.primary.copy(alpha = 0.35f)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp), tint = palette.accent)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(Localization.getString("equalizer", lang), color = Color.White)
-                    }
                 }
             }
         }
 
-        // Section: Lyrics & Typography
+        // Section: Focus & Study Mode
         item {
             Box(
                 modifier = Modifier
@@ -500,7 +358,44 @@ fun SettingsScreen(
                     .liquidGlass(
                         shape = RoundedCornerShape(18.dp),
                         thickness = GlassThickness.REGULAR,
-                        tintColor = palette.secondary,
+                        tintColor = palette.accent,
+                        tintAlpha = 0.14f,
+                        borderWidth = 1.dp,
+                        appTheme = settings.theme
+                    )
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(imageVector = Icons.Default.SelfImprovement, contentDescription = null, tint = palette.accent)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(Localization.getString("focus_mode", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
+                                Text(Localization.getString("focus_mode_desc", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)))
+                            }
+                        }
+                        Switch(
+                            checked = settings.focusModeEnabled,
+                            onCheckedChange = { onUpdateSettings(settings.copy(focusModeEnabled = it)) }
+                        )
+                    }
+                }
+            }
+        }
+
+        // Section: Visualizer & Ambient Halo
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .liquidGlass(
+                        shape = RoundedCornerShape(18.dp),
+                        thickness = GlassThickness.REGULAR,
+                        tintColor = palette.primary,
                         tintAlpha = 0.12f,
                         borderWidth = 1.dp,
                         appTheme = settings.theme
@@ -508,49 +403,37 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Lyrics, contentDescription = null, tint = palette.accent)
+                        Icon(imageVector = Icons.Default.GraphicEq, contentDescription = null, tint = palette.accent)
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text(Localization.getString("lyrics_typography", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
+                        Text(Localization.getString("visualizer_dsp", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    Text(Localization.getString("display_mode", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)))
+                    Text(Localization.getString("visualizer_presets", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)))
                     Spacer(modifier = Modifier.height(6.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(LyricsDisplayMode.values().toList()) { mode ->
+                        items(VisualizerPreset.DEFAULT_PRESETS) { preset ->
                             FilterChip(
-                                selected = settings.lyricsDisplayMode == mode,
-                                onClick = { onUpdateSettings(settings.copy(lyricsDisplayMode = mode)) },
-                                label = { Text(mode.displayName, fontSize = 11.sp) }
+                                selected = settings.visualizerMode == preset.mode,
+                                onClick = { onSetPreset(preset) },
+                                label = { Text(preset.name, fontSize = 11.sp) }
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Font size slider
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(Localization.getString("font_size", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color.White))
-                        Text("${settings.lyricsFontSize.toInt()}sp", color = palette.accent, style = MaterialTheme.typography.bodySmall)
-                    }
-                    Slider(
-                        value = settings.lyricsFontSize,
-                        onValueChange = { onUpdateSettings(settings.copy(lyricsFontSize = it)) },
-                        valueRange = 14f..32f,
-                        colors = SliderDefaults.colors(thumbColor = palette.primary, activeTrackColor = palette.primary)
-                    )
-
-                    // Word-level karaoke highlight
+                    // Auto Color from Artwork toggle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(Localization.getString("karaoke_highlight", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
+                        Text(Localization.getString("auto_color", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
                         Switch(
-                            checked = settings.lyricsKaraokeWordHighlight,
-                            onCheckedChange = { onUpdateSettings(settings.copy(lyricsKaraokeWordHighlight = it)) }
+                            checked = settings.autoColorFromArtwork,
+                            onCheckedChange = { onUpdateSettings(settings.copy(autoColorFromArtwork = it)) }
                         )
                     }
                 }
@@ -629,67 +512,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section: Hardware & Haptic Feedback
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
-                        thickness = GlassThickness.REGULAR,
-                        tintColor = palette.secondary,
-                        tintAlpha = 0.12f,
-                        borderWidth = 1.dp,
-                        appTheme = settings.theme
-                    )
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Vibration, contentDescription = null, tint = palette.accent)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(Localization.getString("haptic_feedback", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(Localization.getString("haptic_feedback", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
-                        Switch(
-                            checked = settings.hapticFeedbackEnabled,
-                            onCheckedChange = { onUpdateSettings(settings.copy(hapticFeedbackEnabled = it)) }
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(Localization.getString("pause_on_disconnect", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
-                        Switch(
-                            checked = settings.pauseOnHeadphoneDisconnect,
-                            onCheckedChange = { onUpdateSettings(settings.copy(pauseOnHeadphoneDisconnect = it)) }
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(Localization.getString("duck_volume", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
-                        Switch(
-                            checked = settings.duckVolumeOnInterruption,
-                            onCheckedChange = { onUpdateSettings(settings.copy(duckVolumeOnInterruption = it)) }
-                        )
-                    }
-                }
-            }
-        }
-
-        // Section: Storage, Cache & History Management
+        // Section: Storage, Library & Duplicate Optimizer
         item {
             Box(
                 modifier = Modifier
@@ -708,6 +531,18 @@ fun SettingsScreen(
                         Icon(imageVector = Icons.Default.Storage, contentDescription = null, tint = palette.accent)
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(Localization.getString("storage_cache", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
+                    }
+
+                    // Duplicate Audio Optimizer
+                    Button(
+                        onClick = onOpenDuplicatesReview,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B).copy(alpha = 0.35f)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.CleaningServices, contentDescription = null, tint = Color(0xFFFBBF24))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(Localization.getString("duplicates_manager", lang), color = Color.White)
                     }
 
                     Button(
@@ -821,7 +656,6 @@ fun SettingsScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Heartfelt user message requested
                 Text(
                     text = if (lang == AppLanguage.PERSIAN) "امیدوارم با لذت بیشتری بتونید آهنگ گوش کنید 💙" else "Hope you enjoy your music with even greater pleasure 💙",
                     style = MaterialTheme.typography.bodyMedium.copy(

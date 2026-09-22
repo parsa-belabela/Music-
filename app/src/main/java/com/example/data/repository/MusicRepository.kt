@@ -19,7 +19,8 @@ import org.json.JSONObject
 
 class MusicRepository(
     private val context: Context,
-    private val musicDao: MusicDao
+    private val musicDao: MusicDao,
+    private val trackAudioProfileDao: com.example.data.db.TrackAudioProfileDao? = null
 ) {
     private val tag = "MusicRepository"
 
@@ -29,6 +30,159 @@ class MusicRepository(
     val mostPlayed: Flow<List<Track>> = musicDao.getMostPlayedTracks()
     val recentlyAdded: Flow<List<Track>> = musicDao.getRecentlyAddedTracks()
     val playlists: Flow<List<Playlist>> = musicDao.getAllPlaylists()
+    val hiddenDuplicates: Flow<List<Track>> = musicDao.getHiddenDuplicates()
+    val instrumentalTracks: Flow<List<Track>> = musicDao.getInstrumentalTracks()
+
+    suspend fun getAudioProfile(trackId: String): TrackAudioProfile? = withContext(Dispatchers.IO) {
+        val dao = trackAudioProfileDao ?: com.example.data.db.AppDatabase.getInstance(context).trackAudioProfileDao()
+        dao.getProfile(trackId)
+    }
+
+    suspend fun getAudioProfiles(trackIds: List<String>): List<TrackAudioProfile> = withContext(Dispatchers.IO) {
+        val dao = trackAudioProfileDao ?: com.example.data.db.AppDatabase.getInstance(context).trackAudioProfileDao()
+        dao.getProfiles(trackIds)
+    }
+
+    suspend fun saveAudioProfile(profile: TrackAudioProfile) = withContext(Dispatchers.IO) {
+        val dao = trackAudioProfileDao ?: com.example.data.db.AppDatabase.getInstance(context).trackAudioProfileDao()
+        dao.upsert(profile)
+    }
+
+    suspend fun ensureAudioProfilesAnalyzed(
+        analyzer: com.example.audio.TrackAnalyzer,
+        ctx: Context,
+        isPlaying: Boolean = false,
+        batterySaver: Boolean = false
+    ) = withContext(Dispatchers.IO) {
+        if (batterySaver) return@withContext
+        try {
+            val dao = trackAudioProfileDao ?: com.example.data.db.AppDatabase.getInstance(ctx).trackAudioProfileDao()
+            val allTracksList = musicDao.getAllTracksSync()
+            val analyzedIds = dao.getAllAnalyzedTrackIds().toSet()
+            val unanalyzed = allTracksList.filter { it.id !in analyzedIds }
+
+            for (track in unanalyzed) {
+                if (batterySaver) break
+                val profile = analyzer.analyze(ctx, track)
+                dao.upsert(profile)
+                val delayMs = if (isPlaying) 400L else 120L
+                kotlinx.coroutines.delay(delayMs)
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Audio profile background analysis error: ${e.message}")
+        }
+    }
+
+    suspend fun detectDuplicates(): List<com.example.ui.components.DuplicateGroup> = withContext(Dispatchers.IO) {
+        val all = musicDao.getAllTracksSync()
+        if (all.size < 2) return@withContext emptyList()
+
+        fun normalizeStr(s: String): String {
+            return s.lowercase()
+                .replace(Regex("[^a-z0-9\u0600-\u06FF]"), "")
+                .trim()
+        }
+
+        // Group by normalized title + artist + rounded duration (to nearest 3 seconds)
+        val candidateGroups = all.groupBy { track ->
+            val normTitle = normalizeStr(track.title)
+            val normArtist = normalizeStr(track.artist)
+            val durBucket = (track.durationMs / 3000L)
+            "$normTitle|$normArtist|$durBucket"
+        }.filter { it.value.size > 1 }
+
+        val duplicateGroups = mutableListOf<com.example.ui.components.DuplicateGroup>()
+        val retriever = android.media.MediaMetadataRetriever()
+
+        for ((key, tracks) in candidateGroups) {
+            val enrichedTracks = tracks.map { trk ->
+                var actualBitrate = trk.bitrate
+                try {
+                    if (trk.uri.isNotEmpty() && !trk.uri.startsWith("android.resource://")) {
+                        retriever.setDataSource(context, Uri.parse(trk.uri))
+                        val brStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_BITRATE)
+                        if (!brStr.isNullOrEmpty()) {
+                            actualBitrate = brStr.toInt() / 1000
+                        }
+                    }
+                } catch (_: Exception) {}
+                trk.copy(bitrate = actualBitrate)
+            }
+
+            // Highest bitrate wins
+            val sorted = enrichedTracks.sortedByDescending { it.bitrate }
+            val winner = sorted.first()
+            val losers = sorted.drop(1)
+            val groupId = java.util.UUID.randomUUID().toString()
+
+            duplicateGroups.add(
+                com.example.ui.components.DuplicateGroup(
+                    groupId = groupId,
+                    winner = winner,
+                    losers = losers
+                )
+            )
+        }
+
+        try {
+            retriever.release()
+        } catch (_: Exception) {}
+
+        duplicateGroups
+    }
+
+    suspend fun applyDuplicateGroupWinners(groups: List<com.example.ui.components.DuplicateGroup>) = withContext(Dispatchers.IO) {
+        for (group in groups) {
+            musicDao.setTrackDuplicateState(group.winner.id, false, group.groupId)
+            for (loser in group.losers) {
+                musicDao.setTrackDuplicateState(loser.id, true, group.groupId)
+            }
+        }
+    }
+
+    suspend fun unhideTrack(trackId: String) = withContext(Dispatchers.IO) {
+        musicDao.setTrackDuplicateState(trackId, false, null)
+    }
+
+    suspend fun setTrackInstrumental(trackId: String, isInstrumental: Boolean) = withContext(Dispatchers.IO) {
+        musicDao.setTrackInstrumental(trackId, isInstrumental)
+    }
+
+    suspend fun getTracksForCurrentTimeSlot(limit: Int = 15): List<Track> = withContext(Dispatchers.IO) {
+        val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val allEvents = musicDao.getAllPlaybackEvents()
+        val allTracksMap = musicDao.getAllTracksSync().associateBy { it.id }
+
+        // Filter events belonging to same hour bucket (+/- 3 hours)
+        val relevantEvents = allEvents.filter { ev ->
+            val cal = java.util.Calendar.getInstance().apply { timeInMillis = ev.timestamp }
+            val h = cal.get(java.util.Calendar.HOUR_OF_DAY)
+            kotlin.math.abs(h - currentHour) <= 3 || kotlin.math.abs(h - currentHour) >= 21
+        }
+
+        val topIds = relevantEvents.groupingBy { it.trackId }.eachCount()
+            .entries.sortedByDescending { it.value }.map { it.key }
+
+        val tracks = topIds.mapNotNull { allTracksMap[it] }.take(limit)
+        if (tracks.isNotEmpty()) {
+            tracks
+        } else {
+            allTracksMap.values.shuffled().take(limit)
+        }
+    }
+
+    suspend fun checkMilestones(): List<String> = withContext(Dispatchers.IO) {
+        val events = musicDao.getAllPlaybackEvents()
+        val totalMs: Long = events.sumOf { it.durationListenedMs }
+        val unlocked = mutableListOf("default")
+
+        // 10 hours threshold for vinyl style unlock
+        if (totalMs >= 10 * 3600 * 1000L || events.size >= 50) {
+            unlocked.add("vinyl_turntable")
+        }
+
+        unlocked
+    }
 
     suspend fun initDefaultDataIfNeeded() = withContext(Dispatchers.IO) {
         // Explicitly purge any demo/sample tracks to keep the library 100% clean with zero preloaded songs

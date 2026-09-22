@@ -52,5 +52,11 @@ data class AppSettings(
     val preloadNextTrack: Boolean = true,
     val batterySaver: Boolean = false,
     val reducedMotion: Boolean = false,
-    val playbackSpeed: Float = 1.0f
+    val playbackSpeed: Float = 1.0f,
+    val continuousMixEnabled: Boolean = false,
+    val focusModeEnabled: Boolean = false,
+    val appIconTheme: String = "pure_liquid_glass",
+    val unlockedNowPlayingStyles: String = "default",
+    val selectedNowPlayingStyle: String = "default",
+    val personalEqBands: List<Float> = listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
 )

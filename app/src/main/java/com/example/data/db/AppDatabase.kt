@@ -12,6 +12,7 @@ import com.example.data.model.PlaybackEvent
 import com.example.data.model.Playlist
 import com.example.data.model.PlaylistTrackCrossRef
 import com.example.data.model.Track
+import com.example.data.model.TrackAudioProfile
 
 @Database(
     entities = [
@@ -19,14 +20,16 @@ import com.example.data.model.Track
         LyricsEntity::class,
         Playlist::class,
         PlaylistTrackCrossRef::class,
-        PlaybackEvent::class
+        PlaybackEvent::class,
+        TrackAudioProfile::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun musicDao(): MusicDao
+    abstract fun trackAudioProfileDao(): TrackAudioProfileDao
 
     companion object {
         @Volatile
@@ -39,6 +42,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `tracks` ADD COLUMN `duplicateGroupId` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `tracks` ADD COLUMN `isHiddenDuplicate` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `tracks` ADD COLUMN `isInstrumental` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `track_audio_profiles` (`trackId` TEXT PRIMARY KEY NOT NULL, `energyLevel` REAL NOT NULL, `estimatedTempoBpm` INTEGER, `tempoBucket` TEXT NOT NULL, `waveformEnvelope` TEXT NOT NULL, `analysisVersion` INTEGER NOT NULL, `analyzedAtTimestamp` INTEGER NOT NULL)")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -46,7 +58,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "aura_music_database"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                 INSTANCE = instance
                 instance

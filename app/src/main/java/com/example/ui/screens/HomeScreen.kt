@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -35,14 +36,12 @@ import androidx.compose.ui.unit.sp
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import com.example.audio.AmbientPalette
-import com.example.data.model.AppSettings
-import com.example.data.model.PlaybackState
-import com.example.data.model.PlayerStatus
-import com.example.data.model.Track
+import com.example.data.model.*
 import com.example.ui.components.TrackArtworkThumbnail
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
 import com.example.util.Localization
+import java.util.Calendar
 
 @Composable
 fun HomeScreen(
@@ -57,17 +56,32 @@ fun HomeScreen(
     onOpenLibrary: () -> Unit,
     onOpenWrapped: () -> Unit,
     bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
+    timeSlotTracks: List<Track> = emptyList(),
+    onThisDayHighlight: TopSongItem? = null,
+    weeklyRecapStats: WrappedStats? = null,
+    didRestoreSession: Boolean = false,
+    duplicateCount: Int = 0,
+    onOpenDuplicatesReview: () -> Unit = {},
+    onToggleFocusMode: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val lang = appSettings.language
     val context = LocalContext.current
+
+    val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    val timeSlotGreeting = when (currentHour) {
+        in 5..11 -> if (lang == AppLanguage.PERSIAN) "موسیقی برای صبح دل‌انگیز شما" else "Music for Your Morning Focus"
+        in 12..16 -> if (lang == AppLanguage.PERSIAN) "ریتم پرانرژی بعدازظهر" else "Afternoon Energy Boost"
+        in 17..21 -> if (lang == AppLanguage.PERSIAN) "آرامش و موسیقی غروب" else "Evening Wind-Down"
+        else -> if (lang == AppLanguage.PERSIAN) "موزیک‌های نیمه‌شب و سکوت" else "Late Night Ambient Flow"
+    }
 
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = maxOf(bottomPadding + 20.dp, 120.dp)),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+        verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         // App Header & Greeting
         item {
@@ -94,20 +108,144 @@ fun HomeScreen(
                     )
                 }
 
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Focus Mode Pill
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (appSettings.focusModeEnabled) palette.accent.copy(alpha = 0.30f) else Color(0x18FFFFFF))
+                            .border(1.dp, if (appSettings.focusModeEnabled) palette.accent else Color(0x30FFFFFF), RoundedCornerShape(16.dp))
+                            .clickable { onToggleFocusMode() }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.SelfImprovement,
+                                contentDescription = "Focus",
+                                tint = if (appSettings.focusModeEnabled) palette.accent else Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (lang == AppLanguage.PERSIAN) "تمرکز" else "Focus",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(palette.primary.copy(alpha = 0.2f))
+                            .border(1.dp, palette.primary.copy(alpha = 0.5f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GraphicEq,
+                            contentDescription = "Aura Engine",
+                            tint = palette.accent,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Instant Resume Notification Pill
+        if (didRestoreSession && playbackState.currentTrack != null) {
+            item {
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(palette.primary.copy(alpha = 0.2f))
-                        .border(1.dp, palette.primary.copy(alpha = 0.5f), CircleShape),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .liquidGlass(
+                            shape = RoundedCornerShape(16.dp),
+                            thickness = GlassThickness.THIN,
+                            tintColor = palette.secondary,
+                            tintAlpha = 0.18f,
+                            borderWidth = 1.dp
+                        )
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.GraphicEq,
-                        contentDescription = "Aura Engine",
-                        tint = palette.accent,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(
+                                imageVector = Icons.Default.Restore,
+                                contentDescription = null,
+                                tint = palette.secondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "${Localization.getString("welcome_back", lang)} • ${playbackState.currentTrack.title}",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Duplicate audio files prompt badge
+        if (duplicateCount > 0) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .liquidGlass(
+                            shape = RoundedCornerShape(16.dp),
+                            thickness = GlassThickness.REGULAR,
+                            tintColor = Color(0xFFF59E0B),
+                            tintAlpha = 0.20f,
+                            borderWidth = 1.dp
+                        )
+                        .clickable { onOpenDuplicatesReview() }
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(
+                                imageVector = Icons.Default.CleaningServices,
+                                contentDescription = null,
+                                tint = Color(0xFFFBBF24),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (lang == AppLanguage.PERSIAN) "$duplicateCount فایل تکراری شناسایی شد" else "$duplicateCount Duplicate tracks detected",
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                                Text(
+                                    text = if (lang == AppLanguage.PERSIAN) "برای بهینه‌سازی و مخفی کردن نسخه‌های کیفیت پایین لمس کنید" else "Tap to review & keep highest quality version",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFD1D5DB))
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = Color.White
+                        )
+                    }
                 }
             }
         }
@@ -126,6 +264,204 @@ fun HomeScreen(
             )
         }
 
+        // Feature 2: Time-of-Day Contextual Carousel
+        if (timeSlotTracks.isNotEmpty()) {
+            item {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Schedule,
+                                contentDescription = null,
+                                tint = palette.accent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = timeSlotGreeting,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(timeSlotTracks) { track ->
+                            Box(
+                                modifier = Modifier
+                                    .width(140.dp)
+                                    .liquidGlass(
+                                        shape = RoundedCornerShape(18.dp),
+                                        thickness = GlassThickness.REGULAR,
+                                        tintColor = palette.primary,
+                                        tintAlpha = 0.16f,
+                                        borderWidth = 1.dp
+                                    )
+                                    .clickable { onPlayTrack(track, timeSlotTracks) }
+                                    .padding(10.dp)
+                            ) {
+                                Column {
+                                    TrackArtworkThumbnail(
+                                        artworkUri = track.artworkUri,
+                                        accentColor = palette.primary,
+                                        size = 120.dp,
+                                        shape = RoundedCornerShape(12.dp),
+                                        iconSize = 36.dp
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = track.title,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.White
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = track.artist,
+                                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B0), fontSize = 11.sp),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Feature 3: "On This Day" Throwback Card
+        if (onThisDayHighlight != null) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .liquidGlass(
+                            shape = RoundedCornerShape(20.dp),
+                            thickness = GlassThickness.REGULAR,
+                            tintColor = palette.accent,
+                            tintAlpha = 0.16f,
+                            borderWidth = 1.dp
+                        )
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(palette.accent.copy(alpha = 0.25f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.HistoryEdu,
+                                contentDescription = null,
+                                tint = palette.accent,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = Localization.getString("on_this_day_title", lang),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = palette.accent,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp
+                                )
+                            )
+                            Text(
+                                text = "${onThisDayHighlight.title} • ${onThisDayHighlight.artist}",
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (lang == AppLanguage.PERSIAN) "آهنگ محبوب شما در سال‌های گذشته" else "Your top played track from this day in history",
+                                style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8))
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Feature 4: Weekly Music Recap Banner
+        if (weeklyRecapStats != null && weeklyRecapStats.topSongs.isNotEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .liquidGlass(
+                            shape = RoundedCornerShape(20.dp),
+                            thickness = GlassThickness.REGULAR,
+                            tintColor = palette.primary,
+                            tintAlpha = 0.20f,
+                            borderWidth = 1.2.dp
+                        )
+                        .clickable { onOpenWrapped() }
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(palette.primary.copy(alpha = 0.3f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = palette.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column {
+                                Text(
+                                    text = Localization.getString("weekly_recap_title", lang),
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                                Text(
+                                    text = "${weeklyRecapStats.totalListeningMinutes} ${if (lang == AppLanguage.PERSIAN) "دقیقه شنیداری این هفته" else "minutes listened this week"}",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8))
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ArrowForwardIos,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+
         // Recently Played
         if (recentlyPlayed.isNotEmpty()) {
             item {
@@ -135,14 +471,14 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Recently Played",
+                        text = if (lang == AppLanguage.PERSIAN) "اخیراً پخش شده" else "Recently Played",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                     )
                     TextButton(onClick = onOpenLibrary) {
-                        Text("See All", color = palette.accent, fontSize = 12.sp)
+                        Text(if (lang == AppLanguage.PERSIAN) "همه" else "See All", color = palette.accent, fontSize = 12.sp)
                     }
                 }
                 Spacer(modifier = Modifier.height(6.dp))
@@ -192,7 +528,7 @@ fun HomeScreen(
             }
         }
 
-        // Favorites (User-curated favorites only)
+        // Favorites
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -200,7 +536,7 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Favorites",
+                    text = if (lang == AppLanguage.PERSIAN) "علاقه‌مندی‌ها" else "Favorites",
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -293,17 +629,11 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "No favorites yet",
+                            text = if (lang == AppLanguage.PERSIAN) "هنوز آهنگی به علاقه‌مندی‌ها افزوده نشده" else "No favorites yet",
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 color = Color.White,
                                 fontWeight = FontWeight.SemiBold
                             )
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Tap the heart icon on any song to add it to your Favorites.",
-                            style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF808096)),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                     }
                 }
@@ -333,7 +663,7 @@ private fun HeroQuickPlayCard(
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = rotationDuration, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
+            repeatMode = androidx.compose.animation.core.RepeatMode.Restart
         ),
         label = "lightBeamAngle"
     )
@@ -348,7 +678,6 @@ private fun HeroQuickPlayCard(
             }
             .testTag("hero_quick_play_card")
     ) {
-        // 1. Blurred Album Artwork Background inside the card (lightweight blur)
         if (heroTrack?.artworkUri != null) {
             Image(
                 painter = rememberAsyncImagePainter(
@@ -375,7 +704,6 @@ private fun HeroQuickPlayCard(
             )
         }
 
-        // Dark Translucent Scrim for optimal text contrast
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -389,7 +717,6 @@ private fun HeroQuickPlayCard(
                 )
         )
 
-        // 2. Rotating Glowing Colored Light Beam around perimeter
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -426,7 +753,6 @@ private fun HeroQuickPlayCard(
                 )
         )
 
-        // 3. Card Content
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -498,7 +824,6 @@ private fun HeroQuickPlayCard(
 
                 Spacer(modifier = Modifier.width(12.dp))
 
-                // Big circular Play Button
                 Box(
                     modifier = Modifier
                         .size(54.dp)

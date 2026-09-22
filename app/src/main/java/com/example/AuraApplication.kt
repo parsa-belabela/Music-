@@ -22,6 +22,7 @@ class AuraApplication : Application() {
     val repository by lazy { MusicRepository(this, database.musicDao()) }
     val audioEngine by lazy { AudioEngine(this) }
     val audioAnalysisEngine by lazy { AudioAnalysisEngine() }
+    val trackAnalyzer by lazy { com.example.audio.TrackAnalyzer() }
 
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {

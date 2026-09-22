@@ -3,12 +3,15 @@ package com.example.ui.screens
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -49,6 +52,15 @@ fun MainScreen(
     val recentlyAdded by viewModel.recentlyAdded.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val currentLyrics by viewModel.currentLyrics.collectAsStateWithLifecycle()
+    val currentAudioProfile by viewModel.currentTrackAudioProfile.collectAsStateWithLifecycle()
+
+    // 15 Features States
+    val timeSlotTracks by viewModel.timeSlotTracks.collectAsStateWithLifecycle()
+    val onThisDayHighlight by viewModel.onThisDayHighlight.collectAsStateWithLifecycle()
+    val weeklyRecapStats by viewModel.weeklyRecapStats.collectAsStateWithLifecycle()
+    val duplicateGroups by viewModel.duplicateGroups.collectAsStateWithLifecycle()
+    val unlockedStyles by viewModel.unlockedStyles.collectAsStateWithLifecycle()
+    val didRestoreSession by viewModel.didRestoreSession.collectAsStateWithLifecycle()
 
     // Wrapped States
     val wrappedPeriods by viewModel.wrappedPeriods.collectAsStateWithLifecycle()
@@ -63,17 +75,20 @@ fun MainScreen(
     val editingTrackMetadata by viewModel.editingTrackMetadata.collectAsStateWithLifecycle()
     val connectedDevice by viewModel.connectedAudioDevice.collectAsStateWithLifecycle()
     val showShareCard by viewModel.showShareCard.collectAsStateWithLifecycle()
+    val showHearingProfileTest by viewModel.showHearingProfileTest.collectAsStateWithLifecycle()
+    val showDuplicatesReview by viewModel.showDuplicatesReview.collectAsStateWithLifecycle()
 
     var showInitialSplash by remember { mutableStateOf(true) }
     var currentTab by remember { mutableStateOf(MainTab.HOME) }
     val lang = appSettings.language
 
-    // Defensive Back Navigation: Prevent app exit on edge-swipe or back button when sheets/tabs are active
     BackHandler(
-        enabled = isNowPlayingExpanded || showLyricsEditor || showEqualizer || showQueue || showSleepTimer || editingTrackMetadata != null || showShareCard != null || currentTab != MainTab.HOME
+        enabled = isNowPlayingExpanded || showLyricsEditor || showEqualizer || showQueue || showSleepTimer || showHearingProfileTest || showDuplicatesReview || editingTrackMetadata != null || showShareCard != null || currentTab != MainTab.HOME
     ) {
         when {
             showShareCard != null -> viewModel.dismissShareCard()
+            showHearingProfileTest -> viewModel.showHearingProfileTest.value = false
+            showDuplicatesReview -> viewModel.showDuplicatesReview.value = false
             showLyricsEditor -> viewModel.showLyricsEditor.value = false
             showEqualizer -> viewModel.showEqualizer.value = false
             showQueue -> viewModel.showQueue.value = false
@@ -86,7 +101,6 @@ fun MainScreen(
 
     CompositionLocalProvider(LocalAppTheme provides appSettings.theme) {
         Box(modifier = modifier.fillMaxSize()) {
-            // Living RGB Motion Graphic Aurora Background behind the entire application (Draw phase dynamic energy reading)
             ModernAuroraMotionBackground(
                 palette = palette,
                 appTheme = appSettings.theme,
@@ -94,123 +108,162 @@ fun MainScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
-        Scaffold(
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            bottomBar = {
-                if (!isNowPlayingExpanded && !showInitialSplash) {
-                    Column(modifier = Modifier.navigationBarsPadding()) {
-                        // Persistent Floating Mini Player
-                        if (playbackState.currentTrack != null) {
-                            MiniPlayer(
-                                playbackState = playbackState,
-                                palette = palette,
-                                onTogglePlay = { viewModel.togglePlayPause() },
-                                onNext = { viewModel.nextTrack() },
-                                onPrevious = { viewModel.previousTrack() },
-                                onExpandNowPlaying = { viewModel.isNowPlayingExpanded.value = true },
-                                connectedDevice = connectedDevice,
-                                analysisDataProvider = { viewModel.analysisData.value },
-                                currentPositionProvider = { viewModel.currentPositionMs.value }
-                            )
-                        }
+            Scaffold(
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                bottomBar = {
+                    if (!isNowPlayingExpanded && !showInitialSplash) {
+                        Column(modifier = Modifier.navigationBarsPadding()) {
+                            if (playbackState.currentTrack != null) {
+                                MiniPlayer(
+                                    playbackState = playbackState,
+                                    palette = palette,
+                                    onTogglePlay = { viewModel.togglePlayPause() },
+                                    onNext = { viewModel.nextTrack() },
+                                    onPrevious = { viewModel.previousTrack() },
+                                    onExpandNowPlaying = { viewModel.isNowPlayingExpanded.value = true },
+                                    connectedDevice = connectedDevice,
+                                    analysisDataProvider = { viewModel.analysisData.value },
+                                    currentPositionProvider = { viewModel.currentPositionMs.value }
+                                )
+                            }
 
-                        // Floating Liquid Glass Navigation Bar
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                                .liquidGlass(
-                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp),
-                                    thickness = GlassThickness.REGULAR,
-                                    tintColor = palette.primary,
-                                    tintAlpha = 0.12f,
-                                    borderWidth = 1.dp
-                                )
-                        ) {
-                            NavigationBar(
-                                containerColor = Color.Transparent,
-                                modifier = Modifier.testTag("main_navigation_bar")
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(26.dp))
+                                    .liquidGlass(
+                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp),
+                                        thickness = GlassThickness.REGULAR,
+                                        tintColor = palette.primary,
+                                        tintAlpha = 0.12f,
+                                        borderWidth = 1.dp
+                                    )
                             ) {
-                                NavigationBarItem(
-                                    selected = currentTab == MainTab.HOME,
-                                    onClick = { currentTab = MainTab.HOME },
-                                    icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-                                    label = { Text(Localization.getString("home", lang), maxLines = 1) },
-                                    colors = NavigationBarItemDefaults.colors(
+                                NavigationBar(
+                                    containerColor = Color.Transparent,
+                                    tonalElevation = 0.dp,
+                                    modifier = Modifier.testTag("main_navigation_bar")
+                                ) {
+                                    val navColors = NavigationBarItemDefaults.colors(
                                         selectedIconColor = palette.accent,
                                         selectedTextColor = palette.accent,
                                         unselectedIconColor = Color(0xFF75758C),
                                         unselectedTextColor = Color(0xFF75758C),
-                                        indicatorColor = palette.primary.copy(alpha = 0.25f)
+                                        indicatorColor = Color.Transparent
                                     )
-                                )
-                                NavigationBarItem(
-                                    selected = currentTab == MainTab.SEARCH,
-                                    onClick = { currentTab = MainTab.SEARCH },
-                                    icon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                                    label = { Text(Localization.getString("search", lang), maxLines = 1) },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = palette.accent,
-                                        selectedTextColor = palette.accent,
-                                        unselectedIconColor = Color(0xFF75758C),
-                                        unselectedTextColor = Color(0xFF75758C),
-                                        indicatorColor = palette.primary.copy(alpha = 0.25f)
+
+                                    NavigationBarItem(
+                                        selected = currentTab == MainTab.HOME,
+                                        onClick = { currentTab = MainTab.HOME },
+                                        icon = {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(width = 44.dp, height = 26.dp)
+                                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(13.dp))
+                                                    .background(if (currentTab == MainTab.HOME) palette.primary.copy(alpha = 0.28f) else Color.Transparent),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.Home, contentDescription = "Home", modifier = Modifier.size(20.dp))
+                                            }
+                                        },
+                                        label = { Text(Localization.getString("home", lang), maxLines = 1) },
+                                        colors = navColors
                                     )
-                                )
-                                NavigationBarItem(
-                                    selected = currentTab == MainTab.LIBRARY,
-                                    onClick = { currentTab = MainTab.LIBRARY },
-                                    icon = { Icon(Icons.Default.LibraryMusic, contentDescription = "Library") },
-                                    label = { Text(Localization.getString("library", lang), maxLines = 1) },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = palette.accent,
-                                        selectedTextColor = palette.accent,
-                                        unselectedIconColor = Color(0xFF75758C),
-                                        unselectedTextColor = Color(0xFF75758C),
-                                        indicatorColor = palette.primary.copy(alpha = 0.25f)
+                                    NavigationBarItem(
+                                        selected = currentTab == MainTab.SEARCH,
+                                        onClick = { currentTab = MainTab.SEARCH },
+                                        icon = {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(width = 44.dp, height = 26.dp)
+                                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(13.dp))
+                                                    .background(if (currentTab == MainTab.SEARCH) palette.primary.copy(alpha = 0.28f) else Color.Transparent),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(20.dp))
+                                            }
+                                        },
+                                        label = { Text(Localization.getString("search", lang), maxLines = 1) },
+                                        colors = navColors
                                     )
-                                )
-                                NavigationBarItem(
-                                    selected = currentTab == MainTab.WRAPPED,
-                                    onClick = {
-                                        currentTab = MainTab.WRAPPED
-                                        viewModel.refreshWrappedPeriods()
-                                    },
-                                    icon = { Icon(Icons.Default.AutoAwesome, contentDescription = "Wrapped") },
-                                    label = { Text(Localization.getString("wrapped", lang), maxLines = 1) },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = palette.accent,
-                                        selectedTextColor = palette.accent,
-                                        unselectedIconColor = Color(0xFF75758C),
-                                        unselectedTextColor = Color(0xFF75758C),
-                                        indicatorColor = palette.primary.copy(alpha = 0.25f)
+                                    NavigationBarItem(
+                                        selected = currentTab == MainTab.LIBRARY,
+                                        onClick = { currentTab = MainTab.LIBRARY },
+                                        icon = {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(width = 44.dp, height = 26.dp)
+                                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(13.dp))
+                                                    .background(if (currentTab == MainTab.LIBRARY) palette.primary.copy(alpha = 0.28f) else Color.Transparent),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.LibraryMusic, contentDescription = "Library", modifier = Modifier.size(20.dp))
+                                            }
+                                        },
+                                        label = { Text(Localization.getString("library", lang), maxLines = 1) },
+                                        colors = navColors
                                     )
-                                )
-                                NavigationBarItem(
-                                    selected = currentTab == MainTab.SETTINGS,
-                                    onClick = { currentTab = MainTab.SETTINGS },
-                                    icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                                    label = { Text(Localization.getString("settings", lang), maxLines = 1) },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = palette.accent,
-                                        selectedTextColor = palette.accent,
-                                        unselectedIconColor = Color(0xFF75758C),
-                                        unselectedTextColor = Color(0xFF75758C),
-                                        indicatorColor = palette.primary.copy(alpha = 0.25f)
+                                    NavigationBarItem(
+                                        selected = currentTab == MainTab.PLAYLISTS,
+                                        onClick = { currentTab = MainTab.PLAYLISTS },
+                                        icon = {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(width = 44.dp, height = 26.dp)
+                                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(13.dp))
+                                                    .background(if (currentTab == MainTab.PLAYLISTS) palette.primary.copy(alpha = 0.28f) else Color.Transparent),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.QueueMusic, contentDescription = "Playlists", modifier = Modifier.size(20.dp))
+                                            }
+                                        },
+                                        label = { Text(Localization.getString("playlists", lang), maxLines = 1) },
+                                        colors = navColors
                                     )
-                                )
+                                    NavigationBarItem(
+                                        selected = currentTab == MainTab.WRAPPED,
+                                        onClick = { currentTab = MainTab.WRAPPED },
+                                        icon = {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(width = 44.dp, height = 26.dp)
+                                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(13.dp))
+                                                    .background(if (currentTab == MainTab.WRAPPED) palette.primary.copy(alpha = 0.28f) else Color.Transparent),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.AutoAwesome, contentDescription = "Stats", modifier = Modifier.size(20.dp))
+                                            }
+                                        },
+                                        label = { Text(Localization.getString("wrapped", lang), maxLines = 1) },
+                                        colors = navColors
+                                    )
+                                    NavigationBarItem(
+                                        selected = currentTab == MainTab.SETTINGS,
+                                        onClick = { currentTab = MainTab.SETTINGS },
+                                        icon = {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(width = 44.dp, height = 26.dp)
+                                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(13.dp))
+                                                    .background(if (currentTab == MainTab.SETTINGS) palette.primary.copy(alpha = 0.28f) else Color.Transparent),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.Settings, contentDescription = "Settings", modifier = Modifier.size(20.dp))
+                                            }
+                                        },
+                                        label = { Text(Localization.getString("settings", lang), maxLines = 1) },
+                                        colors = navColors
+                                    )
+                                }
                             }
                         }
                     }
-                }
-            },
-            containerColor = Color.Transparent,
-            modifier = Modifier.fillMaxSize()
-        ) { paddingValues ->
-            val bottomBarPadding = paddingValues.calculateBottomPadding()
-            Box(
-                modifier = Modifier.fillMaxSize()
-            ) {
+                },
+                containerColor = Color.Transparent
+            ) { paddingValues ->
+                val bottomBarPadding = paddingValues.calculateBottomPadding()
+
                 when (currentTab) {
                     MainTab.HOME -> {
                         HomeScreen(
@@ -224,6 +277,15 @@ fun MainScreen(
                             onTogglePlay = { viewModel.togglePlayPause() },
                             onOpenLibrary = { currentTab = MainTab.LIBRARY },
                             onOpenWrapped = { currentTab = MainTab.WRAPPED },
+                            timeSlotTracks = timeSlotTracks,
+                            onThisDayHighlight = onThisDayHighlight,
+                            weeklyRecapStats = weeklyRecapStats,
+                            didRestoreSession = didRestoreSession,
+                            duplicateCount = duplicateGroups.sumOf { it.losers.size },
+                            onOpenDuplicatesReview = { viewModel.showDuplicatesReview.value = true },
+                            onToggleFocusMode = {
+                                viewModel.updateSettings(appSettings.copy(focusModeEnabled = !appSettings.focusModeEnabled))
+                            },
                             bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()
                         )
@@ -239,14 +301,6 @@ fun MainScreen(
                             onPlayNext = { viewModel.playNextInQueue(it) },
                             onAddToQueue = { viewModel.addToQueue(it) },
                             onToggleFavorite = { viewModel.toggleFavorite(it) },
-                            onCreatePlaylist = { name -> viewModel.createPlaylist(name) },
-                            onCreatePlaylistWithTracks = { name, trackList -> viewModel.createPlaylistWithTracks(name, trackList) },
-                            onDeletePlaylist = { id -> viewModel.deletePlaylist(id) },
-                            onAddToPlaylist = { pl, trk -> viewModel.addTrackToPlaylist(pl.id, trk.id) },
-                            onRemoveTrackFromPlaylist = { plId, trkId -> viewModel.removeTrackFromPlaylist(plId, trkId) },
-                            onEditMetadata = { viewModel.editingTrackMetadata.value = it },
-                            onDeleteTrack = { viewModel.deleteTrack(it) },
-                            onPlayTrackList = { list -> list.firstOrNull()?.let { viewModel.playTrack(it, list) } },
                             bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()
                         )
@@ -329,6 +383,12 @@ fun MainScreen(
                             },
                             onClearPlaybackHistory = { viewModel.clearPlaybackHistory() },
                             onOpenEqualizer = { viewModel.showEqualizer.value = true },
+                            unlockedStyles = unlockedStyles,
+                            onOpenHearingProfileTest = { viewModel.showHearingProfileTest.value = true },
+                            onOpenDuplicatesReview = {
+                                viewModel.checkDuplicates()
+                            },
+                            onSelectNowPlayingStyle = { styleId -> viewModel.selectNowPlayingStyle(styleId) },
                             bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()
                         )
@@ -348,6 +408,7 @@ fun MainScreen(
                         appSettings = appSettings,
                         analysisDataProvider = { viewModel.analysisData.value },
                         currentPositionProvider = { viewModel.currentPositionMs.value },
+                        audioProfile = currentAudioProfile,
                         onCollapse = { viewModel.isNowPlayingExpanded.value = false },
                         onTogglePlay = { viewModel.togglePlayPause() },
                         onNext = { viewModel.nextTrack() },
@@ -355,6 +416,7 @@ fun MainScreen(
                         onSeekTo = { viewModel.seekTo(it) },
                         onToggleFavorite = { viewModel.toggleFavorite(it) },
                         onToggleShuffle = { viewModel.toggleShuffle() },
+                        onCycleShuffleMode = { viewModel.toggleShuffle() },
                         onCycleRepeat = { viewModel.cycleRepeatMode() },
                         onOpenLyricsEditor = { viewModel.showLyricsEditor.value = true },
                         onOpenEqualizer = { viewModel.showEqualizer.value = true },
@@ -362,6 +424,7 @@ fun MainScreen(
                         onSelectVisualizerMode = { viewModel.setVisualizerMode(it) },
                         onOpenSleepTimer = { viewModel.showSleepTimer.value = true },
                         onOpenMetadataEditor = { viewModel.editingTrackMetadata.value = it },
+                        onOpenHearingCalibration = { viewModel.showHearingProfileTest.value = true },
                         connectedDevice = connectedDevice,
                         onShareSong = { trk -> viewModel.showShareCard(trk) },
                         onPlaybackSpeedChange = { speed -> viewModel.setPlaybackSpeed(speed) }
@@ -370,7 +433,7 @@ fun MainScreen(
             }
         }
 
-        // Cinematic Initial Splash Loading Screen
+        // Cinematic Splash
         AnimatedVisibility(
             visible = showInitialSplash,
             enter = fadeIn(),
@@ -391,6 +454,34 @@ fun MainScreen(
                 onDismiss = { viewModel.dismissShareCard() }
             )
         }
+
+        if (showHearingProfileTest) {
+            HearingProfileTestSheet(
+                palette = palette,
+                lang = lang,
+                onApplyCalibratedProfile = { calibratedBands ->
+                    viewModel.applyHearingCalibration(calibratedBands)
+                    viewModel.showHearingProfileTest.value = false
+                    Toast.makeText(context, if (lang == com.example.data.model.AppLanguage.PERSIAN) "پروفایل اختصاصی شنوایی شما ذخیره و اعمال شد." else "Hearing calibrated profile applied!", Toast.LENGTH_SHORT).show()
+                },
+                onDismiss = { viewModel.showHearingProfileTest.value = false }
+            )
+        }
+
+        if (showDuplicatesReview && duplicateGroups.isNotEmpty()) {
+            DuplicatesReviewDialog(
+                groups = duplicateGroups,
+                palette = palette,
+                lang = lang,
+                onKeepAllHigherQuality = {
+                    viewModel.applyDuplicateGroupWinners(duplicateGroups)
+                    viewModel.showDuplicatesReview.value = false
+                    Toast.makeText(context, if (lang == com.example.data.model.AppLanguage.PERSIAN) "فایل‌های تکراری با موفقیت بهینه‌سازی شدند." else "Duplicate tracks optimized!", Toast.LENGTH_SHORT).show()
+                },
+                onDismiss = { viewModel.showDuplicatesReview.value = false }
+            )
+        }
+
         if (showLyricsEditor) {
             LyricsEditorSheet(
                 track = playbackState.currentTrack,
@@ -447,5 +538,4 @@ fun MainScreen(
             )
         }
     }
-}
 }

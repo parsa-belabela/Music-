@@ -6,198 +6,158 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Outer Liquid Glass Orbit Ring (Safe within 66dp area centered around 54,54) -->
+    <!-- Translucent Liquid Glass Disc Base -->
     <path
-        android:pathData="M54,54m-27,0a27,27 0 1,1 54,0a27,27 0 1,1 -54,0"
-        android:strokeWidth="2.8"
-        android:strokeAlpha="0.95">
-        <aapt:attr name="android:strokeColor">
-            <gradient
-                android:startX="27"
-                android:startY="27"
-                android:endX="81"
-                android:endY="81"
-                android:type="linear">
-                <item android:offset="0.0" android:color="#38BDF8"/>
-                <item android:offset="0.35" android:color="#A855F7"/>
-                <item android:offset="0.75" android:color="#F43F5E"/>
-                <item android:offset="1.0" android:color="#FBBF24"/>
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Translucent Frosted Glass Core Disk -->
-    <path
-        android:pathData="M54,54m-23,0a23,23 0 1,1 46,0a23,23 0 1,1 -46,0"
-        android:fillAlpha="0.28">
+        android:pathData="M54,24 A30,30 0 1,1 53.99,24 Z">
         <aapt:attr name="android:fillColor">
             <gradient
-                android:centerX="54"
-                android:centerY="46"
-                android:gradientRadius="26"
-                android:type="radial">
-                <item android:offset="0.0" android:color="#80FFFFFF"/>
-                <item android:offset="0.5" android:color="#30A855F7"/>
-                <item android:offset="1.0" android:color="#10000000"/>
+                android:startX="30"
+                android:startY="24"
+                android:endX="78"
+                android:endY="84"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#35FFFFFF" />
+                <item android:offset="0.4" android:color="#15FFFFFF" />
+                <item android:offset="1.0" android:color="#20FFFFFF" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Inner Refractive Glass Border -->
+    <!-- Liquid Glass Specular Edge Ring / Border -->
     <path
-        android:pathData="M54,54m-23,0a23,23 0 1,1 46,0a23,23 0 1,1 -46,0"
-        android:strokeWidth="1.2"
-        android:strokeAlpha="0.55">
+        android:pathData="M54,24 A30,30 0 1,1 53.99,24 Z"
+        android:strokeWidth="1.6">
         <aapt:attr name="android:strokeColor">
             <gradient
-                android:startX="31"
-                android:startY="31"
-                android:endX="77"
-                android:endY="77"
+                android:startX="26"
+                android:startY="24"
+                android:endX="82"
+                android:endY="84"
                 android:type="linear">
-                <item android:offset="0.0" android:color="#FFFFFF"/>
-                <item android:offset="0.5" android:color="#6038BDF8"/>
-                <item android:offset="1.0" android:color="#20FFFFFF"/>
+                <item android:offset="0.0" android:color="#EEFFFFFF" />
+                <item android:offset="0.3" android:color="#90FFFFFF" />
+                <item android:offset="0.6" android:color="#25FFFFFF" />
+                <item android:offset="1.0" android:color="#70FFFFFF" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Sound Waveform Spectrum Bars (Curved, Harmonic Height, Rounded Ends) -->
-    <!-- Bar 1 (Left low) -->
+    <!-- Top-Left Glass Reflection Shimmer Curve -->
     <path
-        android:pathData="M37,51v6"
-        android:strokeWidth="3.2"
-        android:strokeColor="#38BDF8"
-        android:strokeLineCap="round" />
-
-    <!-- Bar 2 (Mid-left rise) -->
-    <path
-        android:pathData="M43,45v18"
-        android:strokeWidth="3.4"
+        android:pathData="M34,36 C40,28 50,26 62,27"
+        android:strokeWidth="2.2"
         android:strokeLineCap="round">
         <aapt:attr name="android:strokeColor">
             <gradient
-                android:startX="43"
+                android:startX="34"
+                android:startY="36"
+                android:endX="62"
+                android:endY="27"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#00FFFFFF" />
+                <item android:offset="0.5" android:color="#CCFFFFFF" />
+                <item android:offset="1.0" android:color="#00FFFFFF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Sonic Soundwave Halo Arc Right -->
+    <path
+        android:pathData="M69,45 C73,49 73,59 69,63"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="69"
                 android:startY="45"
-                android:endX="43"
+                android:endX="73"
                 android:endY="63"
                 android:type="linear">
-                <item android:offset="0.0" android:color="#38BDF8"/>
-                <item android:offset="1.0" android:color="#818CF8"/>
+                <item android:offset="0.0" android:color="#AAFFFFFF" />
+                <item android:offset="1.0" android:color="#5000F2FE" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Bar 3 (Center-left peak) -->
+    <!-- Sonic Soundwave Halo Arc Left -->
     <path
-        android:pathData="M49,39v30"
-        android:strokeWidth="3.8"
+        android:pathData="M39,45 C35,49 35,59 39,63"
+        android:strokeWidth="2.2"
         android:strokeLineCap="round">
         <aapt:attr name="android:strokeColor">
             <gradient
-                android:startX="49"
-                android:startY="39"
-                android:endX="49"
-                android:endY="69"
+                android:startX="39"
+                android:startY="45"
+                android:endX="35"
+                android:endY="63"
                 android:type="linear">
-                <item android:offset="0.0" android:color="#A78BFA"/>
-                <item android:offset="1.0" android:color="#C084FC"/>
+                <item android:offset="0.0" android:color="#AAD946EF" />
+                <item android:offset="1.0" android:color="#60FFFFFF" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Bar 4 (Center Hero Pulsing Core) -->
+    <!-- Ultra-Minimalist Solid Glass Music Glyph (Beamed Double Note) -->
+    <!-- Connecting Top Angled Beam -->
     <path
-        android:pathData="M55,35v38"
-        android:strokeWidth="4.2"
-        android:strokeLineCap="round">
-        <aapt:attr name="android:strokeColor">
+        android:pathData="M45,41.5 L63,37.5 L63,42.5 L45,46.5 Z">
+        <aapt:attr name="android:fillColor">
             <gradient
-                android:startX="55"
-                android:startY="35"
-                android:endX="55"
-                android:endY="73"
+                android:startX="45"
+                android:startY="41.5"
+                android:endX="63"
+                android:endY="42.5"
                 android:type="linear">
-                <item android:offset="0.0" android:color="#FFFFFF"/>
-                <item android:offset="0.25" android:color="#E879F9"/>
-                <item android:offset="0.75" android:color="#F43F5E"/>
-                <item android:offset="1.0" android:color="#FB7185"/>
+                <item android:offset="0.0" android:color="#FFFFFFFF" />
+                <item android:offset="1.0" android:color="#FFF3F4F6" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Bar 5 (Center-right peak) -->
+    <!-- Left Stem -->
     <path
-        android:pathData="M61,41v26"
-        android:strokeWidth="3.8"
-        android:strokeLineCap="round">
-        <aapt:attr name="android:strokeColor">
+        android:pathData="M45,41.5 L48.5,40.7 L48.5,60.5 L45,61 Z"
+        android:fillColor="#FFFFFFFF" />
+
+    <!-- Right Stem -->
+    <path
+        android:pathData="M59.5,38.3 L63,37.5 L63,56.5 L59.5,57 Z"
+        android:fillColor="#FFFFFFFF" />
+
+    <!-- Left Note Head (Angled Oval) -->
+    <path
+        android:pathData="M43.5,57.5 C46.5,57.5 48.5,59.5 48.5,62 C48.5,64.8 45.8,67 42.5,67 C39.5,67 37.5,64.8 37.5,62 C37.5,59.5 40.2,57.5 43.5,57.5 Z">
+        <aapt:attr name="android:fillColor">
             <gradient
-                android:startX="61"
-                android:startY="41"
-                android:endX="61"
+                android:startX="37.5"
+                android:startY="57.5"
+                android:endX="48.5"
                 android:endY="67"
                 android:type="linear">
-                <item android:offset="0.0" android:color="#F472B6"/>
-                <item android:offset="1.0" android:color="#FB923C"/>
+                <item android:offset="0.0" android:color="#FFFFFFFF" />
+                <item android:offset="1.0" android:color="#FFE2E8F0" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Bar 6 (Mid-right rise) -->
+    <!-- Right Note Head (Angled Oval) -->
     <path
-        android:pathData="M67,46v16"
-        android:strokeWidth="3.4"
-        android:strokeLineCap="round">
-        <aapt:attr name="android:strokeColor">
+        android:pathData="M58,53.5 C61,53.5 63,55.5 63,58 C63,60.8 60.3,63 57,63 C54,63 52,60.8 52,58 C52,55.5 54.7,53.5 58,53.5 Z">
+        <aapt:attr name="android:fillColor">
             <gradient
-                android:startX="67"
-                android:startY="46"
-                android:endX="67"
-                android:endY="62"
+                android:startX="52"
+                android:startY="53.5"
+                android:endX="63"
+                android:endY="63"
                 android:type="linear">
-                <item android:offset="0.0" android:color="#FBBF24"/>
-                <item android:offset="1.0" android:color="#34D399"/>
+                <item android:offset="0.0" android:color="#FFFFFFFF" />
+                <item android:offset="1.0" android:color="#FFE2E8F0" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Bar 7 (Right low) -->
+    <!-- Specular Highlight Sparkle -->
     <path
-        android:pathData="M73,51v6"
-        android:strokeWidth="3.2"
-        android:strokeColor="#2DD4BF"
-        android:strokeLineCap="round" />
-
-    <!-- Top Specular Refraction Shimmer Arc -->
-    <path
-        android:pathData="M37,42 C42,35 66,35 71,42"
-        android:strokeWidth="1.8"
-        android:strokeAlpha="0.75"
-        android:strokeLineCap="round">
-        <aapt:attr name="android:strokeColor">
-            <gradient
-                android:startX="37"
-                android:startY="38"
-                android:endX="71"
-                android:endY="38"
-                android:type="linear">
-                <item android:offset="0.0" android:color="#00FFFFFF"/>
-                <item android:offset="0.5" android:color="#FFFFFFFF"/>
-                <item android:offset="1.0" android:color="#00FFFFFF"/>
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Crystal Diamond Sparkle Light Star (Top Right) -->
-    <path
-        android:pathData="M73,34 L74.2,36.5 L76.7,37.7 L74.2,38.9 L73,41.4 L71.8,38.9 L69.3,37.7 L71.8,36.5 Z"
-        android:fillColor="#FFFFFFFF"
-        android:fillAlpha="0.9" />
-
-    <!-- Micro Star Sparkle (Bottom Left) -->
-    <path
-        android:pathData="M35,66 L35.8,67.8 L37.6,68.6 L35.8,69.4 L35,71.2 L34.2,69.4 L32.4,68.6 L34.2,67.8 Z"
-        android:fillColor="#38BDF8"
-        android:fillAlpha="0.85" />
+        android:pathData="M63,37.5 M61,37.5 A2,2 0 1,1 65,37.5 A2,2 0 1,1 61,37.5"
+        android:fillColor="#FFFFFFFF" />
 </vector>

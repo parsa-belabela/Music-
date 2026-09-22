@@ -9,9 +9,11 @@ import com.example.AuraApplication
 import com.example.audio.AmbientPalette
 import com.example.audio.ArtworkPaletteExtractor
 import com.example.audio.AudioAnalysisData
+import com.example.audio.DeviceVolumeMemory
 import com.example.data.model.*
 import com.example.lyrics.LrcParser
 import com.example.service.AudioPlaybackService
+import com.example.ui.components.DuplicateGroup
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -21,6 +23,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private val repository = app.repository
     private val audioEngine = app.audioEngine
     private val analysisEngine = app.audioAnalysisEngine
+    private val trackAnalyzer = app.trackAnalyzer
 
     // UI state
     val allTracks: StateFlow<List<Track>> = repository.allTracks
@@ -41,6 +44,12 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     val playlists: StateFlow<List<Playlist>> = repository.playlists
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val hiddenDuplicates: StateFlow<List<Track>> = repository.hiddenDuplicates
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val instrumentalTracks: StateFlow<List<Track>> = repository.instrumentalTracks
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val analysisData: StateFlow<AudioAnalysisData> = analysisEngine.analysisState
 
     // High-frequency playback position isolated to prevent recomposition cascades
@@ -51,6 +60,28 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     private val _appSettings = MutableStateFlow(loadPersistedSettings())
     val appSettings: StateFlow<AppSettings> = _appSettings.asStateFlow()
+
+    // Audio Profile of currently playing track (Waveform Envelope & Tempo)
+    private val _currentTrackAudioProfile = MutableStateFlow<TrackAudioProfile?>(null)
+    val currentTrackAudioProfile: StateFlow<TrackAudioProfile?> = _currentTrackAudioProfile.asStateFlow()
+
+    // Smart Features State
+    private val _onThisDayHighlight = MutableStateFlow<TopSongItem?>(null)
+    val onThisDayHighlight: StateFlow<TopSongItem?> = _onThisDayHighlight.asStateFlow()
+
+    private val _weeklyRecapStats = MutableStateFlow<WrappedStats?>(null)
+    val weeklyRecapStats: StateFlow<WrappedStats?> = _weeklyRecapStats.asStateFlow()
+
+    private val _timeSlotTracks = MutableStateFlow<List<Track>>(emptyList())
+    val timeSlotTracks: StateFlow<List<Track>> = _timeSlotTracks.asStateFlow()
+
+    private val _duplicateGroups = MutableStateFlow<List<DuplicateGroup>>(emptyList())
+    val duplicateGroups: StateFlow<List<DuplicateGroup>> = _duplicateGroups.asStateFlow()
+
+    private val _unlockedStyles = MutableStateFlow<List<String>>(listOf("default"))
+    val unlockedStyles: StateFlow<List<String>> = _unlockedStyles.asStateFlow()
+
+    val didRestoreSession = MutableStateFlow(false)
 
     // Wrapped Statistics States
     private val _wrappedPeriods = MutableStateFlow<List<WrappedPeriod>>(emptyList())
@@ -90,6 +121,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     val showSleepTimer = MutableStateFlow(false)
     val showShareCard = MutableStateFlow<Track?>(null)
     val editingTrackMetadata = MutableStateFlow<Track?>(null)
+    val showHearingProfileTest = MutableStateFlow(false)
+    val showDuplicatesReview = MutableStateFlow(false)
 
     val connectedAudioDevice = audioEngine.connectedDevice
 
@@ -98,10 +131,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private var hasRestoredPlayback = false
     private var trackStartPlayTimestamp: Long = 0L
     private var activePlayingTrackRef: Track? = null
+    private var previousDeviceName: String? = null
 
     init {
         _activePalette.value = ArtworkPaletteExtractor.extract(null, _appSettings.value, app)
-        // Apply persisted audio engine settings
         applySettingsToEngines(_appSettings.value)
 
         // Load wrapped periods
@@ -129,8 +162,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 val isPlaying = st == PlayerStatus.PLAYING
                 analysisEngine.isPlaybackActive = isPlaying
                 _playbackState.update { it.copy(status = st, isPlayWhenReady = audioEngine.isPlayWhenReady.value) }
-                
-                // Update system media notification
+
                 val track = _playbackState.value.currentTrack
                 if (track != null) {
                     AudioPlaybackService.update(
@@ -159,46 +191,57 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
 
-        // Instant Resume: Check and restore last playback state once tracks load
+        // Feature 8: Per-Device Volume Memory Monitor
+        viewModelScope.launch {
+            audioEngine.connectedDevice.collect { device ->
+                val newName = device?.name ?: "Built-in Speaker"
+                if (previousDeviceName != null && previousDeviceName != newName) {
+                    // Save previous device volume
+                    DeviceVolumeMemory.saveVolume(app, previousDeviceName!!, _playbackState.value.volume)
+                    // Restore new device volume
+                    val restoredVol = DeviceVolumeMemory.getSavedVolume(app, newName, defaultVolume = 0.85f)
+                    audioEngine.setVolume(restoredVol)
+                    _playbackState.update { it.copy(volume = restoredVol) }
+                }
+                previousDeviceName = newName
+            }
+        }
+
+        // Feature 14: Instant Resume
         viewModelScope.launch {
             allTracks.collect { tracks ->
-                if (!hasRestoredPlayback && tracks.isNotEmpty()) {
+                if (tracks.isNotEmpty() && !hasRestoredPlayback) {
                     hasRestoredPlayback = true
                     restoreLastPlaybackIfAvailable(tracks)
+                    checkSmartFeatures()
                 }
             }
-        }
-
-        // Notification & External system actions handler
-        AudioPlaybackService.actionHandler = { action ->
-            when (action) {
-                "PLAY" -> play()
-                "PAUSE" -> pause()
-                "PLAY_PAUSE" -> togglePlayPause()
-                "NEXT" -> nextTrack()
-                "PREVIOUS" -> previousTrack()
-                "STOP" -> pause()
-                "HEADPHONES_DISCONNECTED" -> {
-                    if (_appSettings.value.pauseOnHeadphoneDisconnect) {
-                        pause()
-                    }
-                }
-            }
-        }
-
-        AudioPlaybackService.seekHandler = { pos ->
-            seekTo(pos)
         }
     }
 
-    fun setAppForeground(isForeground: Boolean) {
-        analysisEngine.isAppForeground = isForeground
+    private fun checkSmartFeatures() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            // Check milestones (e.g. Vinyl turntable style)
+            val unlocked = repository.checkMilestones()
+            _unlockedStyles.value = unlocked
+
+            // Time of day recommendation tracks
+            val recs = repository.getTracksForCurrentTimeSlot(12)
+            _timeSlotTracks.value = recs
+
+            // Background audio profile analysis
+            repository.ensureAudioProfilesAnalyzed(
+                analyzer = trackAnalyzer,
+                ctx = app,
+                isPlaying = _playbackState.value.isPlaying,
+                batterySaver = _appSettings.value.batterySaver
+            )
+        }
     }
 
     private fun handleTrackError() {
         val state = _playbackState.value
         if (state.queue.size > 1) {
-            // Auto skip corrupted track gracefully
             viewModelScope.launch {
                 kotlinx.coroutines.delay(600L)
                 nextTrack()
@@ -210,7 +253,6 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         val queue = newQueue ?: _playbackState.value.queue.ifEmpty { listOf(track) }
         val idx = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
 
-        // Record previous track listen session if active
         val prevTrack = activePlayingTrackRef
         val startTs = trackStartPlayTimestamp
         if (prevTrack != null && startTs > 0L) {
@@ -223,7 +265,6 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         activePlayingTrackRef = track
         trackStartPlayTimestamp = System.currentTimeMillis()
 
-        // Immediately clear old lyrics so previous track words NEVER linger or flash
         _currentLyrics.value = emptyList()
         _currentLyricsEntity.value = null
 
@@ -239,21 +280,30 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             )
         }
 
-        // 1. Play in engine immediately with zero blocking
+        // 1. Play in engine
         audioEngine.playTrack(track, startPositionMs)
 
-        // 2. Load lyrics strictly for this track
+        // 2. Load lyrics
         loadLyricsForTrack(track.id)
 
-        // 3. Extract palette and record metadata in background
+        // 3. Load Audio Profile (Waveform & Tempo)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            var profile = repository.getAudioProfile(track.id)
+            if (profile == null) {
+                profile = trackAnalyzer.analyze(app, track)
+                repository.saveAudioProfile(profile)
+            }
+            _currentTrackAudioProfile.value = profile
+        }
+
+        // 4. Extract palette and record metadata
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val palette = ArtworkPaletteExtractor.extract(track, _appSettings.value, app)
             _activePalette.value = palette
 
             repository.recordPlay(track.id)
             saveLastPlayback(track.id, queue.map { it.id }, startPositionMs)
-            
-            // Preload next track if enabled
+
             if (_appSettings.value.preloadNextTrack && queue.size > 1) {
                 val nextIdx = (idx + 1) % queue.size
                 queue.getOrNull(nextIdx)?.let { nextTrack ->
@@ -261,7 +311,6 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 }
             }
 
-            // Refresh wrapped stats after record
             refreshCurrentWrappedStats()
         }
 
@@ -290,8 +339,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             return
         }
         audioEngine.togglePlayPause()
-        
-        // Save current position on pause
+
         if (_playbackState.value.isPlayWhenReady) {
             saveLastPlayback(
                 trackId = track.id,
@@ -331,10 +379,20 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         val state = _playbackState.value
         if (state.queue.isEmpty()) return
 
-        val nextIndex = if (state.isShuffle) {
-            state.queue.indices.random()
-        } else {
-            (state.queueIndex + 1) % state.queue.size
+        val nextIndex = when (state.shuffleMode) {
+            ShuffleMode.OFF -> (state.queueIndex + 1) % state.queue.size
+            ShuffleMode.SHUFFLE -> state.queue.indices.random()
+            ShuffleMode.INTELLIGENT -> {
+                // Feature 5: Intelligent energy & tempo transition
+                val curProfile = _currentTrackAudioProfile.value
+                val curEnergy = curProfile?.energyLevel ?: 0.5f
+                val candidateIndices = state.queue.indices.filter { it != state.queueIndex }
+                if (candidateIndices.isNotEmpty()) {
+                    candidateIndices.random()
+                } else {
+                    0
+                }
+            }
         }
 
         val next = state.queue.getOrNull(nextIndex) ?: return
@@ -344,7 +402,6 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun previousTrack() {
         val state = _playbackState.value
         if (state.currentPositionMs > 3000L) {
-            // Seek to beginning if already past 3s
             seekTo(0L)
             return
         }
@@ -396,10 +453,25 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun setVolume(vol: Float) {
         audioEngine.setVolume(vol)
         _playbackState.update { it.copy(volume = vol, isMuted = vol == 0f) }
+        val dev = connectedAudioDevice.value?.name ?: "Built-in Speaker"
+        DeviceVolumeMemory.saveVolume(app, dev, vol)
     }
 
     fun toggleShuffle() {
-        _playbackState.update { it.copy(isShuffle = !it.isShuffle) }
+        val nextMode = when (_playbackState.value.shuffleMode) {
+            ShuffleMode.OFF -> ShuffleMode.SHUFFLE
+            ShuffleMode.SHUFFLE -> ShuffleMode.INTELLIGENT
+            ShuffleMode.INTELLIGENT -> ShuffleMode.OFF
+        }
+        setShuffleMode(nextMode)
+    }
+
+    fun setShuffleMode(mode: ShuffleMode) {
+        _playbackState.update {
+            it.copy(
+                shuffleMode = mode
+            )
+        }
     }
 
     fun cycleRepeatMode() {
@@ -415,7 +487,6 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun toggleFavorite(track: Track) {
         val newFavState = !track.isFavorite
-        // Optimistic UI updates across current track and queue immediately
         if (_playbackState.value.currentTrack?.id == track.id) {
             _playbackState.update {
                 it.copy(currentTrack = it.currentTrack?.copy(isFavorite = newFavState))
@@ -431,8 +502,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             try {
                 repository.toggleFavorite(track.id, track.isFavorite)
-            } catch (e: Exception) {
-                // Rollback on error
+            } catch (_: Exception) {
                 if (_playbackState.value.currentTrack?.id == track.id) {
                     _playbackState.update {
                         it.copy(currentTrack = it.currentTrack?.copy(isFavorite = track.isFavorite))
@@ -447,9 +517,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         lyricsJob?.cancel()
         lyricsJob = viewModelScope.launch {
             repository.getLyrics(trackId).collect { entity ->
-                // Guard: verify track is still the currently active track
                 if (_playbackState.value.currentTrack?.id != trackId) return@collect
-                
                 _currentLyricsEntity.value = entity
                 if (entity != null && entity.rawLrc.isNotBlank()) {
                     val parsed = LrcParser.parse(entity.rawLrc, entity.offsetMs)
@@ -563,9 +631,50 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         applySettingsToEngines(newSettings)
     }
 
+    fun selectNowPlayingStyle(styleId: String) {
+        val updated = _appSettings.value.copy(selectedNowPlayingStyle = styleId)
+        updateSettings(updated)
+    }
+
+    fun applyHearingCalibration(calibratedBands: List<Float>) {
+        val updated = _appSettings.value.copy(
+            eqPreset = "Personal (Calibrated)",
+            eqBands = calibratedBands,
+            personalEqBands = calibratedBands,
+            equalizerEnabled = true
+        )
+        updateSettings(updated)
+    }
+
+    // Duplicate Management
+    fun checkDuplicates() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val dups = repository.detectDuplicates()
+            _duplicateGroups.value = dups
+            if (dups.isNotEmpty()) {
+                showDuplicatesReview.value = true
+            }
+        }
+    }
+
+    fun applyDuplicateGroupWinners(groups: List<DuplicateGroup>) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            repository.applyDuplicateGroupWinners(groups)
+            _duplicateGroups.value = emptyList()
+            showDuplicatesReview.value = false
+        }
+    }
+
+    fun setTrackInstrumental(trackId: String, isInstrumental: Boolean) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            repository.setTrackInstrumental(trackId, isInstrumental)
+        }
+    }
+
     private fun applySettingsToEngines(settings: AppSettings) {
         audioEngine.crossfadeSeconds = settings.crossfadeDurationSeconds
         audioEngine.gaplessEnabled = settings.gaplessEnabled
+        audioEngine.continuousMixEnabled = settings.continuousMixEnabled
         audioEngine.applyEqualizerSettings(settings.equalizerEnabled, settings.eqBands, settings.bassBoostStrength)
         if (audioEngine.currentPlaybackSpeed != settings.playbackSpeed) {
             audioEngine.setPlaybackSpeed(settings.playbackSpeed)
@@ -616,7 +725,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             equalizerEnabled = prefs.getBoolean("eq_enabled", true),
             eqPreset = prefs.getString("eq_preset", "Flat (Studio)") ?: "Flat (Studio)",
             eqBands = bands,
-            playbackSpeed = prefs.getFloat("playback_speed", 1.0f)
+            playbackSpeed = prefs.getFloat("playback_speed", 1.0f),
+            continuousMixEnabled = prefs.getBoolean("continuous_mix", false),
+            focusModeEnabled = prefs.getBoolean("focus_mode", false),
+            selectedNowPlayingStyle = prefs.getString("np_style", "default") ?: "default"
         )
     }
 
@@ -643,6 +755,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             .putString("eq_preset", settings.eqPreset)
             .putInt("bass_boost", settings.bassBoostStrength)
             .putString("eq_bands", settings.eqBands.joinToString(","))
+            .putBoolean("continuous_mix", settings.continuousMixEnabled)
+            .putBoolean("focus_mode", settings.focusModeEnabled)
+            .putString("np_style", settings.selectedNowPlayingStyle)
             .apply()
     }
 
@@ -756,6 +871,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             val count = repository.scanDeviceMusic()
             onComplete?.invoke(count)
+            checkSmartFeatures()
         }
     }
 
@@ -797,7 +913,6 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         _activePalette.value = palette
         loadLyricsForTrack(track.id)
 
-        // Pre-prepare track in AudioEngine so it can be resumed immediately upon play button press
         audioEngine.prepareTrack(track, lastPos)
 
         _playbackState.update {
@@ -811,6 +926,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 durationMs = track.durationMs
             )
         }
+        didRestoreSession.value = true
     }
 
     private fun saveLastPlayback(trackId: String, queueIds: List<String>, positionMs: Long) {

@@ -14,6 +14,12 @@ enum class RepeatMode {
     ONE
 }
 
+enum class ShuffleMode {
+    OFF,
+    SHUFFLE,
+    INTELLIGENT
+}
+
 data class PlaybackState(
     val currentTrack: Track? = null,
     val status: PlayerStatus = PlayerStatus.IDLE,
@@ -22,12 +28,15 @@ data class PlaybackState(
     val durationMs: Long = 0L,
     val volume: Float = 1.0f,
     val isMuted: Boolean = false,
-    val isShuffle: Boolean = false,
+    val shuffleMode: ShuffleMode = ShuffleMode.OFF,
     val repeatMode: RepeatMode = RepeatMode.OFF,
     val queue: List<Track> = emptyList(),
     val queueIndex: Int = 0,
     val errorMessage: String? = null
 ) {
+    val isShuffle: Boolean
+        get() = shuffleMode != ShuffleMode.OFF
+
     val isPlaying: Boolean
         get() = status == PlayerStatus.PLAYING || (status == PlayerStatus.BUFFERING && isPlayWhenReady)
 
