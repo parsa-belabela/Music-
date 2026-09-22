@@ -170,7 +170,7 @@ fun ModernAuroraMotionBackground(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .blur(36.dp)
+                .blur(12.dp)
         ) {
             val width = size.width
             val height = size.height

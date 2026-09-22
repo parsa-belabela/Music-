@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -90,14 +91,6 @@ fun NowPlayingScreen(
 
     // Dynamic scale for artwork responding to Bass/Kick & Focus Mode
     val isPlaying = playbackState.isPlaying
-    val bassExpansion = if (isPlaying) analysisData.haloExpansion else 0f
-    val kickPulse = if (isPlaying) analysisData.kickPulse else 0f
-
-    val artworkScale by animateFloatAsState(
-        targetValue = if (isImmersive) 1.08f else (1f + bassExpansion * 0.035f + kickPulse * 0.025f),
-        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
-        label = "artworkScale"
-    )
 
     Box(
         modifier = modifier
@@ -413,7 +406,13 @@ fun NowPlayingScreen(
                             Box(
                                 modifier = Modifier
                                     .size(if (isImmersive) 320.dp else 285.dp)
-                                    .scale(artworkScale)
+                                    .graphicsLayer {
+                                        val bass = if (isPlaying) analysisData.haloExpansion else 0f
+                                        val kick = if (isPlaying) analysisData.kickPulse else 0f
+                                        val s = if (isImmersive) 1.08f else (1f + bass * 0.035f + kick * 0.025f)
+                                        scaleX = s
+                                        scaleY = s
+                                    }
                                     .shadow(
                                         elevation = 32.dp,
                                         shape = RoundedCornerShape(28.dp),

@@ -10,6 +10,7 @@ import android.media.MediaPlayer
 import android.media.PlaybackParams
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
+import android.media.audiofx.Virtualizer
 import android.net.Uri
 import android.os.Build
 import android.util.Log
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 data class ConnectedAudioDevice(
@@ -44,6 +46,7 @@ class AudioEngine(private val context: Context) {
     private var mediaPlayer: MediaPlayer? = null
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
+    private var virtualizer: Virtualizer? = null
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
@@ -574,8 +577,24 @@ class AudioEngine(private val context: Context) {
         applyVolume()
     }
 
+    /**
+     * Calculates audiophile headroom attenuation to prevent digital clipping when EQ or BassBoost are boosted.
+     * When any band is raised above 0dB, attenuation is applied smoothly so the DAC never clips.
+     */
+    private fun getHeadroomScale(): Float {
+        if (!isEqEnabled) return 1.0f
+        val maxBandBoostDb = currentEqBands.maxOrNull()?.coerceAtLeast(0f) ?: 0f
+        val bbBoostDb = if (currentBassBoostStrength > 0) (currentBassBoostStrength / 1000f) * 6.0f else 0f
+        val totalPeakBoost = maxOf(maxBandBoostDb, bbBoostDb)
+        if (totalPeakBoost <= 0.5f) return 1.0f
+
+        val attenuationDb = totalPeakBoost * 0.85f
+        return (10.0.pow(-attenuationDb.toDouble() / 20.0)).toFloat().coerceIn(0.25f, 1.0f)
+    }
+
     private fun applyVolume() {
-        val actual = if (isDucked) masterVolume * 0.3f else masterVolume
+        val base = if (isDucked) masterVolume * 0.3f else masterVolume
+        val actual = (base * getHeadroomScale()).coerceIn(0f, 1f)
         try {
             mediaPlayer?.setVolume(actual, actual)
         } catch (_: Exception) {}
@@ -590,8 +609,9 @@ class AudioEngine(private val context: Context) {
         fadeJob = engineScope.launch {
             val steps = 20
             val delayMs = (durationSeconds * 1000L) / steps
+            val headroom = getHeadroomScale()
             for (i in steps downTo 0) {
-                val vol = (i.toFloat() / steps) * masterVolume
+                val vol = (i.toFloat() / steps) * masterVolume * headroom
                 try {
                     currentMp.setVolume(vol, vol)
                 } catch (_: Exception) {}
@@ -612,8 +632,15 @@ class AudioEngine(private val context: Context) {
             bassBoost = BassBoost(0, sessionId).apply {
                 enabled = true
             }
+            try {
+                virtualizer = Virtualizer(0, sessionId).apply {
+                    enabled = true
+                }
+            } catch (ve: Exception) {
+                Log.w(tag, "Virtualizer not supported on device: ${ve.message}")
+            }
             applyCurrentEffects()
-            Log.d(tag, "Initialized Equalizer and BassBoost on session $sessionId")
+            Log.d(tag, "Initialized Equalizer, BassBoost, and Virtualizer on session $sessionId")
         } catch (e: Exception) {
             Log.w(tag, "Audio effects not supported on this session: ${e.message}")
         }
@@ -624,13 +651,39 @@ class AudioEngine(private val context: Context) {
         currentEqBands = bands
         currentBassBoostStrength = bassBoostStrength
         applyCurrentEffects()
+        applyVolume()
+    }
+
+    /**
+     * Maps user 10-band graphic EQ (-12dB to +12dB) to hardware bands using logarithmic frequency interpolation.
+     */
+    private fun calculateGainForFreq(freqHz: Float, gains: List<Float>): Float {
+        if (gains.isEmpty()) return 0f
+        val nominalFreqs = floatArrayOf(31f, 62f, 125f, 250f, 500f, 1000f, 2000f, 4000f, 8000f, 16000f)
+        if (freqHz <= nominalFreqs.first()) return gains.first()
+        if (freqHz >= nominalFreqs.last()) return gains.last()
+
+        for (i in 0 until nominalFreqs.size - 1) {
+            val f1 = nominalFreqs[i]
+            val f2 = nominalFreqs[i + 1]
+            if (freqHz in f1..f2) {
+                val log1 = kotlin.math.ln(f1.toDouble())
+                val log2 = kotlin.math.ln(f2.toDouble())
+                val logFreq = kotlin.math.ln(freqHz.toDouble())
+                val fraction = ((logFreq - log1) / (log2 - log1)).toFloat().coerceIn(0f, 1f)
+                val g1 = gains.getOrElse(i) { 0f }
+                val g2 = gains.getOrElse(i + 1) { 0f }
+                return g1 + fraction * (g2 - g1)
+            }
+        }
+        return gains.last()
     }
 
     private fun applyCurrentEffects() {
         try {
             bassBoost?.let { bb ->
                 if (bb.strengthSupported) {
-                    bb.enabled = true
+                    bb.enabled = isEqEnabled && currentBassBoostStrength > 0
                     bb.setStrength(currentBassBoostStrength.toShort().coerceIn(0, 1000))
                 }
             }
@@ -648,9 +701,10 @@ class AudioEngine(private val context: Context) {
                     val maxLevel = range[1]
 
                     for (band in 0 until numBands) {
-                        val userIdx = ((band.toFloat() / (numBands - 1).coerceAtLeast(1)) * (currentEqBands.size - 1)).roundToInt().coerceIn(0, currentEqBands.size - 1)
-                        val gainDb = currentEqBands.getOrElse(userIdx) { 0f }
-                        val targetMilliBels = (gainDb * 100).toInt().coerceIn(minLevel.toInt(), maxLevel.toInt())
+                        val centerFreqMilliHz = eq.getCenterFreq(band.toShort())
+                        val centerFreqHz = (centerFreqMilliHz / 1000f).coerceAtLeast(20f)
+                        val gainDb = calculateGainForFreq(centerFreqHz, currentEqBands)
+                        val targetMilliBels = (gainDb * 100).roundToInt().coerceIn(minLevel.toInt(), maxLevel.toInt())
                         eq.setBandLevel(band.toShort(), targetMilliBels.toShort())
                     }
                 }
@@ -678,6 +732,7 @@ class AudioEngine(private val context: Context) {
     fun setBassBoost(strength: Int) { // 0..1000
         currentBassBoostStrength = strength
         applyCurrentEffects()
+        applyVolume()
     }
 
     fun setEqBand(bandIndex: Int, levelMilliBels: Int) {
@@ -695,12 +750,16 @@ class AudioEngine(private val context: Context) {
     private fun releaseEffects() {
         try {
             equalizer?.release()
+        } catch (_: Exception) {}
+        try {
             bassBoost?.release()
-        } catch (e: Exception) {
-            Log.e(tag, "Error releasing audio effects", e)
-        }
+        } catch (_: Exception) {}
+        try {
+            virtualizer?.release()
+        } catch (_: Exception) {}
         equalizer = null
         bassBoost = null
+        virtualizer = null
     }
 
     private fun startProgressTracker() {

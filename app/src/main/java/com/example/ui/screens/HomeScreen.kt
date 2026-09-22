@@ -61,20 +61,6 @@ fun HomeScreen(
     val lang = appSettings.language
     val context = LocalContext.current
 
-    val isPlaying = playbackState.status == PlayerStatus.PLAYING
-    val rotationDuration = if (isPlaying) 2800 else 14000
-
-    val infiniteTransition = rememberInfiniteTransition(label = "heroLightBeam")
-    val rotationAngle by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = rotationDuration, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "lightBeamAngle"
-    )
-
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -125,194 +111,18 @@ fun HomeScreen(
             }
         }
 
-        // Hero CURRENTLY PLAYING Card with Blurred Album Artwork & Rotating Glowing Light Ring
+        // Hero CURRENTLY PLAYING Card
         item {
             val heroTrack = playbackState.currentTrack ?: allTracks.firstOrNull()
-            val cardShape = RoundedCornerShape(24.dp)
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(180.dp)
-                    .clip(cardShape)
-                    .clickable {
-                        heroTrack?.let { onPlayTrack(it, allTracks) }
-                    }
-                    .testTag("hero_quick_play_card")
-            ) {
-                // 1. Blurred Album Artwork Background inside the card
-                if (heroTrack?.artworkUri != null) {
-                    Image(
-                        painter = rememberAsyncImagePainter(
-                            ImageRequest.Builder(context)
-                                .data(heroTrack.artworkUri)
-                                .crossfade(true)
-                                .build()
-                        ),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .blur(32.dp)
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(palette.primary.copy(alpha = 0.35f), Color(0xFF0D0F1B))
-                                )
-                            )
-                    )
-                }
-
-                // Dark Translucent Scrim for optimal text contrast
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    Color(0x800A0C16),
-                                    Color(0xCC080A12)
-                                )
-                            )
-                        )
-                )
-
-                // 2. Continuous Rotating Glowing Colored Light Beam attached around the perimeter
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .drawWithContent {
-                            drawContent()
-                            rotate(rotationAngle) {
-                                drawCircle(
-                                    brush = Brush.sweepGradient(
-                                        colors = listOf(
-                                            palette.accent,
-                                            palette.secondary,
-                                            palette.primary,
-                                            palette.accent.copy(alpha = 0.8f),
-                                            palette.secondary.copy(alpha = 0.9f),
-                                            palette.primary.copy(alpha = 0.75f),
-                                            palette.accent
-                                        )
-                                    ),
-                                    radius = size.maxDimension * 0.85f,
-                                    blendMode = BlendMode.Screen
-                                )
-                            }
-                        }
-                        .border(
-                            width = 1.2.dp,
-                            brush = Brush.linearGradient(
-                                listOf(
-                                    palette.accent.copy(alpha = 0.65f),
-                                    palette.secondary.copy(alpha = 0.35f),
-                                    Color.White.copy(alpha = 0.20f)
-                                )
-                            ),
-                            shape = cardShape
-                        )
-                )
-
-                // 3. Card Content
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .clip(CircleShape)
-                                    .background(palette.secondary)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = if (playbackState.status == PlayerStatus.PLAYING) "CURRENTLY PLAYING" else "QUICK PLAY",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    color = palette.secondary,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 1.2.sp
-                                )
-                            )
-                        }
-
-                        Text(
-                            text = heroTrack?.genre ?: "Audio",
-                            style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFFA0A0C0))
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        if (heroTrack != null) {
-                            TrackArtworkThumbnail(
-                                artworkUri = heroTrack.artworkUri,
-                                accentColor = palette.secondary,
-                                size = 56.dp,
-                                shape = RoundedCornerShape(14.dp),
-                                iconSize = 28.dp
-                            )
-                            Spacer(modifier = Modifier.width(14.dp))
-                        }
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = heroTrack?.title ?: "Select a Track",
-                                style = MaterialTheme.typography.titleLarge.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = heroTrack?.artist ?: "Local-First Hi-Fi Audio",
-                                style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFFA0A0B8)),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        // Big circular Play Button
-                        Box(
-                            modifier = Modifier
-                                .size(54.dp)
-                                .clip(CircleShape)
-                                .background(palette.primary)
-                                .clickable {
-                                    if (playbackState.currentTrack != null) onTogglePlay()
-                                    else heroTrack?.let { onPlayTrack(it, allTracks) }
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            val isPlaying = playbackState.status == PlayerStatus.PLAYING
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = "Play",
-                                tint = Color.White,
-                                modifier = Modifier.size(30.dp)
-                            )
-                        }
-                    }
-                }
-            }
+            HeroQuickPlayCard(
+                heroTrack = heroTrack,
+                isPlaying = playbackState.status == PlayerStatus.PLAYING,
+                palette = palette,
+                allTracks = allTracks,
+                hasActiveTrack = playbackState.currentTrack != null,
+                onPlayTrack = onPlayTrack,
+                onTogglePlay = onTogglePlay
+            )
         }
 
         // Recently Played
@@ -375,7 +185,7 @@ fun HomeScreen(
             }
         }
 
-        // Starred & Favorites
+        // Favorites (User-curated favorites only)
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -383,62 +193,313 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Favorites & High Energy",
+                    text = "Favorites",
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                 )
+                if (favoriteTracks.isNotEmpty()) {
+                    Text(
+                        text = "${favoriteTracks.size} tracks",
+                        style = MaterialTheme.typography.bodySmall.copy(color = palette.accent)
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(8.dp))
 
-            val displayList = favoriteTracks.ifEmpty { allTracks.take(4) }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                displayList.forEach { track ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF121222)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onPlayTrack(track, allTracks) }
-                    ) {
-                        Row(
+            if (favoriteTracks.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    favoriteTracks.forEach { track ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF121222)),
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .clickable { onPlayTrack(track, allTracks) }
                         ) {
-                            TrackArtworkThumbnail(
-                                artworkUri = track.artworkUri,
-                                accentColor = palette.accent,
-                                size = 44.dp,
-                                shape = RoundedCornerShape(10.dp),
-                                iconSize = 24.dp
-                            )
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = track.title,
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TrackArtworkThumbnail(
+                                    artworkUri = track.artworkUri,
+                                    accentColor = palette.accent,
+                                    size = 44.dp,
+                                    shape = RoundedCornerShape(10.dp),
+                                    iconSize = 24.dp
                                 )
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = track.title,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.White
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "${track.artist} • ${track.genre}",
+                                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                                 Text(
-                                    text = "${track.artist} • ${track.genre}",
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    text = track.durationFormatted,
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF88889C))
                                 )
                             }
-                            Text(
-                                text = track.durationFormatted,
-                                style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF88889C))
-                            )
                         }
                     }
+                }
+            } else {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF10101E)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FavoriteBorder,
+                            contentDescription = null,
+                            tint = Color(0xFF6C6C82),
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "No favorites yet",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Tap the heart icon on any song to add it to your Favorites.",
+                            style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF808096)),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeroQuickPlayCard(
+    heroTrack: Track?,
+    isPlaying: Boolean,
+    palette: AmbientPalette,
+    allTracks: List<Track>,
+    hasActiveTrack: Boolean,
+    onPlayTrack: (Track, List<Track>) -> Unit,
+    onTogglePlay: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val cardShape = RoundedCornerShape(24.dp)
+    val rotationDuration = if (isPlaying) 3200 else 16000
+
+    val infiniteTransition = rememberInfiniteTransition(label = "heroLightBeam")
+    val rotationAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = rotationDuration, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "lightBeamAngle"
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(180.dp)
+            .clip(cardShape)
+            .clickable {
+                heroTrack?.let { onPlayTrack(it, allTracks) }
+            }
+            .testTag("hero_quick_play_card")
+    ) {
+        // 1. Blurred Album Artwork Background inside the card (lightweight blur)
+        if (heroTrack?.artworkUri != null) {
+            Image(
+                painter = rememberAsyncImagePainter(
+                    ImageRequest.Builder(context)
+                        .data(heroTrack.artworkUri)
+                        .crossfade(true)
+                        .build()
+                ),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(14.dp)
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.linearGradient(
+                            listOf(palette.primary.copy(alpha = 0.35f), Color(0xFF0D0F1B))
+                        )
+                    )
+            )
+        }
+
+        // Dark Translucent Scrim for optimal text contrast
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color(0x800A0C16),
+                            Color(0xCC080A12)
+                        )
+                    )
+                )
+        )
+
+        // 2. Rotating Glowing Colored Light Beam around perimeter
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawWithContent {
+                    drawContent()
+                    rotate(rotationAngle) {
+                        drawCircle(
+                            brush = Brush.sweepGradient(
+                                colors = listOf(
+                                    palette.accent,
+                                    palette.secondary,
+                                    palette.primary,
+                                    palette.accent.copy(alpha = 0.8f),
+                                    palette.secondary.copy(alpha = 0.9f),
+                                    palette.primary.copy(alpha = 0.75f),
+                                    palette.accent
+                                )
+                            ),
+                            radius = size.maxDimension * 0.85f,
+                            blendMode = BlendMode.Screen
+                        )
+                    }
+                }
+                .border(
+                    width = 1.2.dp,
+                    brush = Brush.linearGradient(
+                        listOf(
+                            palette.accent.copy(alpha = 0.65f),
+                            palette.secondary.copy(alpha = 0.35f),
+                            Color.White.copy(alpha = 0.20f)
+                        )
+                    ),
+                    shape = cardShape
+                )
+        )
+
+        // 3. Card Content
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(palette.secondary)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isPlaying) "CURRENTLY PLAYING" else "QUICK PLAY",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = palette.secondary,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.2.sp
+                        )
+                    )
+                }
+
+                Text(
+                    text = heroTrack?.genre ?: "Audio",
+                    style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFFA0A0C0))
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                if (heroTrack != null) {
+                    TrackArtworkThumbnail(
+                        artworkUri = heroTrack.artworkUri,
+                        accentColor = palette.secondary,
+                        size = 56.dp,
+                        shape = RoundedCornerShape(14.dp),
+                        iconSize = 28.dp
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = heroTrack?.title ?: "Select a Track",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = heroTrack?.artist ?: "Local-First Hi-Fi Audio",
+                        style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFFA0A0B8)),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                // Big circular Play Button
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(CircleShape)
+                        .background(palette.primary)
+                        .clickable {
+                            if (hasActiveTrack) onTogglePlay()
+                            else heroTrack?.let { onPlayTrack(it, allTracks) }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = "Play",
+                        tint = Color.White,
+                        modifier = Modifier.size(30.dp)
+                    )
                 }
             }
         }

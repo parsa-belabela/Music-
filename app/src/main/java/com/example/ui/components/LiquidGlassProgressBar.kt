@@ -6,8 +6,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -98,39 +98,39 @@ fun LiquidGlassProgressBar(
                     componentWidthPx = size.width.toFloat().coerceAtLeast(1f)
                 }
                 .pointerInput(safeDuration) {
-                    detectTapGestures(
-                        onPress = { offset ->
-                            val targetFraction = (offset.x / componentWidthPx).coerceIn(0f, 1f)
-                            isDragging = true
-                            dragProgress = targetFraction
-                            val released = tryAwaitRelease()
-                            if (released) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        isDragging = true
+                        val width = componentWidthPx.coerceAtLeast(1f)
+                        val initialFraction = (down.position.x / width).coerceIn(0f, 1f)
+                        dragProgress = initialFraction
+
+                        var lastThrottledSeekTime = 0L
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val pointer = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!pointer.pressed) {
+                                pointer.consume()
                                 val targetMs = (dragProgress * safeDuration).toLong()
                                 onSeekTo(targetMs)
+                                isDragging = false
+                                break
+                            } else {
+                                pointer.consume()
+                                val newFraction = (pointer.position.x / width).coerceIn(0f, 1f)
+                                dragProgress = newFraction
+
+                                val now = System.currentTimeMillis()
+                                if (now - lastThrottledSeekTime >= 100L) {
+                                    lastThrottledSeekTime = now
+                                    onSeekTo((newFraction * safeDuration).toLong())
+                                }
                             }
-                            isDragging = false
                         }
-                    )
-                }
-                .pointerInput(safeDuration) {
-                    detectDragGestures(
-                        onDragStart = { offset ->
-                            isDragging = true
-                            dragProgress = (offset.x / componentWidthPx).coerceIn(0f, 1f)
-                        },
-                        onDrag = { change, _ ->
-                            change.consume()
-                            dragProgress = (change.position.x / componentWidthPx).coerceIn(0f, 1f)
-                        },
-                        onDragEnd = {
-                            val targetMs = (dragProgress * safeDuration).toLong()
-                            onSeekTo(targetMs)
-                            isDragging = false
-                        },
-                        onDragCancel = {
-                            isDragging = false
-                        }
-                    )
+                        isDragging = false
+                    }
                 }
                 .testTag("seek_slider"),
             contentAlignment = Alignment.Center

@@ -30,14 +30,12 @@ import com.example.data.model.AppSettings
 import com.example.data.model.PlaybackState
 import com.example.data.model.Playlist
 import com.example.data.model.Track
-import com.example.ui.components.AlphabetIndexScrubber
 import com.example.ui.components.DisintegrationOverlay
 import com.example.ui.components.TrackActionSheet
 import com.example.ui.components.TrackArtworkThumbnail
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
 import com.example.util.Localization
-import kotlinx.coroutines.launch
 
 enum class SortOption(val label: String) {
     TITLE("Title"),
@@ -88,53 +86,7 @@ fun LibraryScreen(
     }
 
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
-    var scrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-
-    val alphabet = remember(lang) {
-        if (lang == AppLanguage.PERSIAN) {
-            listOf(
-                "آ", "ا", "ب", "پ", "ت", "ث", "ج", "چ", "ح", "خ",
-                "د", "ذ", "ر", "ز", "ژ", "س", "ش", "ص", "ض", "ط",
-                "ظ", "ع", "غ", "ف", "ق", "ک", "گ", "ل", "م", "ن",
-                "و", "ه", "ی", "#"
-            )
-        } else {
-            listOf(
-                "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
-                "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T",
-                "U", "V", "W", "X", "Y", "Z", "#"
-            )
-        }
-    }
-
-    val letterIndices = remember(sortedTracks, alphabet, selectedSort) {
-        val map = mutableMapOf<String, Int>()
-        if (sortedTracks.isEmpty()) return@remember map
-
-        var runningIdx = 0
-        alphabet.forEach { letter ->
-            val exactIdx = sortedTracks.indexOfFirst { track ->
-                val primaryText = when (selectedSort) {
-                    SortOption.ARTIST -> track.artist
-                    else -> track.title
-                }.trim()
-
-                if (letter == "#") {
-                    primaryText.isNotEmpty() && !primaryText.first().isLetter()
-                } else {
-                    primaryText.startsWith(letter, ignoreCase = true)
-                }
-            }
-            if (exactIdx != -1) {
-                map[letter] = exactIdx
-                runningIdx = exactIdx
-            } else {
-                map[letter] = runningIdx
-            }
-        }
-        map
-    }
+    val currentTrackId = playbackState.currentTrack?.id
 
     Column(
         modifier = modifier
@@ -228,24 +180,17 @@ fun LibraryScreen(
                 .padding(vertical = 8.dp)
         )
 
-        // Tracks List with A-Z Alphabet Scrubber
-        val showScrubber = (selectedSort == SortOption.TITLE || selectedSort == SortOption.ARTIST) && filterQuery.isBlank() && sortedTracks.isNotEmpty()
-
-        Box(
+        // Tracks List
+        LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
+                .weight(1f),
+            contentPadding = PaddingValues(bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(end = if (showScrubber) 24.dp else 0.dp),
-                contentPadding = PaddingValues(bottom = 120.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
             items(sortedTracks, key = { it.id }) { track ->
-                val isCurrent = playbackState.currentTrack?.id == track.id
+                val isCurrent = currentTrackId == track.id
                 val isDisintegrating = disintegratingTrackId == track.id
 
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -376,23 +321,6 @@ fun LibraryScreen(
         }
     }
 
-        if (showScrubber) {
-            AlphabetIndexScrubber(
-                alphabet = alphabet,
-                letterIndices = letterIndices,
-                onLetterSelected = { _, index ->
-                    scrollJob?.cancel()
-                    scrollJob = coroutineScope.launch {
-                        listState.scrollToItem(index)
-                    }
-                },
-                palette = palette,
-                modifier = Modifier.align(Alignment.CenterEnd)
-            )
-        }
-    }
-}
-
     // High-Graphic Liquid Glass Track Action Sheet
     selectedTrackMenu?.let { trk ->
         TrackActionSheet(
@@ -412,4 +340,5 @@ fun LibraryScreen(
             }
         )
     }
+}
 }

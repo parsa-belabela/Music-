@@ -89,7 +89,7 @@ fun CinematicAtmosphereBackground(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxSize()
-                        .blur(90.dp)
+                        .blur(20.dp)
                 )
             } else {
                 Box(modifier = Modifier.fillMaxSize())
