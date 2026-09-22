@@ -12,12 +12,16 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.core.view.WindowCompat
+import com.example.data.model.AppLanguage
 import com.example.ui.screens.MainScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.MusicPlayerViewModel
@@ -69,10 +73,17 @@ class MainActivity : ComponentActivity() {
                 appTheme = appSettings.theme,
                 accentColor = Color(appSettings.customAccentColor)
             ) {
-                MainScreen(
-                    viewModel = viewModel,
-                    modifier = Modifier.fillMaxSize()
-                )
+                val layoutDirection = if (appSettings.language == AppLanguage.PERSIAN) {
+                    LayoutDirection.Rtl
+                } else {
+                    LayoutDirection.Ltr
+                }
+                CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
+                    MainScreen(
+                        viewModel = viewModel,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
         }
     }

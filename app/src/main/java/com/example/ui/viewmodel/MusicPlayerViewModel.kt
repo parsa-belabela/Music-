@@ -88,7 +88,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     val showEqualizer = MutableStateFlow(false)
     val showQueue = MutableStateFlow(false)
     val showSleepTimer = MutableStateFlow(false)
+    val showShareCard = MutableStateFlow<Track?>(null)
     val editingTrackMetadata = MutableStateFlow<Track?>(null)
+
+    val connectedAudioDevice = audioEngine.connectedDevice
 
     private var lyricsJob: Job? = null
     private var sleepTimerJob: Job? = null
@@ -97,7 +100,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private var activePlayingTrackRef: Track? = null
 
     init {
-        _activePalette.value = ArtworkPaletteExtractor.extract(null, _appSettings.value)
+        _activePalette.value = ArtworkPaletteExtractor.extract(null, _appSettings.value, app)
         // Apply persisted audio engine settings
         applySettingsToEngines(_appSettings.value)
 
@@ -243,8 +246,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         loadLyricsForTrack(track.id)
 
         // 3. Extract palette and record metadata in background
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-            val palette = ArtworkPaletteExtractor.extract(track, _appSettings.value)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val palette = ArtworkPaletteExtractor.extract(track, _appSettings.value, app)
             _activePalette.value = palette
 
             repository.recordPlay(track.id)
@@ -513,9 +516,20 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         analysisEngine.targetFps = preset.fps
     }
 
+    fun setPlaybackSpeed(speed: Float) {
+        val safeSpeed = speed.coerceIn(0.5f, 2.0f)
+        val updated = _appSettings.value.copy(playbackSpeed = safeSpeed)
+        _appSettings.value = updated
+        audioEngine.setPlaybackSpeed(safeSpeed)
+        savePersistedSettings(updated)
+    }
+
     fun updateSettings(newSettings: AppSettings) {
         _appSettings.value = newSettings
-        _activePalette.value = ArtworkPaletteExtractor.extract(_playbackState.value.currentTrack, newSettings)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val palette = ArtworkPaletteExtractor.extract(_playbackState.value.currentTrack, newSettings, app)
+            _activePalette.value = palette
+        }
         savePersistedSettings(newSettings)
         applySettingsToEngines(newSettings)
     }
@@ -523,7 +537,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private fun applySettingsToEngines(settings: AppSettings) {
         audioEngine.crossfadeSeconds = settings.crossfadeDurationSeconds
         audioEngine.gaplessEnabled = settings.gaplessEnabled
-        audioEngine.setBassBoost(settings.bassBoostStrength)
+        audioEngine.applyEqualizerSettings(settings.equalizerEnabled, settings.eqBands, settings.bassBoostStrength)
+        audioEngine.setPlaybackSpeed(settings.playbackSpeed)
         analysisEngine.sensitivity = settings.visualizerSensitivity
         analysisEngine.bassResponse = settings.visualizerBassResponse
         analysisEngine.targetFps = settings.visualizerFps
@@ -538,6 +553,17 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         val theme = try { AppTheme.valueOf(themeStr) } catch (e: Exception) { AppTheme.GLASS }
         val modeStr = prefs.getString("viz_mode", VisualizerMode.AMBIENT_HALO.name) ?: VisualizerMode.AMBIENT_HALO.name
         val vizMode = try { VisualizerMode.valueOf(modeStr) } catch (e: Exception) { VisualizerMode.AMBIENT_HALO }
+
+        val eqBandsStr = prefs.getString("eq_bands", null)
+        val bands = if (!eqBandsStr.isNullOrBlank()) {
+            try {
+                eqBandsStr.split(",").map { it.toFloat() }
+            } catch (_: Exception) {
+                listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
+            }
+        } else {
+            listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
+        }
 
         return AppSettings(
             theme = theme,
@@ -554,7 +580,11 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             gaplessEnabled = prefs.getBoolean("gapless", true),
             hapticFeedbackEnabled = prefs.getBoolean("haptic", true),
             pauseOnHeadphoneDisconnect = prefs.getBoolean("pause_disconnect", true),
-            duckVolumeOnInterruption = prefs.getBoolean("duck_volume", true)
+            duckVolumeOnInterruption = prefs.getBoolean("duck_volume", true),
+            bassBoostStrength = prefs.getInt("bass_boost", 300),
+            equalizerEnabled = prefs.getBoolean("eq_enabled", true),
+            eqBands = bands,
+            playbackSpeed = prefs.getFloat("playback_speed", 1.0f)
         )
     }
 
@@ -576,6 +606,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             .putBoolean("haptic", settings.hapticFeedbackEnabled)
             .putBoolean("pause_disconnect", settings.pauseOnHeadphoneDisconnect)
             .putBoolean("duck_volume", settings.duckVolumeOnInterruption)
+            .putFloat("playback_speed", settings.playbackSpeed)
+            .putBoolean("eq_enabled", settings.equalizerEnabled)
+            .putInt("bass_boost", settings.bassBoostStrength)
+            .putString("eq_bands", settings.eqBands.joinToString(","))
             .apply()
     }
 
@@ -726,7 +760,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
         val qIdx = restoredQueue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
 
-        val palette = ArtworkPaletteExtractor.extract(track, _appSettings.value)
+        val palette = ArtworkPaletteExtractor.extract(track, _appSettings.value, app)
         _activePalette.value = palette
         loadLyricsForTrack(track.id)
 
@@ -750,6 +784,14 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             .putLong("last_pos_ms", positionMs)
             .putString("last_queue_ids", queueIds.joinToString(","))
             .apply()
+    }
+
+    fun showShareCard(track: Track) {
+        showShareCard.value = track
+    }
+
+    fun dismissShareCard() {
+        showShareCard.value = null
     }
 
     // Backup & Restore

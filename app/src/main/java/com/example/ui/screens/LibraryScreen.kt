@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -24,16 +25,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
+import com.example.data.model.AppLanguage
 import com.example.data.model.AppSettings
 import com.example.data.model.PlaybackState
 import com.example.data.model.Playlist
 import com.example.data.model.Track
+import com.example.ui.components.AlphabetIndexScrubber
 import com.example.ui.components.DisintegrationOverlay
 import com.example.ui.components.TrackActionSheet
 import com.example.ui.components.TrackArtworkThumbnail
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
 import com.example.util.Localization
+import kotlinx.coroutines.launch
 
 enum class SortOption(val label: String) {
     TITLE("Title"),
@@ -81,6 +85,48 @@ fun LibraryScreen(
             SortOption.DURATION -> filtered.sortedByDescending { it.durationMs }
             SortOption.DATE_ADDED -> filtered.sortedByDescending { it.dateAdded }
         }
+    }
+
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+
+    val alphabet = remember(lang) {
+        if (lang == AppLanguage.PERSIAN) {
+            listOf(
+                "آ", "ا", "ب", "پ", "ت", "ث", "ج", "چ", "ح", "خ",
+                "د", "ذ", "ر", "ز", "ژ", "س", "ش", "ص", "ض", "ط",
+                "ظ", "ع", "غ", "ف", "ق", "ک", "گ", "ل", "م", "ن",
+                "و", "ه", "ی", "#"
+            )
+        } else {
+            listOf(
+                "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
+                "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T",
+                "U", "V", "W", "X", "Y", "Z", "#"
+            )
+        }
+    }
+
+    val letterIndices = remember(sortedTracks, alphabet, selectedSort) {
+        val map = mutableMapOf<String, Int>()
+        alphabet.forEach { letter ->
+            val idx = sortedTracks.indexOfFirst { track ->
+                val primaryText = when (selectedSort) {
+                    SortOption.ARTIST -> track.artist
+                    else -> track.title
+                }.trim()
+
+                if (letter == "#") {
+                    primaryText.isNotEmpty() && !primaryText.first().isLetter()
+                } else {
+                    primaryText.startsWith(letter, ignoreCase = true)
+                }
+            }
+            if (idx != -1) {
+                map[letter] = idx
+            }
+        }
+        map
     }
 
     Column(
@@ -175,44 +221,53 @@ fun LibraryScreen(
                 .padding(vertical = 8.dp)
         )
 
-        // Tracks List
-        LazyColumn(
+        // Tracks List with A-Z Alphabet Scrubber
+        val showScrubber = (selectedSort == SortOption.TITLE || selectedSort == SortOption.ARTIST) && filterQuery.isBlank() && sortedTracks.isNotEmpty()
+
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f),
-            contentPadding = PaddingValues(bottom = 120.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .weight(1f)
         ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(end = if (showScrubber) 24.dp else 0.dp),
+                contentPadding = PaddingValues(bottom = 120.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
             items(sortedTracks, key = { it.id }) { track ->
                 val isCurrent = playbackState.currentTrack?.id == track.id
                 val isDisintegrating = disintegratingTrackId == track.id
 
-                AnimatedVisibility(
-                    visible = !isDisintegrating,
-                    exit = fadeOut(tween(550)) + shrinkVertically(tween(550))
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(
-                                if (isCurrent) {
-                                    Modifier.liquidGlass(
-                                        shape = RoundedCornerShape(16.dp),
-                                        thickness = GlassThickness.REGULAR,
-                                        tintColor = palette.primary,
-                                        tintAlpha = 0.22f,
-                                        borderWidth = 1.dp,
-                                        appTheme = settings.theme
-                                    )
-                                } else {
-                                    Modifier
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(Color(0xFF11111E))
-                                }
-                            )
-                            .clickable { onPlayTrack(track, sortedTracks) }
-                            .testTag("library_track_${track.id}")
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    AnimatedVisibility(
+                        visible = !isDisintegrating,
+                        exit = fadeOut(tween(550)) + shrinkVertically(tween(550))
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (isCurrent) {
+                                        Modifier.liquidGlass(
+                                            shape = RoundedCornerShape(16.dp),
+                                            thickness = GlassThickness.REGULAR,
+                                            tintColor = palette.primary,
+                                            tintAlpha = 0.22f,
+                                            borderWidth = 1.dp,
+                                            appTheme = settings.theme
+                                        )
+                                    } else {
+                                        Modifier
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(Color(0xFF11111E))
+                                    }
+                                )
+                                .clickable { onPlayTrack(track, sortedTracks) }
+                                .testTag("library_track_${track.id}")
+                        ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -313,6 +368,22 @@ fun LibraryScreen(
             }
         }
     }
+
+        if (showScrubber) {
+            AlphabetIndexScrubber(
+                alphabet = alphabet,
+                letterIndices = letterIndices,
+                onLetterSelected = { _, index ->
+                    coroutineScope.launch {
+                        listState.scrollToItem(index)
+                    }
+                },
+                palette = palette,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            )
+        }
+    }
+}
 
     // High-Graphic Liquid Glass Track Action Sheet
     selectedTrackMenu?.let { trk ->

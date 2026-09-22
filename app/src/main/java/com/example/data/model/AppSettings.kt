@@ -50,5 +50,6 @@ data class AppSettings(
     val sleepTimerFadeOut: Boolean = true,
     val preloadNextTrack: Boolean = true,
     val batterySaver: Boolean = false,
-    val reducedMotion: Boolean = false
+    val reducedMotion: Boolean = false,
+    val playbackSpeed: Float = 1.0f
 )

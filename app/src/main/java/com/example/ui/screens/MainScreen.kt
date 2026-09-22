@@ -62,15 +62,18 @@ fun MainScreen(
     val showQueue by viewModel.showQueue.collectAsState()
     val showSleepTimer by viewModel.showSleepTimer.collectAsState()
     val editingTrackMetadata by viewModel.editingTrackMetadata.collectAsState()
+    val connectedDevice by viewModel.connectedAudioDevice.collectAsState()
+    val showShareCard by viewModel.showShareCard.collectAsState()
 
     var currentTab by remember { mutableStateOf(MainTab.HOME) }
     val lang = appSettings.language
 
     // Defensive Back Navigation: Prevent app exit on edge-swipe or back button when sheets/tabs are active
     BackHandler(
-        enabled = isNowPlayingExpanded || showLyricsEditor || showEqualizer || showQueue || showSleepTimer || editingTrackMetadata != null || currentTab != MainTab.HOME
+        enabled = isNowPlayingExpanded || showLyricsEditor || showEqualizer || showQueue || showSleepTimer || editingTrackMetadata != null || showShareCard != null || currentTab != MainTab.HOME
     ) {
         when {
+            showShareCard != null -> viewModel.dismissShareCard()
             showLyricsEditor -> viewModel.showLyricsEditor.value = false
             showEqualizer -> viewModel.showEqualizer.value = false
             showQueue -> viewModel.showQueue.value = false
@@ -103,7 +106,9 @@ fun MainScreen(
                                 palette = palette,
                                 onTogglePlay = { viewModel.togglePlayPause() },
                                 onNext = { viewModel.nextTrack() },
+                                onPrevious = { viewModel.previousTrack() },
                                 onExpandNowPlaying = { viewModel.isNowPlayingExpanded.value = true },
+                                connectedDevice = connectedDevice,
                                 analysisDataProvider = { analysisData },
                                 currentPositionProvider = { currentPositionMs }
                             )
@@ -346,13 +351,24 @@ fun MainScreen(
                         onOpenQueue = { viewModel.showQueue.value = true },
                         onSelectVisualizerMode = { viewModel.setVisualizerMode(it) },
                         onOpenSleepTimer = { viewModel.showSleepTimer.value = true },
-                        onOpenMetadataEditor = { viewModel.editingTrackMetadata.value = it }
+                        onOpenMetadataEditor = { viewModel.editingTrackMetadata.value = it },
+                        connectedDevice = connectedDevice,
+                        onShareSong = { trk -> viewModel.showShareCard(trk) },
+                        onPlaybackSpeedChange = { speed -> viewModel.setPlaybackSpeed(speed) }
                     )
                 }
             }
         }
 
         // Modal Sheets & Dialogs
+        showShareCard?.let { trk ->
+            ShareSongDialog(
+                track = trk,
+                palette = palette,
+                language = lang,
+                onDismiss = { viewModel.dismissShareCard() }
+            )
+        }
         if (showLyricsEditor) {
             LyricsEditorSheet(
                 track = playbackState.currentTrack,

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
+import com.example.audio.ConnectedAudioDevice
 import com.example.data.model.PlaybackState
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
@@ -40,6 +42,8 @@ import com.example.ui.theme.liquidGlass
  * - Smooth interruptible morph transition for Artwork, Title & Artist
  * - Responsive dynamic progress track powered by isolated position provider
  * - Audio-reactive ambient light halo
+ * - Functional Previous, Play/Pause, Next controls
+ * - Apple-inspired AirPods/Bluetooth connection indicator
  */
 @Composable
 fun MiniPlayer(
@@ -47,8 +51,10 @@ fun MiniPlayer(
     palette: AmbientPalette,
     onTogglePlay: () -> Unit,
     onNext: () -> Unit,
+    onPrevious: () -> Unit = {},
     onExpandNowPlaying: () -> Unit,
     modifier: Modifier = Modifier,
+    connectedDevice: ConnectedAudioDevice? = null,
     analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() },
     currentPositionProvider: () -> Long = { playbackState.currentPositionMs }
 ) {
@@ -78,13 +84,25 @@ fun MiniPlayer(
         label = "capsuleAuraPulse"
     )
 
-    Box(
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 6.dp),
-        contentAlignment = Alignment.Center
+            .padding(horizontal = 14.dp, vertical = 2.dp),
+        horizontalAlignment = Alignment.End
     ) {
-        // Subtle ambient aura emitting behind the capsule
+        if (connectedDevice != null) {
+            AudioDeviceIndicator(
+                device = connectedDevice,
+                compact = true,
+                modifier = Modifier.padding(bottom = 4.dp, end = 8.dp)
+            )
+        }
+
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            // Subtle ambient aura emitting behind the capsule
         if (isPlaying) {
             Canvas(
                 modifier = Modifier
@@ -202,7 +220,24 @@ fun MiniPlayer(
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    // Previous Track button
+                    IconButton(
+                        onClick = onPrevious,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("mini_player_previous")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SkipPrevious,
+                            contentDescription = "Previous Track",
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(2.dp))
 
                     // Tactile Play / Pause button in Glass pill
                     IconButton(
@@ -228,13 +263,13 @@ fun MiniPlayer(
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(2.dp))
 
                     // Next Track button
                     IconButton(
                         onClick = onNext,
                         modifier = Modifier
-                            .size(38.dp)
+                            .size(36.dp)
                             .testTag("mini_player_next")
                     ) {
                         Icon(
@@ -275,4 +310,5 @@ fun MiniPlayer(
             }
         }
     }
+}
 }

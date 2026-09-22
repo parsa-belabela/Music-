@@ -2,9 +2,12 @@ package com.example.audio
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
+import android.media.PlaybackParams
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.net.Uri
@@ -18,6 +21,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.roundToInt
+
+data class ConnectedAudioDevice(
+    val name: String,
+    val isAirPods: Boolean,
+    val isBluetooth: Boolean,
+    val isHeadphones: Boolean
+)
 
 /**
  * Premium Liquid Glass Audio Engine:
@@ -51,6 +62,91 @@ class AudioEngine(private val context: Context) {
 
     private val _audioSessionId = MutableStateFlow(0)
     val audioSessionId: StateFlow<Int> = _audioSessionId.asStateFlow()
+
+    private val _connectedDevice = MutableStateFlow<ConnectedAudioDevice?>(null)
+    val connectedDevice: StateFlow<ConnectedAudioDevice?> = _connectedDevice.asStateFlow()
+
+    private var isEqEnabled: Boolean = true
+    private var currentEqBands: List<Float> = listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
+    private var currentBassBoostStrength: Int = 0
+    private var currentPlaybackSpeed: Float = 1.0f
+
+    private var deviceCallback: AudioDeviceCallback? = null
+
+    init {
+        initAudioDeviceMonitor()
+    }
+
+    private fun initAudioDeviceMonitor() {
+        try {
+            updateConnectedAudioDevices()
+            val callback = object : AudioDeviceCallback() {
+                override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
+                    updateConnectedAudioDevices()
+                }
+
+                override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+                    updateConnectedAudioDevices()
+                }
+            }
+            audioManager.registerAudioDeviceCallback(callback, null)
+            deviceCallback = callback
+        } catch (e: Exception) {
+            Log.w(tag, "AudioDeviceCallback registration failed: ${e.message}")
+        }
+    }
+
+    private fun updateConnectedAudioDevices() {
+        try {
+            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            var detected: ConnectedAudioDevice? = null
+
+            for (device in devices) {
+                val type = device.type
+                val name = device.productName?.toString()?.trim() ?: ""
+                val isAirPods = name.contains("AirPods", ignoreCase = true) || name.contains("AirPod", ignoreCase = true)
+                val isBluetooth = type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                        type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && (type == AudioDeviceInfo.TYPE_BLE_HEADSET || type == AudioDeviceInfo.TYPE_BLE_SPEAKER)) ||
+                        name.contains("Bluetooth", ignoreCase = true) ||
+                        name.contains("Buds", ignoreCase = true) ||
+                        name.contains("Beats", ignoreCase = true) ||
+                        name.contains("WH-", ignoreCase = true) ||
+                        name.contains("WF-", ignoreCase = true)
+
+                val isHeadphones = type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                        type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                        type == AudioDeviceInfo.TYPE_USB_HEADSET
+
+                if (isAirPods) {
+                    detected = ConnectedAudioDevice(
+                        name = if (name.isNotBlank()) name else "AirPods",
+                        isAirPods = true,
+                        isBluetooth = true,
+                        isHeadphones = true
+                    )
+                    break
+                } else if (isBluetooth && detected == null) {
+                    detected = ConnectedAudioDevice(
+                        name = if (name.isNotBlank()) name else "Bluetooth Audio",
+                        isAirPods = false,
+                        isBluetooth = true,
+                        isHeadphones = true
+                    )
+                } else if (isHeadphones && detected == null) {
+                    detected = ConnectedAudioDevice(
+                        name = if (name.isNotBlank()) name else "Headphones",
+                        isAirPods = false,
+                        isBluetooth = false,
+                        isHeadphones = true
+                    )
+                }
+            }
+            _connectedDevice.value = detected
+        } catch (e: Exception) {
+            Log.w(tag, "Failed checking audio devices: ${e.message}")
+        }
+    }
 
     private var progressJob: Job? = null
     private var fadeJob: Job? = null
@@ -173,6 +269,16 @@ class AudioEngine(private val context: Context) {
                 _audioSessionId.value = preloaded.audioSessionId
                 initAudioEffects(preloaded.audioSessionId)
 
+                if (currentPlaybackSpeed != 1.0f) {
+                    try {
+                        val params = preloaded.playbackParams
+                        params.speed = currentPlaybackSpeed
+                        preloaded.playbackParams = params
+                    } catch (e: Exception) {
+                        Log.w(tag, "Failed applying playback speed to preloaded player: ${e.message}")
+                    }
+                }
+
                 preloaded.setOnCompletionListener {
                     if (transitionId.get() != currentTransitionId) return@setOnCompletionListener
                     _status.value = PlayerStatus.PAUSED
@@ -238,6 +344,16 @@ class AudioEngine(private val context: Context) {
                 _duration.value = trackDuration
                 _audioSessionId.value = preparedMp.audioSessionId
                 initAudioEffects(preparedMp.audioSessionId)
+
+                if (currentPlaybackSpeed != 1.0f) {
+                    try {
+                        val params = preparedMp.playbackParams
+                        params.speed = currentPlaybackSpeed
+                        preparedMp.playbackParams = params
+                    } catch (e: Exception) {
+                        Log.w(tag, "Failed applying playback speed to player: ${e.message}")
+                    }
+                }
 
                 if (startPositionMs > 0 && startPositionMs < trackDuration) {
                     preparedMp.seekTo(startPositionMs.toInt())
@@ -487,27 +603,77 @@ class AudioEngine(private val context: Context) {
         if (sessionId <= 0) return
         try {
             equalizer = Equalizer(0, sessionId).apply {
-                enabled = true
+                enabled = isEqEnabled
             }
             bassBoost = BassBoost(0, sessionId).apply {
                 enabled = true
             }
+            applyCurrentEffects()
             Log.d(tag, "Initialized Equalizer and BassBoost on session $sessionId")
         } catch (e: Exception) {
             Log.w(tag, "Audio effects not supported on this session: ${e.message}")
         }
     }
 
-    fun setBassBoost(strength: Int) { // 0..1000
+    fun applyEqualizerSettings(enabled: Boolean, bands: List<Float>, bassBoostStrength: Int) {
+        isEqEnabled = enabled
+        currentEqBands = bands
+        currentBassBoostStrength = bassBoostStrength
+        applyCurrentEffects()
+    }
+
+    private fun applyCurrentEffects() {
         try {
-            bassBoost?.let {
-                if (it.strengthSupported) {
-                    it.setStrength(strength.toShort().coerceIn(0, 1000))
+            bassBoost?.let { bb ->
+                if (bb.strengthSupported) {
+                    bb.enabled = true
+                    bb.setStrength(currentBassBoostStrength.toShort().coerceIn(0, 1000))
                 }
             }
         } catch (e: Exception) {
-            Log.e(tag, "Failed to set bass boost", e)
+            Log.w(tag, "Failed applying bass boost: ${e.message}")
         }
+
+        try {
+            equalizer?.let { eq ->
+                eq.enabled = isEqEnabled
+                val numBands = eq.numberOfBands.toInt()
+                if (numBands > 0) {
+                    val range = eq.bandLevelRange
+                    val minLevel = range[0]
+                    val maxLevel = range[1]
+
+                    for (band in 0 until numBands) {
+                        val userIdx = ((band.toFloat() / (numBands - 1).coerceAtLeast(1)) * (currentEqBands.size - 1)).roundToInt().coerceIn(0, currentEqBands.size - 1)
+                        val gainDb = currentEqBands.getOrElse(userIdx) { 0f }
+                        val targetMilliBels = (gainDb * 100).toInt().coerceIn(minLevel.toInt(), maxLevel.toInt())
+                        eq.setBandLevel(band.toShort(), targetMilliBels.toShort())
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed applying equalizer bands: ${e.message}")
+        }
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        currentPlaybackSpeed = speed.coerceIn(0.5f, 2.0f)
+        try {
+            mediaPlayer?.let { mp ->
+                if (isPlayerPrepared) {
+                    val params = mp.playbackParams
+                    params.speed = currentPlaybackSpeed
+                    mp.playbackParams = params
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Failed setting playback speed: ${e.message}", e)
+        }
+    }
+
+    fun setBassBoost(strength: Int) { // 0..1000
+        currentBassBoostStrength = strength
+        applyCurrentEffects()
     }
 
     fun setEqBand(bandIndex: Int, levelMilliBels: Int) {
@@ -557,6 +723,10 @@ class AudioEngine(private val context: Context) {
 
     fun release() {
         abandonAudioFocus()
+        try {
+            deviceCallback?.let { audioManager.unregisterAudioDeviceCallback(it) }
+        } catch (_: Exception) {}
+        deviceCallback = null
         stopProgressTracker()
         fadeJob?.cancel()
         fadeJob = null

@@ -1,10 +1,19 @@
 package com.example.audio
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.collection.LruCache
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import com.example.data.model.AppSettings
 import com.example.data.model.AppTheme
 import com.example.data.model.Track
+import java.io.File
+import java.io.InputStream
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 data class AmbientPalette(
     val primary: Color,
@@ -15,42 +24,184 @@ data class AmbientPalette(
     val isLightLuminance: Boolean = false
 )
 
+/**
+ * High-performance Artwork-Driven Color Engine.
+ * Extracts the 3 authentic dominant colors directly from album artwork bitmap.
+ * Falls back to harmonic, polished theme defaults when artwork is unavailable.
+ * Cached in memory for 0ms subsequent queries.
+ */
 object ArtworkPaletteExtractor {
+
+    private val paletteCache = LruCache<String, AmbientPalette>(64)
 
     fun extract(
         track: Track?,
-        appSettings: AppSettings
+        appSettings: AppSettings,
+        context: Context? = null
     ): AmbientPalette {
-        val theme = appSettings.theme
-        val customAccent = Color(appSettings.customAccentColor)
-
-        // If track is available and auto-color is enabled, extract dynamic palette
-        if (track != null && appSettings.autoColorFromArtwork) {
-            val seed = abs((track.title + track.artist + track.genre + track.album).hashCode())
-            val hueCategory = seed % 8
-
-            val (c1, c2, c3, deep) = when (hueCategory) {
-                0 -> Quad(Color(0xFF8B5CF6), Color(0xFF38BDF8), Color(0xFFC084FC), Color(0xFF0E0B1F)) // Purple / Cyan
-                1 -> Quad(Color(0xFFF43F5E), Color(0xFFFB7185), Color(0xFFFF94B8), Color(0xFF1F0B13)) // Crimson / Rose
-                2 -> Quad(Color(0xFF06B6D4), Color(0xFF3B82F6), Color(0xFF67E8F9), Color(0xFF05121F)) // Cyan / Blue
-                3 -> Quad(Color(0xFF10B981), Color(0xFF06B6D4), Color(0xFF34D399), Color(0xFF061A14)) // Emerald / Teal
-                4 -> Quad(Color(0xFFF59E0B), Color(0xFFEA580C), Color(0xFFFBBF24), Color(0xFF1C0F05)) // Amber / Gold
-                5 -> Quad(Color(0xFF6366F1), Color(0xFFA855F7), Color(0xFF818CF8), Color(0xFF0C0B1E)) // Indigo / Violet
-                6 -> Quad(Color(0xFFEC4899), Color(0xFF8B5CF6), Color(0xFFF472B6), Color(0xFF1A0918)) // Magenta / Purple
-                else -> Quad(Color(0xFF3B82F6), Color(0xFF8B5CF6), Color(0xFF60A5FA), Color(0xFF090E1D)) // Blue / Indigo
-            }
-
-            return AmbientPalette(
-                primary = c1,
-                secondary = c2,
-                haloGlow = c1.copy(alpha = 0.45f),
-                accent = c3,
-                deepAtmosphere = deep,
-                isLightLuminance = false
-            )
+        if (track == null) {
+            return getDefaultPalette(appSettings.theme)
         }
 
-        // Theme-driven dynamic chromatic palette
+        val cacheKey = "${track.id}_${track.artworkUri ?: "no_art"}_${appSettings.theme.name}"
+        paletteCache.get(cacheKey)?.let { return it }
+
+        if (!appSettings.autoColorFromArtwork) {
+            val defaultPal = getDefaultPalette(appSettings.theme)
+            paletteCache.put(cacheKey, defaultPal)
+            return defaultPal
+        }
+
+        // Try extracting authentic colors from artwork bitmap
+        val bitmap = loadThumbnailBitmap(context, track.artworkUri)
+        val palette = if (bitmap != null) {
+            extractDominantPaletteFromBitmap(bitmap, appSettings.theme)
+        } else {
+            getDefaultPalette(appSettings.theme)
+        }
+
+        paletteCache.put(cacheKey, palette)
+        return palette
+    }
+
+    private fun loadThumbnailBitmap(context: Context?, artworkUri: String?): Bitmap? {
+        if (context == null || artworkUri.isNullOrBlank()) return null
+        return try {
+            val uri = Uri.parse(artworkUri)
+            val options = BitmapFactory.Options().apply {
+                inSampleSize = 4 // Subsample for fast decoding
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+
+            when (uri.scheme) {
+                "content" -> {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        BitmapFactory.decodeStream(stream, null, options)
+                    }
+                }
+                "file" -> {
+                    val path = uri.path ?: artworkUri
+                    val file = File(path)
+                    if (file.exists()) {
+                        BitmapFactory.decodeFile(file.absolutePath, options)
+                    } else null
+                }
+                else -> {
+                    if (artworkUri.startsWith("/")) {
+                        val file = File(artworkUri)
+                        if (file.exists()) {
+                            BitmapFactory.decodeFile(file.absolutePath, options)
+                        } else null
+                    } else null
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun extractDominantPaletteFromBitmap(bitmap: Bitmap, theme: AppTheme): AmbientPalette {
+        return try {
+            // Resize to 40x40 thumbnail for instantaneous color clustering
+            val scaled = if (bitmap.width > 48 || bitmap.height > 48) {
+                Bitmap.createScaledBitmap(bitmap, 40, 40, true)
+            } else {
+                bitmap
+            }
+
+            val width = scaled.width
+            val height = scaled.height
+            val pixels = IntArray(width * height)
+            scaled.getPixels(pixels, 0, width, 0, 0, width, height)
+
+            val hsv = FloatArray(3)
+            val colorBuckets = HashMap<Int, Int>() // Key -> pixel count
+            val colorVibrancy = HashMap<Int, Float>() // Key -> total saturation * value
+
+            for (pixel in pixels) {
+                val alpha = (pixel ushr 24) and 0xff
+                if (alpha < 128) continue
+
+                android.graphics.Color.colorToHSV(pixel, hsv)
+                val hue = hsv[0]
+                val sat = hsv[1]
+                val value = hsv[2]
+
+                // Discard extreme near-black or extreme washed-out white
+                if (value < 0.12f || (sat < 0.08f && value > 0.90f)) continue
+
+                // Quantize hue into 18 bins (20 deg each), sat into 3 bins, value into 3 bins
+                val hueBin = (hue / 20f).toInt().coerceIn(0, 17)
+                val satBin = (sat * 2.99f).toInt().coerceIn(0, 2)
+                val valBin = (value * 2.99f).toInt().coerceIn(0, 2)
+                val key = (hueBin shl 4) or (satBin shl 2) or valBin
+
+                colorBuckets[key] = (colorBuckets[key] ?: 0) + 1
+                colorVibrancy[key] = (colorVibrancy[key] ?: 0f) + (sat * value)
+            }
+
+            if (colorBuckets.isEmpty()) {
+                return getDefaultPalette(theme)
+            }
+
+            // Sort keys by count multiplied by vibrancy
+            val rankedKeys = colorBuckets.keys.sortedByDescending { key ->
+                val count = colorBuckets[key] ?: 1
+                val avgVibrancy = (colorVibrancy[key] ?: 0f) / count
+                count * (0.35f + avgVibrancy * 0.65f)
+            }
+
+            val dominantColors = mutableListOf<Color>()
+            for (key in rankedKeys) {
+                val hueBin = (key shr 4) and 0x1F
+                val satBin = (key shr 2) and 0x03
+                val valBin = key and 0x03
+
+                val hue = (hueBin * 20f + 10f).coerceIn(0f, 360f)
+                val sat = ((satBin + 1) * 0.32f).coerceIn(0.40f, 0.95f)
+                val value = ((valBin + 1) * 0.32f).coerceIn(0.50f, 0.95f)
+
+                val rgb = android.graphics.Color.HSVToColor(floatArrayOf(hue, sat, value))
+                val color = Color(rgb)
+
+                // Distinct color separation check
+                if (dominantColors.isEmpty() || dominantColors.none { colorDistance(it, color) < 45 }) {
+                    dominantColors.add(color)
+                    if (dominantColors.size >= 3) break
+                }
+            }
+
+            val primary = dominantColors.getOrNull(0) ?: Color(0xFF8B5CF6)
+            val secondary = dominantColors.getOrNull(1) ?: Color(0xFF38BDF8)
+            val accent = dominantColors.getOrNull(2) ?: Color(0xFFC084FC)
+
+            // Deep background atmosphere derived cleanly from primary color hue
+            val deepHsv = FloatArray(3)
+            android.graphics.Color.colorToHSV(primary.toArgb(), deepHsv)
+            val deepRgb = android.graphics.Color.HSVToColor(floatArrayOf(deepHsv[0], 0.65f, 0.08f))
+            val deepAtmosphere = Color(deepRgb)
+
+            AmbientPalette(
+                primary = primary,
+                secondary = secondary,
+                haloGlow = primary.copy(alpha = 0.45f),
+                accent = accent,
+                deepAtmosphere = deepAtmosphere,
+                isLightLuminance = false
+            )
+        } catch (_: Exception) {
+            getDefaultPalette(theme)
+        }
+    }
+
+    private fun colorDistance(c1: Color, c2: Color): Double {
+        val r = (c1.red - c2.red) * 255
+        val g = (c1.green - c2.green) * 255
+        val b = (c1.blue - c2.blue) * 255
+        return sqrt((r * r + g * g + b * b).toDouble())
+    }
+
+    fun getDefaultPalette(theme: AppTheme): AmbientPalette {
         return when (theme) {
             AppTheme.GLASS -> AmbientPalette(
                 primary = Color(0xFF06B6D4),
@@ -60,11 +211,11 @@ object ArtworkPaletteExtractor {
                 deepAtmosphere = Color(0xFF050B16)
             )
             AppTheme.LEGO -> AmbientPalette(
-                primary = Color(0xFFE51D24), // Molded LEGO Glossy Scarlet
-                secondary = Color(0xFFFFC700), // Construction Gold / Spotlight Amber
+                primary = Color(0xFFE51D24),
+                secondary = Color(0xFFFFC700),
                 haloGlow = Color(0x75E51D24),
-                accent = Color(0xFF00E5FF), // Bat-Computer Arc Cyan
-                deepAtmosphere = Color(0xFF101115) // Deep Gotham Onyx
+                accent = Color(0xFF00E5FF),
+                deepAtmosphere = Color(0xFF101115)
             )
             AppTheme.CARTOON -> AmbientPalette(
                 primary = Color(0xFFFF4081),
@@ -96,6 +247,4 @@ object ArtworkPaletteExtractor {
             )
         }
     }
-
-    private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 }

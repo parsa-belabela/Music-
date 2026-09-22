@@ -32,11 +32,13 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
+import com.example.audio.ConnectedAudioDevice
 import com.example.data.model.*
 import com.example.data.model.RepeatMode as PlaybackRepeatMode
 import com.example.ui.components.*
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
+import com.example.util.Localization
 
 enum class NowPlayingCenterView {
     ARTWORK_AND_HALO,
@@ -67,6 +69,9 @@ fun NowPlayingScreen(
     onOpenSleepTimer: () -> Unit,
     onOpenMetadataEditor: (Track) -> Unit,
     modifier: Modifier = Modifier,
+    connectedDevice: ConnectedAudioDevice? = null,
+    onShareSong: (Track) -> Unit = {},
+    onPlaybackSpeedChange: (Float) -> Unit = {},
     currentPositionProvider: () -> Long = { playbackState.currentPositionMs }
 ) {
     val track = playbackState.currentTrack ?: return
@@ -252,6 +257,14 @@ fun NowPlayingScreen(
                                     }
                                 )
                                 DropdownMenuItem(
+                                    text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "اشتراک‌گذاری آهنگ" else "Share Song Card", color = Color.White) },
+                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = palette.accent) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        onShareSong(track)
+                                    }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Lyrics Studio", color = Color.White) },
                                     leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = palette.accent) },
                                     onClick = {
@@ -287,6 +300,14 @@ fun NowPlayingScreen(
                         }
                     }
                 }
+            }
+
+            // Apple AirPods / Bluetooth connection indicator
+            if (connectedDevice != null && !isImmersive) {
+                AudioDeviceIndicator(
+                    device = connectedDevice,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                )
             }
 
             // Liquid Glass Capsule Switcher: Halo | Visualizer | Lyrics
@@ -736,30 +757,85 @@ fun NowPlayingScreen(
                     ) {
                         Icon(imageVector = Icons.Default.Lyrics, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Lyrics Studio", color = Color.White, fontSize = 13.sp)
+                        Text(if (appSettings.language == AppLanguage.PERSIAN) "متن آهنگ" else "Lyrics", color = Color.White, fontSize = 13.sp)
                     }
 
-                    IconButton(
-                        onClick = {
-                            triggerHaptic()
-                            onOpenQueue()
-                        },
-                        modifier = Modifier
-                            .size(44.dp)
-                            .liquidGlass(
-                                shape = CircleShape,
-                                thickness = GlassThickness.THIN,
-                                tintColor = palette.primary,
-                                tintAlpha = 0.08f
-                            )
-                            .testTag("open_queue_button")
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.QueueMusic,
-                            contentDescription = "Queue",
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
-                        )
+                        // Playback Speed Selector Pill
+                        Box(
+                            modifier = Modifier
+                                .liquidGlass(
+                                    shape = RoundedCornerShape(14.dp),
+                                    thickness = GlassThickness.THIN,
+                                    tintColor = palette.primary,
+                                    tintAlpha = 0.12f
+                                )
+                                .clickable {
+                                    triggerHaptic()
+                                    val speeds = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 0.5f)
+                                    val currentIdx = speeds.indexOfFirst { kotlin.math.abs(it - appSettings.playbackSpeed) < 0.05f }
+                                    val nextSpeed = speeds[(if (currentIdx == -1) 1 else currentIdx + 1) % speeds.size]
+                                    onPlaybackSpeedChange(nextSpeed)
+                                }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "${"%.2f".format(appSettings.playbackSpeed).trimEnd('0').trimEnd('.')}x",
+                                color = palette.accent,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // Share Song Card Button
+                        IconButton(
+                            onClick = {
+                                triggerHaptic()
+                                onShareSong(track)
+                            },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .liquidGlass(
+                                    shape = CircleShape,
+                                    thickness = GlassThickness.THIN,
+                                    tintColor = palette.primary,
+                                    tintAlpha = 0.08f
+                                )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Share Song",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        // Queue Button
+                        IconButton(
+                            onClick = {
+                                triggerHaptic()
+                                onOpenQueue()
+                            },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .liquidGlass(
+                                    shape = CircleShape,
+                                    thickness = GlassThickness.THIN,
+                                    tintColor = palette.primary,
+                                    tintAlpha = 0.08f
+                                )
+                                .testTag("open_queue_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.QueueMusic,
+                                contentDescription = "Queue",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
             }

@@ -31,17 +31,26 @@ fun EqualizerSheet(
     var bassBoost by remember { mutableFloatStateOf(settings.bassBoostStrength.toFloat()) }
     var crossfade by remember { mutableIntStateOf(settings.crossfadeDurationSeconds) }
     var gapless by remember { mutableStateOf(settings.gaplessEnabled) }
+    var currentSpeed by remember { mutableFloatStateOf(settings.playbackSpeed) }
 
     val bandFrequencies = listOf("31Hz", "62Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz")
     val bandGains = remember { mutableStateListOf<Float>().apply { addAll(settings.eqBands) } }
 
     val eqPresets = listOf(
         "Flat" to listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f),
-        "Bass Heavy" to listOf(7f, 6f, 5f, 3f, 1f, 0f, -1f, -1f, 0f, 1f),
-        "Electronic" to listOf(5f, 4f, 2f, 0f, -2f, 2f, 1f, 3f, 4f, 5f),
-        "Vocal Boost" to listOf(-2f, -1f, 0f, 2f, 5f, 5f, 3f, 2f, 0f, -1f),
-        "Rock" to listOf(5f, 3f, 2f, 0f, -1f, 0f, 2f, 3f, 4f, 4f),
-        "Chill / Ambient" to listOf(3f, 4f, 2f, 1f, 0f, 0f, 1f, 2f, 3f, 4f)
+        "Bass Boost" to listOf(8f, 7f, 6f, 4f, 2f, 0f, -1f, -1f, 0f, 1f),
+        "Vocal Boost" to listOf(-2f, -1f, 0f, 2f, 5f, 6f, 4f, 2f, 0f, -1f),
+        "Rock" to listOf(6f, 4f, 2f, -1f, -2f, 1f, 3f, 4f, 5f, 5f),
+        "Pop" to listOf(-1f, 1f, 3f, 5f, 4f, 2f, -1f, 1f, 3f, 4f),
+        "Jazz" to listOf(4f, 3f, 1f, 2f, -2f, -2f, 0f, 2f, 4f, 4f),
+        "Classical" to listOf(5f, 4f, 3f, 2f, -1f, -1f, 0f, 3f, 4f, 5f),
+        "Electronic" to listOf(6f, 5f, 2f, 0f, -2f, 2f, 1f, 3f, 5f, 6f),
+        "Acoustic" to listOf(4f, 3f, 2f, 1f, 2f, 2f, 3f, 4f, 3f, 2f),
+        "Hip-Hop" to listOf(7f, 7f, 5f, 2f, -1f, -1f, 1f, -1f, 2f, 3f),
+        "R&B" to listOf(4f, 7f, 5f, 1f, -2f, 2f, 3f, 2f, 3f, 4f),
+        "Dance" to listOf(6f, 6f, 3f, 0f, -2f, 2f, 4f, 4f, 3f, 0f),
+        "Deep" to listOf(7f, 6f, 4f, 2f, 1f, 0f, -2f, -3f, -4f, -5f),
+        "Bright" to listOf(-3f, -2f, -1f, 0f, 2f, 4f, 6f, 7f, 8f, 9f)
     )
 
     ModalBottomSheet(
@@ -213,6 +222,42 @@ fun EqualizerSheet(
                                 onUpdateSettings(settings.copy(gaplessEnabled = it))
                             }
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Playback Speed
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Playback Speed", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
+                        Text(
+                            text = "${"%.2f".format(currentSpeed)}x",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = palette.accent,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val speeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
+                        items(speeds) { speed ->
+                            FilterChip(
+                                selected = (currentSpeed == speed),
+                                onClick = {
+                                    currentSpeed = speed
+                                    onUpdateSettings(settings.copy(playbackSpeed = speed))
+                                },
+                                label = { Text("${speed}x", fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = palette.primary.copy(alpha = 0.35f),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
                     }
                 }
             }
