@@ -145,22 +145,24 @@ fun EqualizerSheet(
         )
     }
 
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
     ModalBottomSheet(
         onDismissRequest = onClose,
+        sheetState = sheetState,
         containerColor = Color(0xFF0E0E1A),
         scrimColor = Color(0xFF030308).copy(alpha = 0.85f),
         dragHandle = { BottomSheetDefaults.DragHandle(color = Color(0x66FFFFFF)) },
         modifier = Modifier.fillMaxHeight(0.92f)
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 6.dp)
-                .verticalScroll(rememberScrollState())
+            modifier = Modifier.fillMaxSize()
         ) {
-            // Header
+            // Fixed Non-Scrollable Header
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -211,6 +213,15 @@ fun EqualizerSheet(
                     )
                 )
             }
+
+            // Scrollable Content
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = 20.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
 
             Spacer(modifier = Modifier.height(20.dp))
 
@@ -610,4 +621,5 @@ fun EqualizerSheet(
             Spacer(modifier = Modifier.height(30.dp))
         }
     }
+}
 }

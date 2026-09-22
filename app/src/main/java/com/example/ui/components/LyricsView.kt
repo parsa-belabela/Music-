@@ -11,9 +11,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloseFullscreen
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,6 +28,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -35,6 +40,7 @@ import com.example.data.model.LyricsDisplayMode
 import com.example.data.model.LyricsLine
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
+import kotlin.math.abs
 
 @Composable
 fun LyricsView(
@@ -65,11 +71,11 @@ fun LyricsView(
 
 /**
  * Apple Music level cinematic synced lyrics:
- * - Fluid line focus with dynamic scale, opacity, and soft glow
- * - Tactile tap-to-seek without lag
+ * - 3-Tier dynamic depth focus (active / neighboring / distant)
+ * - Continuous sub-millisecond word gradient sweep with glow
+ * - Tactile tap-to-seek with subtle haptic response
+ * - Optional cinematic fullscreen mode
  * - Top & Bottom gradient fade masks for infinite depth
- * - Respects user scrolling interaction
- * - Gorgeous glass empty state with quick editor access
  */
 @Composable
 fun LyricsView(
@@ -85,6 +91,8 @@ fun LyricsView(
     activeTrackId: String = ""
 ) {
     val listState = rememberLazyListState()
+    val haptic = LocalHapticFeedback.current
+    var isCinematicFullscreen by remember { mutableStateOf(false) }
 
     val currentPos = currentPositionProvider()
 
@@ -174,22 +182,29 @@ fun LyricsView(
         return
     }
 
+    val effectiveFontSize = if (isCinematicFullscreen) baseFontSize + 4f else baseFontSize
+
     Box(modifier = modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = 100.dp, bottom = 140.dp, start = 20.dp, end = 20.dp),
+            contentPadding = PaddingValues(
+                top = if (isCinematicFullscreen) 60.dp else 100.dp,
+                bottom = if (isCinematicFullscreen) 80.dp else 140.dp,
+                start = 20.dp,
+                end = 20.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(
                 when (displayMode) {
                     LyricsDisplayMode.CINEMATIC -> 26.dp
                     LyricsDisplayMode.MINIMAL -> 12.dp
-                    else -> 18.dp
+                    else -> 20.dp
                 }
             )
         ) {
             itemsIndexed(lyrics, key = { idx, line -> "${line.timestampMs}_$idx" }) { index, line ->
                 val isActive = index == activeIndex
-                val isPast = index < activeIndex
+                val distance = abs(index - activeIndex)
 
                 val alignment = when (displayMode) {
                     LyricsDisplayMode.CENTER, LyricsDisplayMode.CINEMATIC, LyricsDisplayMode.FLOATING -> TextAlign.Center
@@ -202,19 +217,29 @@ fun LyricsView(
                     label = "lyricsTextColor"
                 )
 
+                // 3-tier atmospheric opacity & depth
+                val targetAlpha = when {
+                    isActive -> 1.0f
+                    distance == 1 -> 0.65f
+                    else -> 0.32f
+                }
+
                 val alpha by animateFloatAsState(
-                    targetValue = when {
-                        isActive -> 1.0f
-                        isPast -> 0.38f
-                        else -> 0.52f
-                    },
+                    targetValue = targetAlpha,
                     animationSpec = tween(250, easing = FastOutSlowInEasing),
                     label = "lyricsAlpha"
+                )
+
+                val lineScale by animateFloatAsState(
+                    targetValue = if (isActive) 1.02f else if (distance == 1) 0.99f else 0.96f,
+                    animationSpec = spring(dampingRatio = 0.75f, stiffness = 350f),
+                    label = "lineScale"
                 )
 
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .scale(lineScale)
                         .alpha(alpha)
                         .then(
                             if (isActive) {
@@ -222,14 +247,17 @@ fun LyricsView(
                                     shape = RoundedCornerShape(18.dp),
                                     thickness = GlassThickness.THIN,
                                     tintColor = palette.accent,
-                                    tintAlpha = 0.25f,
+                                    tintAlpha = 0.22f,
                                     borderWidth = 1.2.dp
                                 )
                             } else {
                                 Modifier.clip(RoundedCornerShape(12.dp))
                             }
                         )
-                        .clickable { onSeekTo(line.timestampMs) }
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onSeekTo(line.timestampMs)
+                        }
                         .padding(horizontal = 16.dp, vertical = if (isActive) 14.dp else 8.dp),
                     contentAlignment = when (displayMode) {
                         LyricsDisplayMode.CENTER, LyricsDisplayMode.CINEMATIC, LyricsDisplayMode.FLOATING -> Alignment.Center
@@ -278,8 +306,8 @@ fun LyricsView(
 
                                 Text(
                                     text = "${w.word} ",
-                                    fontSize = (baseFontSize + 2f).sp,
-                                    fontWeight = if (isWordActive) FontWeight.Black else if (isWordPassed) FontWeight.Bold else FontWeight.SemiBold,
+                                    fontSize = (effectiveFontSize + 2f).sp,
+                                    fontWeight = if (isWordActive) FontWeight.Bold else if (isWordPassed) FontWeight.SemiBold else FontWeight.Medium,
                                     style = androidx.compose.ui.text.TextStyle(
                                         brush = wordBrush,
                                         shadow = if (isWordActive) androidx.compose.ui.graphics.Shadow(
@@ -288,23 +316,45 @@ fun LyricsView(
                                         ) else null
                                     ),
                                     modifier = Modifier.scale(wordScale),
-                                    lineHeight = ((baseFontSize + 2f) * 1.45f).sp
+                                    lineHeight = ((effectiveFontSize + 2f) * 1.6f).sp,
+                                    letterSpacing = 0.4.sp
                                 )
                             }
                         }
                     } else {
                         Text(
                             text = line.text,
-                            fontSize = if (isActive) (baseFontSize + 2f).sp else baseFontSize.sp,
-                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = if (isActive) (effectiveFontSize + 2f).sp else effectiveFontSize.sp,
+                            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
                             color = if (isActive) Color.White else textColor,
                             textAlign = alignment,
-                            lineHeight = ((if (isActive) baseFontSize + 2f else baseFontSize) * 1.45f).sp,
-                            letterSpacing = 0.2.sp
+                            lineHeight = ((if (isActive) effectiveFontSize + 2f else effectiveFontSize) * 1.6f).sp,
+                            letterSpacing = 0.3.sp
                         )
                     }
                 }
             }
+        }
+
+        // Fullscreen Cinematic Toggle Button
+        IconButton(
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                isCinematicFullscreen = !isCinematicFullscreen
+            },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 16.dp, end = 16.dp)
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(Color(0x55101020))
+        ) {
+            Icon(
+                imageVector = if (isCinematicFullscreen) Icons.Default.CloseFullscreen else Icons.Default.Fullscreen,
+                contentDescription = "Toggle Fullscreen Lyrics",
+                tint = palette.accent,
+                modifier = Modifier.size(18.dp)
+            )
         }
 
         // Top & Bottom gradient edge masks for cinematic depth

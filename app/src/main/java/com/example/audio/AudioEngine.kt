@@ -797,16 +797,44 @@ class AudioEngine(private val context: Context) {
     private fun startProgressTracker() {
         stopProgressTracker()
         progressJob = engineScope.launch {
+            var anchorPos = 0L
+            var anchorNano = System.nanoTime()
+            var lastRealSyncMs = 0L
+
+            val mp = mediaPlayer
+            if (mp != null && isPlayerPrepared) {
+                try {
+                    anchorPos = mp.currentPosition.toLong()
+                    anchorNano = System.nanoTime()
+                    _currentPosition.value = anchorPos
+                } catch (_: Exception) {}
+            }
+
             while (isActive) {
-                val mp = mediaPlayer
-                if (mp != null && isPlayerPrepared) {
+                val currentMp = mediaPlayer
+                if (currentMp != null && isPlayerPrepared && _isPlayWhenReady.value) {
                     try {
-                        if (mp.isPlaying) {
-                            _currentPosition.value = mp.currentPosition.toLong()
+                        val nowNano = System.nanoTime()
+                        val nowMs = System.currentTimeMillis()
+
+                        // Poll real MediaPlayer position every 100ms or on drift
+                        if (nowMs - lastRealSyncMs >= 100L) {
+                            if (currentMp.isPlaying) {
+                                val realPos = currentMp.currentPosition.toLong()
+                                anchorPos = realPos
+                                anchorNano = nowNano
+                                lastRealSyncMs = nowMs
+                                _currentPosition.value = realPos
+                            }
+                        } else {
+                            // Sub-millisecond smooth interpolation between MediaPlayer polls
+                            val elapsedSinceAnchor = ((nowNano - anchorNano) / 1_000_000L * currentPlaybackSpeed).toLong()
+                            val interpolatedPos = (anchorPos + elapsedSinceAnchor).coerceIn(0L, _duration.value.coerceAtLeast(anchorPos))
+                            _currentPosition.value = interpolatedPos
                         }
                     } catch (_: Exception) {}
                 }
-                delay(80L)
+                delay(25L)
             }
         }
     }

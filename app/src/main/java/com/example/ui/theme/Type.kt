@@ -9,10 +9,10 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 
 val ModernPersianFontFamily = FontFamily(
-    Font(R.font.vazirmatn, FontWeight.Normal),
-    Font(R.font.vazirmatn, FontWeight.Medium),
-    Font(R.font.vazirmatn, FontWeight.SemiBold),
-    Font(R.font.vazirmatn, FontWeight.Bold)
+    Font(R.font.vazirmatn_regular, FontWeight.Normal),
+    Font(R.font.vazirmatn_medium, FontWeight.Medium),
+    Font(R.font.vazirmatn_semibold, FontWeight.SemiBold),
+    Font(R.font.vazirmatn_bold, FontWeight.Bold)
 )
 
 val Typography = Typography(
