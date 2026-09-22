@@ -201,21 +201,13 @@ fun LibraryScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .then(
-                                    if (isCurrent) {
-                                        Modifier.liquidGlass(
-                                            shape = RoundedCornerShape(16.dp),
-                                            thickness = GlassThickness.REGULAR,
-                                            tintColor = palette.primary,
-                                            tintAlpha = 0.22f,
-                                            borderWidth = 1.dp,
-                                            appTheme = settings.theme
-                                        )
-                                    } else {
-                                        Modifier
-                                            .clip(RoundedCornerShape(16.dp))
-                                            .background(Color(0xFF11111E))
-                                    }
+                                .liquidGlass(
+                                    shape = RoundedCornerShape(16.dp),
+                                    thickness = if (isCurrent) GlassThickness.THICK else GlassThickness.THIN,
+                                    tintColor = if (isCurrent) palette.accent else palette.primary,
+                                    tintAlpha = if (isCurrent) 0.28f else 0.10f,
+                                    borderWidth = if (isCurrent) 1.2.dp else 0.8.dp,
+                                    appTheme = settings.theme
                                 )
                                 .clickable { onPlayTrack(track, sortedTracks) }
                                 .testTag("library_track_${track.id}")

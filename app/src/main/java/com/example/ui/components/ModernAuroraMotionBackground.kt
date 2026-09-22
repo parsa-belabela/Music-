@@ -68,12 +68,12 @@ fun ModernAuroraMotionBackground(
 
     // Base background tone according to the selected AppTheme
     val baseBackgroundColor = when (appTheme) {
-        AppTheme.CYBER_NIGHTS -> Color(0xFF070B14)
+        AppTheme.PURE_LIQUID_GLASS -> Color(0xFF060812)
+        AppTheme.CYBER_NIGHTS -> Color(0xFF030712)
         AppTheme.Y2K_CHROME -> Color(0xFF080B10)
-        AppTheme.VELVET_NOIR -> Color(0xFF0B030D)
-        AppTheme.SUNSET_RAVE -> Color(0xFF100512)
-        AppTheme.DIGITAL_ACID -> Color(0xFF030503)
-        AppTheme.MINIMAL_STUDIO -> Color(0xFF0C0C0F)
+        AppTheme.VELVET_NOIR -> Color(0xFF0B020E)
+        AppTheme.SUNSET_RAVE -> Color(0xFF130314)
+        AppTheme.DIGITAL_ACID -> Color(0xFF000000)
     }
 
     Box(
@@ -83,10 +83,9 @@ fun ModernAuroraMotionBackground(
     ) {
 
         // Multi-node dynamic RGB mesh layer with high-energy vibrancy and living light nodes
+        // Rendered via smooth hardware-accelerated radial gradient falls for 120 FPS performance
         Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-                .blur(12.dp)
+            modifier = Modifier.fillMaxSize()
         ) {
             val width = size.width
             val height = size.height

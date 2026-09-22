@@ -263,10 +263,17 @@ fun SettingsScreen(
 
         // Section: Language Selection
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF131325)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .liquidGlass(
+                        shape = RoundedCornerShape(18.dp),
+                        thickness = GlassThickness.REGULAR,
+                        tintColor = palette.primary,
+                        tintAlpha = 0.12f,
+                        borderWidth = 1.dp,
+                        appTheme = settings.theme
+                    )
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -306,10 +313,17 @@ fun SettingsScreen(
 
         // Section: Visualizer & Ambient Halo
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF131325)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .liquidGlass(
+                        shape = RoundedCornerShape(18.dp),
+                        thickness = GlassThickness.REGULAR,
+                        tintColor = palette.secondary,
+                        tintAlpha = 0.12f,
+                        borderWidth = 1.dp,
+                        appTheme = settings.theme
+                    )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -413,10 +427,17 @@ fun SettingsScreen(
 
         // Section: Audio DSP, Crossfade & Equalizer
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF131325)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .liquidGlass(
+                        shape = RoundedCornerShape(18.dp),
+                        thickness = GlassThickness.REGULAR,
+                        tintColor = palette.primary,
+                        tintAlpha = 0.12f,
+                        borderWidth = 1.dp,
+                        appTheme = settings.theme
+                    )
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -470,10 +491,17 @@ fun SettingsScreen(
 
         // Section: Lyrics & Typography
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF131325)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .liquidGlass(
+                        shape = RoundedCornerShape(18.dp),
+                        thickness = GlassThickness.REGULAR,
+                        tintColor = palette.secondary,
+                        tintAlpha = 0.12f,
+                        borderWidth = 1.dp,
+                        appTheme = settings.theme
+                    )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -528,10 +556,17 @@ fun SettingsScreen(
 
         // Section: Themes & Aesthetics
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF131325)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .liquidGlass(
+                        shape = RoundedCornerShape(18.dp),
+                        thickness = GlassThickness.REGULAR,
+                        tintColor = palette.primary,
+                        tintAlpha = 0.12f,
+                        borderWidth = 1.dp,
+                        appTheme = settings.theme
+                    )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -593,10 +628,17 @@ fun SettingsScreen(
 
         // Section: Hardware & Haptic Feedback
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF131325)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .liquidGlass(
+                        shape = RoundedCornerShape(18.dp),
+                        thickness = GlassThickness.REGULAR,
+                        tintColor = palette.secondary,
+                        tintAlpha = 0.12f,
+                        borderWidth = 1.dp,
+                        appTheme = settings.theme
+                    )
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -646,10 +688,17 @@ fun SettingsScreen(
 
         // Section: Storage, Cache & History Management
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF131325)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .liquidGlass(
+                        shape = RoundedCornerShape(18.dp),
+                        thickness = GlassThickness.REGULAR,
+                        tintColor = palette.primary,
+                        tintAlpha = 0.12f,
+                        borderWidth = 1.dp,
+                        appTheme = settings.theme
+                    )
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -720,10 +769,17 @@ fun SettingsScreen(
 
         // Section: Dedicated Feedback & Support
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF131325)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .liquidGlass(
+                        shape = RoundedCornerShape(18.dp),
+                        thickness = GlassThickness.REGULAR,
+                        tintColor = palette.primary,
+                        tintAlpha = 0.12f,
+                        borderWidth = 1.dp,
+                        appTheme = settings.theme
+                    )
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

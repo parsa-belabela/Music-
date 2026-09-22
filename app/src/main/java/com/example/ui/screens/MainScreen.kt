@@ -65,6 +65,7 @@ fun MainScreen(
     val connectedDevice by viewModel.connectedAudioDevice.collectAsState()
     val showShareCard by viewModel.showShareCard.collectAsState()
 
+    var showInitialSplash by remember { mutableStateOf(true) }
     var currentTab by remember { mutableStateOf(MainTab.HOME) }
     val lang = appSettings.language
 
@@ -97,7 +98,7 @@ fun MainScreen(
         Scaffold(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
-                if (!isNowPlayingExpanded) {
+                if (!isNowPlayingExpanded && !showInitialSplash) {
                     Column(modifier = Modifier.navigationBarsPadding()) {
                         // Persistent Floating Mini Player
                         if (playbackState.currentTrack != null) {
@@ -358,6 +359,18 @@ fun MainScreen(
                     )
                 }
             }
+        }
+
+        // Cinematic Initial Splash Loading Screen
+        AnimatedVisibility(
+            visible = showInitialSplash,
+            enter = fadeIn(),
+            exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(500)) + scaleOut(targetScale = 1.05f, animationSpec = androidx.compose.animation.core.tween(500))
+        ) {
+            CinematicGlassSplashScreen(
+                theme = appSettings.theme,
+                onSplashFinished = { showInitialSplash = false }
+            )
         }
 
         // Modal Sheets & Dialogs

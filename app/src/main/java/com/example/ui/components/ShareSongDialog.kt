@@ -39,6 +39,10 @@ import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
 import com.example.util.Localization
 
+import android.net.Uri
+import androidx.core.content.FileProvider
+import java.io.File
+
 @Composable
 fun ShareSongDialog(
     track: Track,
@@ -49,22 +53,67 @@ fun ShareSongDialog(
     val context = LocalContext.current
 
     val shareText = buildString {
-        append("🎵 Now Playing on Aura Music Player:\n")
-        append("Title: \"${track.title}\"\n")
-        append("Artist: ${track.artist}\n")
+        append("🎵 \"${track.title}\" - ${track.artist}\n")
         if (track.album.isNotBlank()) append("Album: ${track.album}\n")
         append("Quality: ${track.bitrate} kbps Hi-Fi Audio\n")
-        append("\n#AuraMusicPlayer #HiFiAudio")
+        append("Shared via Aura Music Player")
     }
 
     val onShareIntent = {
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "${track.title} - ${track.artist}")
-            putExtra(Intent.EXTRA_TEXT, shareText)
+        try {
+            val mime = when {
+                track.uri.endsWith(".flac", ignoreCase = true) -> "audio/flac"
+                track.uri.endsWith(".wav", ignoreCase = true) -> "audio/wav"
+                track.uri.endsWith(".ogg", ignoreCase = true) -> "audio/ogg"
+                track.uri.endsWith(".m4a", ignoreCase = true) || track.uri.endsWith(".aac", ignoreCase = true) -> "audio/mp4"
+                else -> "audio/mpeg"
+            }
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = mime
+                putExtra(Intent.EXTRA_SUBJECT, "${track.title} - ${track.artist}")
+                putExtra(Intent.EXTRA_TEXT, shareText)
+
+                val uri = Uri.parse(track.uri)
+                val streamUri: Uri? = when {
+                    track.uri.startsWith("content://") -> uri
+                    track.uri.startsWith("file://") || track.uri.startsWith("/") -> {
+                        val filePath = if (track.uri.startsWith("file://")) uri.path ?: "" else track.uri
+                        val file = File(filePath)
+                        if (file.exists()) {
+                            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                        } else null
+                    }
+                    track.isDemo || track.uri.startsWith("asset://") -> {
+                        val demoFile = File(context.cacheDir, "${track.title.replace("[^a-zA-Z0-9_.-]".toRegex(), "_")}.mp3")
+                        if (!demoFile.exists()) {
+                            val assetName = if (track.uri.startsWith("asset://")) track.uri.removePrefix("asset://") else "demo_track.mp3"
+                            try {
+                                context.assets.open(assetName).use { input ->
+                                    demoFile.outputStream().use { output ->
+                                        input.copyTo(output)
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                // Ignore asset copy error
+                            }
+                        }
+                        if (demoFile.exists()) {
+                            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", demoFile)
+                        } else null
+                    }
+                    else -> null
+                }
+
+                if (streamUri != null) {
+                    putExtra(Intent.EXTRA_STREAM, streamUri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            }
+            val chooserTitle = if (language == AppLanguage.PERSIAN) "اشتراک‌گذاری فایل موزیک" else "Share Music File"
+            context.startActivity(Intent.createChooser(intent, chooserTitle))
+        } catch (e: Exception) {
+            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
         }
-        val chooserTitle = if (language == AppLanguage.PERSIAN) "اشتراک‌گذاری آهنگ" else "Share Song"
-        context.startActivity(Intent.createChooser(intent, chooserTitle))
     }
 
     val onCopyClipboard = {

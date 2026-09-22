@@ -211,47 +211,47 @@ object ArtworkPaletteExtractor {
 
     fun getDefaultPalette(theme: AppTheme): AmbientPalette {
         return when (theme) {
+            AppTheme.PURE_LIQUID_GLASS -> AmbientPalette(
+                primary = Color(0xFF00E5FF), // Pure Crystal Cyan
+                secondary = Color(0xFF8B5CF6), // Prismatic Violet
+                haloGlow = Color(0x9900E5FF),
+                accent = Color(0xFFFFFFFF), // Pure Ice White
+                deepAtmosphere = Color(0xFF060810) // Pure ultra-deep midnight for maximum glass transparency
+            )
             AppTheme.CYBER_NIGHTS -> AmbientPalette(
-                primary = Color(0xFF06B6D4), // Cyan
-                secondary = Color(0xFF1E3A8A), // Deep Navy
-                haloGlow = Color(0x6606B6D4),
-                accent = Color(0xFFD946EF), // Magenta
-                deepAtmosphere = Color(0xFF070B14)
+                primary = Color(0xFF00F0FF), // Electric Laser Cyan
+                secondary = Color(0xFF1E3A8A), // Midnight Navy
+                haloGlow = Color(0x9900F0FF),
+                accent = Color(0xFFFF007F), // Laser Rose Magenta
+                deepAtmosphere = Color(0xFF030712)
             )
             AppTheme.Y2K_CHROME -> AmbientPalette(
-                primary = Color(0xFFE2E8F0), // Chrome Silver
-                secondary = Color(0xFF38BDF8), // Icy Sky
-                haloGlow = Color(0x6638BDF8),
-                accent = Color(0xFF94A3B8), // Metallic Steel
+                primary = Color(0xFFE2E8F0), // Liquid Mercury Silver
+                secondary = Color(0xFF38BDF8), // Electric Ice Blue
+                haloGlow = Color(0x9938BDF8),
+                accent = Color(0xFFFFFFFF), // Platinum White
                 deepAtmosphere = Color(0xFF080B10)
             )
             AppTheme.VELVET_NOIR -> AmbientPalette(
-                primary = Color(0xFF701A75), // Rich Burgundy
-                secondary = Color(0xFFF59E0B), // Warm Gold
-                haloGlow = Color(0x66F59E0B),
-                accent = Color(0xFFA855F7), // Royal Purple
-                deepAtmosphere = Color(0xFF0B030D)
+                primary = Color(0xFFFFD700), // Imperial 24K Gold
+                secondary = Color(0xFF581C87), // Deep Royal Velvet
+                haloGlow = Color(0x99FFD700),
+                accent = Color(0xFFF59E0B), // Champagne Gold
+                deepAtmosphere = Color(0xFF0B020E)
             )
             AppTheme.SUNSET_RAVE -> AmbientPalette(
-                primary = Color(0xFFF97316), // Solar Orange
-                secondary = Color(0xFFEC4899), // Dusk Pink
-                haloGlow = Color(0x66F97316),
-                accent = Color(0xFF8B5CF6), // Dusk Violet
-                deepAtmosphere = Color(0xFF100512)
+                primary = Color(0xFFFF6D00), // Solar Orange
+                secondary = Color(0xFFFF007F), // Radiant Neon Pink
+                haloGlow = Color(0x99FF6D00),
+                accent = Color(0xFFFFD600), // Golden Sunset Ray
+                deepAtmosphere = Color(0xFF130314)
             )
             AppTheme.DIGITAL_ACID -> AmbientPalette(
-                primary = Color(0xFF84CC16), // Acid Lime
-                secondary = Color(0xFF22C55E), // Neon Emerald
-                haloGlow = Color(0x6684CC16),
-                accent = Color(0xFFA3E635), // Electric Yellow-Green
-                deepAtmosphere = Color(0xFF030503)
-            )
-            AppTheme.MINIMAL_STUDIO -> AmbientPalette(
-                primary = Color(0xFFE5E7EB), // Crisp Chalk
-                secondary = Color(0xFF6B7280), // Pure Graphite
-                haloGlow = Color(0x40E5E7EB),
-                accent = Color(0xFF9CA3AF), // Muted Zinc
-                deepAtmosphere = Color(0xFF0C0C0F)
+                primary = Color(0xFF39FF14), // Radioactive Acid Lime
+                secondary = Color(0xFF059669), // Matrix Toxic Green
+                haloGlow = Color(0x9939FF14),
+                accent = Color(0xFF00FF66), // Laser Phosphor
+                deepAtmosphere = Color(0xFF000000)
             )
         }
     }

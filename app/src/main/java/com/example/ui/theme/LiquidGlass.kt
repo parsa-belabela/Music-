@@ -19,12 +19,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.data.model.AppTheme
 
-val LocalAppTheme = compositionLocalOf { AppTheme.CYBER_NIGHTS }
+val LocalAppTheme = compositionLocalOf { AppTheme.PURE_LIQUID_GLASS }
 
 /**
  * Material Thickness levels for Liquid Glass & Thematic Surfaces:
- * - THIN: Floating buttons, small pills, chip filters
- * - REGULAR: Floating capsule MiniPlayer, navigation bar, cards
+ * - THIN: Floating buttons, small pills, chip filters, track items
+ * - REGULAR: Floating capsule MiniPlayer, navigation bar, cards, playlists
  * - THICK: Modals, bottom sheets, menus, dialogs
  */
 enum class GlassThickness {
@@ -46,25 +46,66 @@ object LiquidGlassDesign {
     fun getSpec(
         thickness: GlassThickness,
         accentColor: Color = Color.White,
-        theme: AppTheme = AppTheme.CYBER_NIGHTS
+        theme: AppTheme = AppTheme.PURE_LIQUID_GLASS
     ): LiquidGlassSpec {
         return when (theme) {
+            AppTheme.PURE_LIQUID_GLASS -> when (thickness) {
+                GlassThickness.THIN -> LiquidGlassSpec(
+                    surfaceGradient = Brush.linearGradient(
+                        listOf(Color(0x28FFFFFF), Color(0x10FFFFFF), Color(0x0800E5FF))
+                    ),
+                    borderGradient = Brush.linearGradient(
+                        listOf(Color(0x80FFFFFF), Color(0x3500E5FF), Color(0x18FFFFFF))
+                    ),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent,
+                    specularReflectionAlpha = 0.45f
+                )
+                GlassThickness.REGULAR -> LiquidGlassSpec(
+                    surfaceGradient = Brush.verticalGradient(
+                        listOf(Color(0x2DFFFFFF), Color(0x120A1020), Color(0x1C182642))
+                    ),
+                    borderGradient = Brush.linearGradient(
+                        listOf(
+                            Color(0x90FFFFFF),
+                            Color(0x5000E5FF),
+                            Color(0x308B5CF6),
+                            Color(0x15FFFFFF)
+                        )
+                    ),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent,
+                    specularReflectionAlpha = 0.6f
+                )
+                GlassThickness.THICK -> LiquidGlassSpec(
+                    surfaceGradient = Brush.verticalGradient(
+                        listOf(Color(0x401A2438), Color(0x280D1525), Color(0x35060A14))
+                    ),
+                    borderGradient = Brush.linearGradient(
+                        listOf(Color(0x75FFFFFF), Color(0x4000E5FF), Color(0x208B5CF6))
+                    ),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent,
+                    specularReflectionAlpha = 0.75f
+                )
+            }
+
             AppTheme.CYBER_NIGHTS -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x2806B6D4), Color(0x100F172A))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x5506B6D4), Color(0x15D946EF))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x3000F0FF), Color(0x120F172A))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x7500F0FF), Color(0x25FF007F))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xCC0E172A), Color(0xF0070B14))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x5506B6D4), accentColor.copy(alpha = 0.35f), Color(0x20D946EF))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x4000F0FF), Color(0x25060F26), Color(0x35020614))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x8500F0FF), Color(0x50FF007F), Color(0x2000F0FF))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
                 GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF50B1220), Color(0xFA050811))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x4006B6D4), Color(0x20D946EF))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x50020B1C), Color(0x35050D20))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x6000F0FF), Color(0x35FF007F))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
@@ -78,13 +119,13 @@ object LiquidGlassDesign {
                     shadowColor = Color.Transparent
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xD01E2330), Color(0xF00F131C))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x45CBD5E1), Color(0x251E2330), Color(0x350F131C))),
                     borderGradient = Brush.linearGradient(listOf(Color(0xFFE2E8F0), Color(0xFF38BDF8), Color(0xFF818CF8))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
                 GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF2151922), Color(0xFA0A0D14))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x501E2536), Color(0x350F131E))),
                     borderGradient = Brush.linearGradient(listOf(Color(0xFFCBD5E1), Color(0xFF818CF8), Color(0xFF38BDF8))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
@@ -93,20 +134,20 @@ object LiquidGlassDesign {
 
             AppTheme.VELVET_NOIR -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x35701A75), Color(0x152E0854))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x60F59E0B), Color(0x20701A75))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x35FFD700), Color(0x153B0746))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x85FFD700), Color(0x30A855F7))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xD5240E2B), Color(0xF2120617))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x55F59E0B), Color(0x30A855F7), Color(0x15F59E0B))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x38FFD700), Color(0x28380844), Color(0x3015021C))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x85FFD700), Color(0x45A855F7), Color(0x20FFD700))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
                 GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF51C0822), Color(0xFC0A030D))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x50F59E0B), Color(0x25701A75))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x4525042D), Color(0x30100115))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x70FFD700), Color(0x30701A75))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
@@ -114,20 +155,20 @@ object LiquidGlassDesign {
 
             AppTheme.SUNSET_RAVE -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.linearGradient(listOf(Color(0x35F97316), Color(0x15EC4899))),
-                    borderGradient = Brush.linearGradient(listOf(Color(0x65F97316), Color(0x30A855F7))),
+                    surfaceGradient = Brush.linearGradient(listOf(Color(0x35FF6D00), Color(0x18FF007F))),
+                    borderGradient = Brush.linearGradient(listOf(Color(0x80FF6D00), Color(0x40FF007F))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xD02E1428), Color(0xF018081E))),
-                    borderGradient = Brush.linearGradient(listOf(Color(0x60F97316), Color(0x40EC4899), Color(0x25A855F7))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x38FF6D00), Color(0x253B0B32), Color(0x301A031E))),
+                    borderGradient = Brush.linearGradient(listOf(Color(0x85FF6D00), Color(0x55FF007F), Color(0x30FFD600))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
                 GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF5240D20), Color(0xFC120414))),
-                    borderGradient = Brush.linearGradient(listOf(Color(0x50F97316), Color(0x25EC4899))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x452D082A), Color(0x30140217))),
+                    borderGradient = Brush.linearGradient(listOf(Color(0x70FF6D00), Color(0x35FF007F))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
@@ -135,41 +176,20 @@ object LiquidGlassDesign {
 
             AppTheme.DIGITAL_ACID -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x2884CC16), Color(0x10050805))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x6584CC16), Color(0x2015803D))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x3039FF14), Color(0x10051205))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x8039FF14), Color(0x2500FF66))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xD00A1208), Color(0xF2040703))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x5584CC16), Color(0x3022C55E), Color(0x1584CC16))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x3039FF14), Color(0x20071C07), Color(0x28020802))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x8539FF14), Color(0x4000FF66), Color(0x2039FF14))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
                 GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF5060C05), Color(0xFC020402))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x4584CC16), Color(0x2015803D))),
-                    shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent
-                )
-            }
-
-            AppTheme.MINIMAL_STUDIO -> when (thickness) {
-                GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x25FFFFFF), Color(0x0CFFFFFF))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x40FFFFFF), Color(0x15FFFFFF))),
-                    shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent
-                )
-                GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xD01C1C24), Color(0xF0121218))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x35FFFFFF), Color(0x12FFFFFF))),
-                    shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent
-                )
-                GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF514141B), Color(0xFC0A0A0F))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x30FFFFFF), Color(0x10FFFFFF))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x45081E08), Color(0x30020A02))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x6539FF14), Color(0x30059669))),
                     shadowElevation = 0.dp,
                     shadowColor = Color.Transparent
                 )
@@ -221,11 +241,31 @@ fun Modifier.liquidGlass(
         .drawWithContent {
             // Tactile theme textures rendered safely behind content
             when (activeTheme) {
+                AppTheme.PURE_LIQUID_GLASS -> {
+                    // Pure crystal diagonal light refraction and top specular highlight
+                    if (size.width > 20f && size.height > 20f) {
+                        // Top crystal edge highlight
+                        drawLine(
+                            brush = Brush.horizontalGradient(
+                                listOf(
+                                    Color.Transparent,
+                                    Color(0x99FFFFFF),
+                                    Color(0x6000E5FF),
+                                    Color(0x80FFFFFF),
+                                    Color.Transparent
+                                )
+                            ),
+                            start = Offset(0f, 0f),
+                            end = Offset(size.width, 0f),
+                            strokeWidth = 1.5f
+                        )
+                    }
+                }
                 AppTheme.CYBER_NIGHTS -> {
                     // Subtle cyber horizon neon line
                     if (size.height > 60f) {
                         drawLine(
-                            color = Color(0x2206B6D4),
+                            color = Color(0x3500F0FF),
                             start = Offset(12f, 0f),
                             end = Offset(size.width - 12f, 0f),
                             strokeWidth = 1.5f
@@ -252,7 +292,7 @@ fun Modifier.liquidGlass(
                     // Warm gold luxury edge accent
                     if (size.width > 20f) {
                         drawLine(
-                            color = Color(0x30F59E0B),
+                            color = Color(0x60FFD700),
                             start = Offset(size.width * 0.15f, 0f),
                             end = Offset(size.width * 0.85f, 0f),
                             strokeWidth = 1.2f
@@ -263,7 +303,7 @@ fun Modifier.liquidGlass(
                     // Solar sunset dusk line
                     if (size.height > 40f) {
                         drawLine(
-                            color = Color(0x30F97316),
+                            color = Color(0x60FF6D00),
                             start = Offset(0f, 0f),
                             end = Offset(size.width, 0f),
                             strokeWidth = 1.5f
@@ -274,15 +314,12 @@ fun Modifier.liquidGlass(
                     // Neon lime laser micro-edge
                     if (size.width > 30f) {
                         drawLine(
-                            color = Color(0x5084CC16),
+                            color = Color(0x7039FF14),
                             start = Offset(0f, 0f),
                             end = Offset(size.width, 0f),
                             strokeWidth = 1.8f
                         )
                     }
-                }
-                AppTheme.MINIMAL_STUDIO -> {
-                    // Clean surgical border, zero distracting noise
                 }
             }
 

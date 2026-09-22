@@ -147,22 +147,28 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(6.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(recentlyPlayed) { track ->
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF131322)),
-                            shape = RoundedCornerShape(14.dp),
+                        Box(
                             modifier = Modifier
-                                .width(140.dp)
+                                .width(145.dp)
+                                .liquidGlass(
+                                    shape = RoundedCornerShape(18.dp),
+                                    thickness = GlassThickness.REGULAR,
+                                    tintColor = palette.primary,
+                                    tintAlpha = 0.16f,
+                                    borderWidth = 1.dp
+                                )
                                 .clickable { onPlayTrack(track, allTracks) }
+                                .padding(12.dp)
                         ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
+                            Column {
                                 TrackArtworkThumbnail(
                                     artworkUri = track.artworkUri,
                                     accentColor = palette.primary,
-                                    size = 120.dp,
-                                    shape = RoundedCornerShape(10.dp),
+                                    size = 121.dp,
+                                    shape = RoundedCornerShape(12.dp),
                                     iconSize = 40.dp
                                 )
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(10.dp))
                                 Text(
                                     text = track.title,
                                     style = MaterialTheme.typography.bodyMedium.copy(
@@ -211,24 +217,28 @@ fun HomeScreen(
             if (favoriteTracks.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     favoriteTracks.forEach { track ->
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF121222)),
-                            shape = RoundedCornerShape(12.dp),
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .liquidGlass(
+                                    shape = RoundedCornerShape(16.dp),
+                                    thickness = GlassThickness.THIN,
+                                    tintColor = palette.accent,
+                                    tintAlpha = 0.14f,
+                                    borderWidth = 1.dp
+                                )
                                 .clickable { onPlayTrack(track, allTracks) }
+                                .padding(12.dp)
                         ) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
+                                modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 TrackArtworkThumbnail(
                                     artworkUri = track.artworkUri,
                                     accentColor = palette.accent,
-                                    size = 44.dp,
-                                    shape = RoundedCornerShape(10.dp),
+                                    size = 48.dp,
+                                    shape = RoundedCornerShape(12.dp),
                                     iconSize = 24.dp
                                 )
                                 Spacer(modifier = Modifier.width(14.dp))
@@ -258,15 +268,20 @@ fun HomeScreen(
                     }
                 }
             } else {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF10101E)),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .liquidGlass(
+                            shape = RoundedCornerShape(18.dp),
+                            thickness = GlassThickness.REGULAR,
+                            tintColor = palette.secondary,
+                            tintAlpha = 0.12f,
+                            borderWidth = 1.dp
+                        )
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(

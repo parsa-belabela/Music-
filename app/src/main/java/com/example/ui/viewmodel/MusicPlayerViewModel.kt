@@ -562,8 +562,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         val prefs = app.getSharedPreferences("aura_settings", Context.MODE_PRIVATE)
         val langStr = prefs.getString("language", AppLanguage.ENGLISH.name) ?: AppLanguage.ENGLISH.name
         val lang = try { AppLanguage.valueOf(langStr) } catch (e: Exception) { AppLanguage.ENGLISH }
-        val themeStr = prefs.getString("theme", AppTheme.CYBER_NIGHTS.name) ?: AppTheme.CYBER_NIGHTS.name
-        val theme = try { AppTheme.valueOf(themeStr) } catch (e: Exception) { AppTheme.CYBER_NIGHTS }
+        val themeStr = prefs.getString("theme", AppTheme.PURE_LIQUID_GLASS.name) ?: AppTheme.PURE_LIQUID_GLASS.name
+        val theme = try { AppTheme.valueOf(themeStr) } catch (e: Exception) { AppTheme.PURE_LIQUID_GLASS }
         val modeStr = prefs.getString("viz_mode", VisualizerMode.AMBIENT_HALO.name) ?: VisualizerMode.AMBIENT_HALO.name
         val vizMode = try { VisualizerMode.valueOf(modeStr) } catch (e: Exception) { VisualizerMode.AMBIENT_HALO }
 
@@ -586,7 +586,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             visualizerGlow = prefs.getFloat("viz_glow", 0.65f),
             visualizerFps = prefs.getInt("viz_fps", 120),
             autoColorFromArtwork = prefs.getBoolean("auto_color", true),
-            customAccentColor = prefs.getLong("accent_color", 0xFF8B5CF6L),
+            customAccentColor = prefs.getLong("accent_color", 0xFF00E5FFL),
             lyricsFontSize = prefs.getFloat("lyrics_size", 20.0f),
             lyricsKaraokeWordHighlight = prefs.getBoolean("karaoke_hl", true),
             crossfadeDurationSeconds = prefs.getInt("crossfade_sec", 0),
@@ -594,9 +594,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             hapticFeedbackEnabled = prefs.getBoolean("haptic", true),
             pauseOnHeadphoneDisconnect = prefs.getBoolean("pause_disconnect", true),
             duckVolumeOnInterruption = prefs.getBoolean("duck_volume", true),
-            bassBoostStrength = prefs.getInt("bass_boost", 300),
+            bassBoostStrength = prefs.getInt("bass_boost", 0),
             equalizerEnabled = prefs.getBoolean("eq_enabled", true),
-            eqPreset = prefs.getString("eq_preset", "Flat") ?: "Flat",
+            eqPreset = prefs.getString("eq_preset", "Flat (Studio)") ?: "Flat (Studio)",
             eqBands = bands,
             playbackSpeed = prefs.getFloat("playback_speed", 1.0f)
         )
