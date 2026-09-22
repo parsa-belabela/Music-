@@ -45,6 +45,7 @@ fun SettingsScreen(
     onRescanLibrary: () -> Unit,
     onClearPlaybackHistory: () -> Unit,
     onOpenEqualizer: () -> Unit,
+    bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -166,7 +167,7 @@ fun SettingsScreen(
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp),
+        contentPadding = PaddingValues(top = 16.dp, bottom = maxOf(bottomPadding + 20.dp, 120.dp)),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         // Header

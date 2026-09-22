@@ -45,6 +45,7 @@ fun WrappedScreen(
     wrappedStats: WrappedStats?,
     onSelectPeriod: (WrappedPeriod) -> Unit,
     onPlayTrackById: (String) -> Unit,
+    bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -94,7 +95,7 @@ fun WrappedScreen(
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp),
+        contentPadding = PaddingValues(top = 16.dp, bottom = maxOf(bottomPadding + 20.dp, 120.dp)),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         // Screen Header

@@ -208,10 +208,9 @@ fun MainScreen(
             containerColor = Color.Transparent,
             modifier = Modifier.fillMaxSize()
         ) { paddingValues ->
+            val bottomBarPadding = paddingValues.calculateBottomPadding()
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
+                modifier = Modifier.fillMaxSize()
             ) {
                 when (currentTab) {
                     MainTab.HOME -> {
@@ -226,6 +225,7 @@ fun MainScreen(
                             onTogglePlay = { viewModel.togglePlayPause() },
                             onOpenLibrary = { currentTab = MainTab.LIBRARY },
                             onOpenWrapped = { currentTab = MainTab.WRAPPED },
+                            bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()
                         )
                     }
@@ -248,6 +248,7 @@ fun MainScreen(
                             onEditMetadata = { viewModel.editingTrackMetadata.value = it },
                             onDeleteTrack = { viewModel.deleteTrack(it) },
                             onPlayTrackList = { list -> list.firstOrNull()?.let { viewModel.playTrack(it, list) } },
+                            bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()
                         )
                     }
@@ -270,6 +271,12 @@ fun MainScreen(
                                     Toast.makeText(context, "Scanned $count tracks", Toast.LENGTH_SHORT).show()
                                 }
                             },
+                            onCreatePlaylist = { name -> viewModel.createPlaylist(name) },
+                            onCreatePlaylistWithTracks = { name, trackList -> viewModel.createPlaylistWithTracks(name, trackList) },
+                            onDeletePlaylist = { id -> viewModel.deletePlaylist(id) },
+                            onRemoveTrackFromPlaylist = { plId, trkId -> viewModel.removeTrackFromPlaylist(plId, trkId) },
+                            onShareTrack = { track -> viewModel.showShareCard(track) },
+                            bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()
                         )
                     }
@@ -284,6 +291,7 @@ fun MainScreen(
                             onPlayTrackById = { trackId ->
                                 allTracks.firstOrNull { it.id == trackId }?.let { viewModel.playTrack(it, allTracks) }
                             },
+                            bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()
                         )
                     }
@@ -303,6 +311,7 @@ fun MainScreen(
                             onPlayTrackList = { list ->
                                 list.firstOrNull()?.let { viewModel.playTrack(it, list) }
                             },
+                            bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()
                         )
                     }
@@ -321,6 +330,7 @@ fun MainScreen(
                             },
                             onClearPlaybackHistory = { viewModel.clearPlaybackHistory() },
                             onOpenEqualizer = { viewModel.showEqualizer.value = true },
+                            bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()
                         )
                     }

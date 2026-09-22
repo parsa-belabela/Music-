@@ -44,6 +44,7 @@ fun PlaylistsScreen(
     onRemoveTrackFromPlaylist: (String, String) -> Unit = { _, _ -> },
     onPlayTrack: (Track, List<Track>) -> Unit = { _, _ -> },
     onPlayTrackList: (List<Track>) -> Unit,
+    bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
     modifier: Modifier = Modifier
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -98,7 +99,7 @@ fun PlaylistsScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
-            contentPadding = PaddingValues(bottom = 120.dp),
+            contentPadding = PaddingValues(bottom = maxOf(bottomPadding + 20.dp, 120.dp)),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // Smart Playlists Section

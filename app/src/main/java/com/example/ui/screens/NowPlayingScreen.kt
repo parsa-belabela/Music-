@@ -733,6 +733,18 @@ fun NowPlayingScreen(
                 }
             }
 
+            // Premium Liquid Glass Real Device Volume Control
+            AnimatedVisibility(visible = !isImmersive) {
+                LiquidGlassVolumeControl(
+                    palette = palette,
+                    analysisDataProvider = { analysisData },
+                    hapticFeedbackEnabled = appSettings.hapticFeedbackEnabled,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+            }
+
             // Bottom bar: Queue and Lyric shortcuts
             AnimatedVisibility(visible = !isImmersive) {
                 Row(

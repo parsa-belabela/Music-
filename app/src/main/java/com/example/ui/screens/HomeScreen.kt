@@ -56,6 +56,7 @@ fun HomeScreen(
     onTogglePlay: () -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenWrapped: () -> Unit,
+    bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
     modifier: Modifier = Modifier
 ) {
     val lang = appSettings.language
@@ -65,7 +66,7 @@ fun HomeScreen(
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp),
+        contentPadding = PaddingValues(top = 16.dp, bottom = maxOf(bottomPadding + 20.dp, 120.dp)),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         // App Header & Greeting

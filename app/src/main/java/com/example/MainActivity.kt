@@ -34,6 +34,7 @@ class MainActivity : ComponentActivity() {
         
         // Configure complete edge-to-edge rendering with transparent system UI overlays
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.decorView.setBackgroundColor(AndroidColor.parseColor("#060812"))
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT)

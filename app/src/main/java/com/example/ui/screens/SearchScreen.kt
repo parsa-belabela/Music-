@@ -64,6 +64,7 @@ fun SearchScreen(
     onEditMetadata: (Track) -> Unit = {},
     onDeleteTrack: (Track) -> Unit = {},
     onPlayTrackList: (List<Track>) -> Unit = {},
+    bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -115,7 +116,7 @@ fun SearchScreen(
             .fillMaxSize()
             .statusBarsPadding()
             .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp),
+        contentPadding = PaddingValues(top = 16.dp, bottom = maxOf(bottomPadding + 20.dp, 120.dp)),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Search Header

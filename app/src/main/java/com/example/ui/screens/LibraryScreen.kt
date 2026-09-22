@@ -59,7 +59,13 @@ fun LibraryScreen(
     onAddToPlaylist: (Playlist, Track) -> Unit = { _, _ -> },
     onEditMetadata: (Track) -> Unit,
     onDeleteTrack: (Track) -> Unit = {},
-    onRescanMedia: () -> Unit,
+    onRescanMedia: () -> Unit = {},
+    onCreatePlaylist: (String) -> Unit = {},
+    onCreatePlaylistWithTracks: (String, List<String>) -> Unit = { _, _ -> },
+    onDeletePlaylist: (String) -> Unit = {},
+    onRemoveTrackFromPlaylist: (String, String) -> Unit = { _, _ -> },
+    onShareTrack: (Track) -> Unit = {},
+    bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
     modifier: Modifier = Modifier
 ) {
     var selectedSort by remember { mutableStateOf(SortOption.TITLE) }
@@ -186,7 +192,7 @@ fun LibraryScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
-            contentPadding = PaddingValues(bottom = 120.dp),
+            contentPadding = PaddingValues(bottom = maxOf(bottomPadding + 20.dp, 120.dp)),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(sortedTracks, key = { it.id }) { track ->
