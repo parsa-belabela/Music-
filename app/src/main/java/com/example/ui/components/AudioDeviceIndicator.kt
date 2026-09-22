@@ -75,10 +75,10 @@ fun AudioDeviceIndicator(
         Box(
             modifier = Modifier
                 .shadow(
-                    elevation = 10.dp,
+                    elevation = 6.dp,
                     shape = RoundedCornerShape(20.dp),
-                    ambientColor = if (isAirPods) Color(0x5538BDF8) else Color(0x338B5CF6),
-                    spotColor = if (isAirPods) Color(0x660284C7) else Color(0x446366F1)
+                    ambientColor = Color.Black.copy(alpha = 0.30f),
+                    spotColor = Color.Black.copy(alpha = 0.40f)
                 )
                 .clip(RoundedCornerShape(20.dp))
                 .background(

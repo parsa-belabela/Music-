@@ -99,79 +99,16 @@ fun AudioVisualizer(
                         else -> palette.accent
                     }
 
-                    if (currentTheme == AppTheme.LEGO) {
-                        val legoBrickColors = listOf(
-                            Color(0xFFE51D24), // LEGO Red
-                            Color(0xFFFFD500), // LEGO Yellow
-                            Color(0xFF0055BF), // LEGO Blue
-                            Color(0xFF00A33B), // LEGO Green
-                            Color(0xFFFF6F00), // LEGO Orange
-                            Color(0xFF00A3DA), // LEGO Azure
-                            Color(0xFF8A151B), // LEGO Crimson
-                            Color(0xFF6C2D82)  // LEGO Purple
-                        )
-
-                        // LEGO Modular Brick Stacked Visualizer with multi-colored individual bricks
-                        val brickHeight = (barWidth * 1.15f).coerceIn(8f, 22f)
-                        val numBricks = (barHeight / brickHeight).toInt().coerceAtLeast(1)
-
-                        // Top Stud on the highest brick
-                        val topBrickColor = legoBrickColors[(i + numBricks - 1) % legoBrickColors.size]
-                        val studWidth = barWidth * 0.55f
-                        val studHeight = 3.dp.toPx()
-                        drawRoundRect(
-                            color = topBrickColor.copy(alpha = 0.95f),
-                            topLeft = Offset(x + (barWidth - studWidth) / 2f, y - studHeight + 1f),
-                            size = Size(studWidth, studHeight),
-                            cornerRadius = CornerRadius(1.5f, 1.5f)
-                        )
-
-                        // Stacked LEGO Bricks - each brick in the column is an individually colored piece!
-                        for (b in 0 until numBricks) {
-                            val brickY = y + b * brickHeight
-                            val pieceColor = legoBrickColors[(i + b) % legoBrickColors.size]
-
-                            // Ambient shadow beneath each brick
-                            drawRoundRect(
-                                color = Color.Black.copy(alpha = 0.35f),
-                                topLeft = Offset(x + 0.5f, brickY + 1f),
-                                size = Size(barWidth, brickHeight - 1f),
-                                cornerRadius = CornerRadius(2f, 2f)
-                            )
-                            // Main Brick Body
-                            drawRoundRect(
-                                color = pieceColor.copy(alpha = 0.95f),
-                                topLeft = Offset(x, brickY),
-                                size = Size(barWidth, brickHeight - 1.5f),
-                                cornerRadius = CornerRadius(2f, 2f)
-                            )
-                            // Top Highlight Bevel
-                            drawLine(
-                                color = Color.White.copy(alpha = 0.45f),
-                                start = Offset(x + 1f, brickY + 1f),
-                                end = Offset(x + barWidth - 1f, brickY + 1f),
-                                strokeWidth = 1f
-                            )
-                            // Bottom Shadow Seam
-                            drawLine(
-                                color = Color.Black.copy(alpha = 0.50f),
-                                start = Offset(x + 1f, brickY + brickHeight - 2f),
-                                end = Offset(x + barWidth - 1f, brickY + brickHeight - 2f),
-                                strokeWidth = 1f
-                            )
-                        }
-                    } else {
-                        drawRoundRect(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(barColor.copy(alpha = 0.9f), barColor.copy(alpha = 0.3f)),
-                                startY = y,
-                                endY = y + barHeight
-                            ),
-                            topLeft = Offset(x, y),
-                            size = Size(barWidth, barHeight),
-                            cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f)
-                        )
-                    }
+                    drawRoundRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(barColor.copy(alpha = 0.95f), barColor.copy(alpha = 0.25f)),
+                            startY = y,
+                            endY = y + barHeight
+                        ),
+                        topLeft = Offset(x, y),
+                        size = Size(barWidth, barHeight),
+                        cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f)
+                    )
                 }
             }
 
@@ -326,11 +263,7 @@ fun AudioVisualizer(
             VisualizerMode.PARTICLE_FIELD -> {
                 // Floating reactive particles
                 val kick = analysisData.kickPulse
-                val legoColors = listOf(
-                    Color(0xFFE51D24), Color(0xFFFFD500), Color(0xFF0055BF),
-                    Color(0xFF00A33B), Color(0xFFFF6F00), Color(0xFF00A3DA)
-                )
-                for ((idx, p) in particles.withIndex()) {
+                for (p in particles) {
                     p.x = (p.x + p.vx * (1f + kick * 2f) + 1f) % 1f
                     p.y = (p.y + p.vy * (1f + kick * 2f) + 1f) % 1f
 
@@ -338,30 +271,11 @@ fun AudioVisualizer(
                     val py = p.y * h
                     val pRadius = p.size * (1f + analysisData.bass * 0.8f + kick * 1.2f)
 
-                    if (currentTheme == AppTheme.LEGO) {
-                        val pColor = legoColors[idx % legoColors.size]
-                        drawCircle(
-                            color = Color.Black.copy(alpha = 0.45f),
-                            radius = pRadius + 1f,
-                            center = Offset(px + 1f, py + 1f)
-                        )
-                        drawCircle(
-                            color = pColor.copy(alpha = (p.alpha * (1f + kick)).coerceIn(0.2f, 1f)),
-                            radius = pRadius,
-                            center = Offset(px, py)
-                        )
-                        drawCircle(
-                            color = Color.White.copy(alpha = 0.4f),
-                            radius = pRadius * 0.65f,
-                            center = Offset(px - 0.5f, py - 0.5f)
-                        )
-                    } else {
-                        drawCircle(
-                            color = palette.secondary.copy(alpha = (p.alpha * (1f + kick)).coerceIn(0f, 1f)),
-                            radius = pRadius,
-                            center = Offset(px, py)
-                        )
-                    }
+                    drawCircle(
+                        color = palette.secondary.copy(alpha = (p.alpha * (1f + kick)).coerceIn(0f, 1f)),
+                        radius = pRadius,
+                        center = Offset(px, py)
+                    )
                 }
             }
 
@@ -372,10 +286,6 @@ fun AudioVisualizer(
                 val cellW = w / cols
                 val cellH = (h * 0.5f) / rows
                 val startY = h * 0.25f
-                val legoColors = listOf(
-                    Color(0xFFE51D24), Color(0xFFFFD500), Color(0xFF0055BF),
-                    Color(0xFF00A33B), Color(0xFFFF6F00), Color(0xFF00A3DA)
-                )
 
                 for (c in 0 until cols) {
                     for (r in 0 until rows) {
@@ -385,30 +295,11 @@ fun AudioVisualizer(
                         val x = c * cellW + cellW / 2f
                         val y = startY + r * cellH + cellH / 2f
 
-                        if (currentTheme == AppTheme.LEGO) {
-                            val dotColor = legoColors[(c + r * 2) % legoColors.size]
-                            drawCircle(
-                                color = Color.Black.copy(alpha = 0.5f),
-                                radius = radius + 1.2f,
-                                center = Offset(x + 1.2f, y + 1.5f)
-                            )
-                            drawCircle(
-                                color = dotColor.copy(alpha = band.coerceIn(0.6f, 1f)),
-                                radius = radius,
-                                center = Offset(x, y)
-                            )
-                            drawCircle(
-                                color = Color.White.copy(alpha = 0.45f),
-                                radius = radius * 0.7f,
-                                center = Offset(x - 0.7f, y - 0.7f)
-                            )
-                        } else {
-                            drawCircle(
-                                color = if (r % 2 == 0) palette.primary.copy(alpha = band) else palette.accent.copy(alpha = band),
-                                radius = radius,
-                                center = Offset(x, y)
-                            )
-                        }
+                        drawCircle(
+                            color = if (r % 2 == 0) palette.primary.copy(alpha = band) else palette.accent.copy(alpha = band),
+                            radius = radius,
+                            center = Offset(x, y)
+                        )
                     }
                 }
             }

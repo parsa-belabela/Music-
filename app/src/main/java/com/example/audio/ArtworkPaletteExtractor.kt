@@ -211,47 +211,47 @@ object ArtworkPaletteExtractor {
 
     fun getDefaultPalette(theme: AppTheme): AmbientPalette {
         return when (theme) {
-            AppTheme.GLASS -> AmbientPalette(
-                primary = Color(0xFF06B6D4),
-                secondary = Color(0xFF3B82F6),
+            AppTheme.CYBER_NIGHTS -> AmbientPalette(
+                primary = Color(0xFF06B6D4), // Cyan
+                secondary = Color(0xFF1E3A8A), // Deep Navy
                 haloGlow = Color(0x6606B6D4),
-                accent = Color(0xFF67E8F9),
-                deepAtmosphere = Color(0xFF050B16)
+                accent = Color(0xFFD946EF), // Magenta
+                deepAtmosphere = Color(0xFF070B14)
             )
-            AppTheme.LEGO -> AmbientPalette(
-                primary = Color(0xFFE51D24),
-                secondary = Color(0xFFFFC700),
-                haloGlow = Color(0x75E51D24),
-                accent = Color(0xFF00E5FF),
-                deepAtmosphere = Color(0xFF101115)
+            AppTheme.Y2K_CHROME -> AmbientPalette(
+                primary = Color(0xFFE2E8F0), // Chrome Silver
+                secondary = Color(0xFF38BDF8), // Icy Sky
+                haloGlow = Color(0x6638BDF8),
+                accent = Color(0xFF94A3B8), // Metallic Steel
+                deepAtmosphere = Color(0xFF080B10)
             )
-            AppTheme.CARTOON -> AmbientPalette(
-                primary = Color(0xFFFF4081),
-                secondary = Color(0xFF00E5FF),
-                haloGlow = Color(0x66FF4081),
-                accent = Color(0xFFFFD600),
-                deepAtmosphere = Color(0xFF140718)
+            AppTheme.VELVET_NOIR -> AmbientPalette(
+                primary = Color(0xFF701A75), // Rich Burgundy
+                secondary = Color(0xFFF59E0B), // Warm Gold
+                haloGlow = Color(0x66F59E0B),
+                accent = Color(0xFFA855F7), // Royal Purple
+                deepAtmosphere = Color(0xFF0B030D)
             )
-            AppTheme.CYBER_CHROME -> AmbientPalette(
-                primary = Color(0xFF00F0FF),
-                secondary = Color(0xFFFF0055),
-                haloGlow = Color(0x7700F0FF),
-                accent = Color(0xFF7000FF),
-                deepAtmosphere = Color(0xFF060913)
+            AppTheme.SUNSET_RAVE -> AmbientPalette(
+                primary = Color(0xFFF97316), // Solar Orange
+                secondary = Color(0xFFEC4899), // Dusk Pink
+                haloGlow = Color(0x66F97316),
+                accent = Color(0xFF8B5CF6), // Dusk Violet
+                deepAtmosphere = Color(0xFF100512)
             )
-            AppTheme.VAPORWAVE -> AmbientPalette(
-                primary = Color(0xFFFF71CE),
-                secondary = Color(0xFF01CDFE),
-                haloGlow = Color(0x66FF71CE),
-                accent = Color(0xFF05FFA1),
-                deepAtmosphere = Color(0xFF130826)
+            AppTheme.DIGITAL_ACID -> AmbientPalette(
+                primary = Color(0xFF84CC16), // Acid Lime
+                secondary = Color(0xFF22C55E), // Neon Emerald
+                haloGlow = Color(0x6684CC16),
+                accent = Color(0xFFA3E635), // Electric Yellow-Green
+                deepAtmosphere = Color(0xFF030503)
             )
-            AppTheme.OBSIDIAN_MATRIX -> AmbientPalette(
-                primary = Color(0xFF00FF66),
-                secondary = Color(0xFF00CC44),
-                haloGlow = Color(0x6600FF66),
-                accent = Color(0xFF39FF14),
-                deepAtmosphere = Color(0xFF020904)
+            AppTheme.MINIMAL_STUDIO -> AmbientPalette(
+                primary = Color(0xFFE5E7EB), // Crisp Chalk
+                secondary = Color(0xFF6B7280), // Pure Graphite
+                haloGlow = Color(0x40E5E7EB),
+                accent = Color(0xFF9CA3AF), // Muted Zinc
+                deepAtmosphere = Color(0xFF0C0C0F)
             )
         }
     }

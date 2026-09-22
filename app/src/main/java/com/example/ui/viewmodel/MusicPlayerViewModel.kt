@@ -279,9 +279,14 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun togglePlayPause() {
         val current = _playbackState.value
-        if (current.currentTrack == null) {
+        val track = current.currentTrack
+        if (track == null) {
             val first = allTracks.value.firstOrNull()
             if (first != null) playTrack(first, allTracks.value)
+            return
+        }
+        if (!audioEngine.isPlayerReady || audioEngine.currentTrackId != track.id) {
+            playTrack(track, current.queue, current.currentPositionMs)
             return
         }
         audioEngine.togglePlayPause()
@@ -289,7 +294,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         // Save current position on pause
         if (_playbackState.value.isPlayWhenReady) {
             saveLastPlayback(
-                trackId = current.currentTrack.id,
+                trackId = track.id,
                 queueIds = current.queue.map { it.id },
                 positionMs = audioEngine.currentPosition.value
             )
@@ -297,9 +302,15 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun play() {
-        if (_playbackState.value.currentTrack == null) {
+        val current = _playbackState.value
+        val track = current.currentTrack
+        if (track == null) {
             val first = allTracks.value.firstOrNull()
             if (first != null) playTrack(first, allTracks.value)
+            return
+        }
+        if (!audioEngine.isPlayerReady || audioEngine.currentTrackId != track.id) {
+            playTrack(track, current.queue, current.currentPositionMs)
             return
         }
         audioEngine.play()
@@ -538,7 +549,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         audioEngine.crossfadeSeconds = settings.crossfadeDurationSeconds
         audioEngine.gaplessEnabled = settings.gaplessEnabled
         audioEngine.applyEqualizerSettings(settings.equalizerEnabled, settings.eqBands, settings.bassBoostStrength)
-        audioEngine.setPlaybackSpeed(settings.playbackSpeed)
+        if (audioEngine.currentPlaybackSpeed != settings.playbackSpeed) {
+            audioEngine.setPlaybackSpeed(settings.playbackSpeed)
+        }
         analysisEngine.sensitivity = settings.visualizerSensitivity
         analysisEngine.bassResponse = settings.visualizerBassResponse
         analysisEngine.targetFps = settings.visualizerFps
@@ -549,8 +562,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         val prefs = app.getSharedPreferences("aura_settings", Context.MODE_PRIVATE)
         val langStr = prefs.getString("language", AppLanguage.ENGLISH.name) ?: AppLanguage.ENGLISH.name
         val lang = try { AppLanguage.valueOf(langStr) } catch (e: Exception) { AppLanguage.ENGLISH }
-        val themeStr = prefs.getString("theme", AppTheme.GLASS.name) ?: AppTheme.GLASS.name
-        val theme = try { AppTheme.valueOf(themeStr) } catch (e: Exception) { AppTheme.GLASS }
+        val themeStr = prefs.getString("theme", AppTheme.CYBER_NIGHTS.name) ?: AppTheme.CYBER_NIGHTS.name
+        val theme = try { AppTheme.valueOf(themeStr) } catch (e: Exception) { AppTheme.CYBER_NIGHTS }
         val modeStr = prefs.getString("viz_mode", VisualizerMode.AMBIENT_HALO.name) ?: VisualizerMode.AMBIENT_HALO.name
         val vizMode = try { VisualizerMode.valueOf(modeStr) } catch (e: Exception) { VisualizerMode.AMBIENT_HALO }
 
@@ -765,6 +778,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         val palette = ArtworkPaletteExtractor.extract(track, _appSettings.value, app)
         _activePalette.value = palette
         loadLyricsForTrack(track.id)
+
+        // Pre-prepare track in AudioEngine so it can be resumed immediately upon play button press
+        audioEngine.prepareTrack(track, lastPos)
 
         _playbackState.update {
             it.copy(

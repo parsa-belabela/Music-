@@ -72,7 +72,8 @@ class AudioEngine(private val context: Context) {
     private var isEqEnabled: Boolean = true
     private var currentEqBands: List<Float> = listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
     private var currentBassBoostStrength: Int = 0
-    private var currentPlaybackSpeed: Float = 1.0f
+    var currentPlaybackSpeed: Float = 1.0f
+        private set
 
     private var deviceCallback: AudioDeviceCallback? = null
 
@@ -233,14 +234,30 @@ class AudioEngine(private val context: Context) {
         }
     }
 
-    fun playTrack(track: Track, startPositionMs: Long = 0L) {
+    var currentActiveTrack: Track? = null
+        private set
+
+    val isPlayerReady: Boolean
+        get() = mediaPlayer != null && isPlayerPrepared
+
+    val currentTrackId: String?
+        get() = currentActiveTrack?.id
+
+    fun prepareTrack(track: Track, startPositionMs: Long = 0L) {
+        playTrack(track, startPositionMs, autoPlay = false)
+    }
+
+    fun playTrack(track: Track, startPositionMs: Long = 0L, autoPlay: Boolean = true) {
         val currentTransitionId = transitionId.incrementAndGet()
-        _isPlayWhenReady.value = true
+        currentActiveTrack = track
+        _isPlayWhenReady.value = autoPlay
         isPlayerPrepared = false
         fadeJob?.cancel()
         fadeJob = null
 
-        requestAudioFocus()
+        if (autoPlay) {
+            requestAudioFocus()
+        }
         releaseEffects()
 
         // Safely release previous player
@@ -256,7 +273,7 @@ class AudioEngine(private val context: Context) {
             }
         }
 
-        _status.value = PlayerStatus.BUFFERING
+        _status.value = if (autoPlay) PlayerStatus.BUFFERING else PlayerStatus.PAUSED
         _currentPosition.value = startPositionMs
 
         // Check if track was preloaded
@@ -523,6 +540,8 @@ class AudioEngine(private val context: Context) {
             } catch (e: Exception) {
                 Log.e(tag, "Error in play()", e)
             }
+        } else if (currentActiveTrack != null) {
+            playTrack(currentActiveTrack!!, _currentPosition.value, autoPlay = true)
         } else {
             // Player is still buffering/preparing, it will start automatically in onPrepared
             _status.value = PlayerStatus.BUFFERING
@@ -715,13 +734,23 @@ class AudioEngine(private val context: Context) {
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        currentPlaybackSpeed = speed.coerceIn(0.5f, 2.0f)
+        val targetSpeed = speed.coerceIn(0.5f, 2.0f)
+        // If speed has not changed, do nothing!
+        if (targetSpeed == currentPlaybackSpeed) {
+            return
+        }
+        currentPlaybackSpeed = targetSpeed
+        val mp = mediaPlayer
         try {
-            mediaPlayer?.let { mp ->
-                if (isPlayerPrepared) {
-                    val params = mp.playbackParams
-                    params.speed = currentPlaybackSpeed
-                    mp.playbackParams = params
+            if (mp != null && isPlayerPrepared) {
+                val wasPlaying = _isPlayWhenReady.value && mp.isPlaying
+                val params = mp.playbackParams
+                params.speed = currentPlaybackSpeed
+                mp.playbackParams = params
+                // MediaPlayer.setPlaybackParams() in Android inherently resumes/starts playback.
+                // If playback was stopped/paused, restore paused state immediately!
+                if (!wasPlaying) {
+                    mp.pause()
                 }
             }
         } catch (e: Exception) {

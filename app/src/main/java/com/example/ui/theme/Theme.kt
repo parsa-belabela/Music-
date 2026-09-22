@@ -17,21 +17,21 @@ fun createAuraColorScheme(appTheme: AppTheme, accentColor: Color = RadiantPurple
     secondaryContainer = ElectricBlue.copy(alpha = 0.2f),
     tertiary = NeonRose,
     background = when (appTheme) {
-        AppTheme.GLASS -> GlassBackground
-        AppTheme.LEGO -> Color(0xFF101115)
-        AppTheme.CARTOON -> Color(0xFF13091B)
-        AppTheme.CYBER_CHROME -> Color(0xFF040711)
-        AppTheme.VAPORWAVE -> Color(0xFF110820)
-        AppTheme.OBSIDIAN_MATRIX -> Color(0xFF020703)
+        AppTheme.CYBER_NIGHTS -> Color(0xFF070B14)
+        AppTheme.Y2K_CHROME -> Color(0xFF080B10)
+        AppTheme.VELVET_NOIR -> Color(0xFF0B030D)
+        AppTheme.SUNSET_RAVE -> Color(0xFF100512)
+        AppTheme.DIGITAL_ACID -> Color(0xFF030503)
+        AppTheme.MINIMAL_STUDIO -> Color(0xFF0C0C0F)
     },
     onBackground = TextPrimary,
     surface = when (appTheme) {
-        AppTheme.OBSIDIAN_MATRIX -> Color(0xFF030E06)
-        AppTheme.LEGO -> Color(0xFF1B1D23)
-        AppTheme.CARTOON -> Color(0xFF1B0F24)
-        AppTheme.CYBER_CHROME -> Color(0xFF080D1A)
-        AppTheme.VAPORWAVE -> Color(0xFF190C2C)
-        AppTheme.GLASS -> Color(0xFF0E1320)
+        AppTheme.CYBER_NIGHTS -> Color(0xFF0E172A)
+        AppTheme.Y2K_CHROME -> Color(0xFF131824)
+        AppTheme.VELVET_NOIR -> Color(0xFF18071E)
+        AppTheme.SUNSET_RAVE -> Color(0xFF220A24)
+        AppTheme.DIGITAL_ACID -> Color(0xFF070E06)
+        AppTheme.MINIMAL_STUDIO -> Color(0xFF16161C)
     },
     onSurface = TextPrimary,
     surfaceVariant = SurfaceVariantDark,
@@ -41,7 +41,7 @@ fun createAuraColorScheme(appTheme: AppTheme, accentColor: Color = RadiantPurple
 
 @Composable
 fun MyApplicationTheme(
-    appTheme: AppTheme = AppTheme.GLASS,
+    appTheme: AppTheme = AppTheme.CYBER_NIGHTS,
     accentColor: Color = RadiantPurple,
     content: @Composable () -> Unit
 ) {

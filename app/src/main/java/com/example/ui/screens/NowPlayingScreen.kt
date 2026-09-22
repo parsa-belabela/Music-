@@ -414,10 +414,10 @@ fun NowPlayingScreen(
                                         scaleY = s
                                     }
                                     .shadow(
-                                        elevation = 32.dp,
+                                        elevation = 16.dp,
                                         shape = RoundedCornerShape(28.dp),
-                                        ambientColor = palette.primary,
-                                        spotColor = palette.accent
+                                        ambientColor = Color.Black.copy(alpha = 0.35f),
+                                        spotColor = Color.Black.copy(alpha = 0.50f)
                                     )
                                     .clip(RoundedCornerShape(28.dp))
                                     .background(Color(0xFF131322))
@@ -657,7 +657,7 @@ fun NowPlayingScreen(
                         Box(
                             modifier = Modifier
                                 .size(68.dp)
-                                .shadow(18.dp, CircleShape, ambientColor = palette.primary, spotColor = palette.accent)
+                                .shadow(10.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.45f))
                                 .clip(CircleShape)
                                 .background(
                                     Brush.linearGradient(

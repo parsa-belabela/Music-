@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.data.model.AppTheme
 
-val LocalAppTheme = compositionLocalOf { AppTheme.GLASS }
+val LocalAppTheme = compositionLocalOf { AppTheme.CYBER_NIGHTS }
 
 /**
  * Material Thickness levels for Liquid Glass & Thematic Surfaces:
@@ -38,7 +38,7 @@ data class LiquidGlassSpec(
     val borderGradient: Brush,
     val shadowElevation: Dp,
     val shadowColor: Color,
-    val specularReflectionAlpha: Float
+    val specularReflectionAlpha: Float = 0.0f
 )
 
 object LiquidGlassDesign {
@@ -46,154 +46,132 @@ object LiquidGlassDesign {
     fun getSpec(
         thickness: GlassThickness,
         accentColor: Color = Color.White,
-        theme: AppTheme = AppTheme.GLASS
+        theme: AppTheme = AppTheme.CYBER_NIGHTS
     ): LiquidGlassSpec {
         return when (theme) {
-            AppTheme.GLASS -> when (thickness) {
+            AppTheme.CYBER_NIGHTS -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x30FFFFFF), Color(0x10FFFFFF))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x55FFFFFF), Color(0x15FFFFFF))),
-                    shadowElevation = 8.dp,
-                    shadowColor = accentColor.copy(alpha = 0.14f),
-                    specularReflectionAlpha = 0.28f
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x2806B6D4), Color(0x100F172A))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x5506B6D4), Color(0x15D946EF))),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x35283248), Color(0x1F121828))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x45FFFFFF), accentColor.copy(alpha = 0.35f), Color(0x12FFFFFF))),
-                    shadowElevation = 14.dp,
-                    shadowColor = Color.Black.copy(alpha = 0.38f),
-                    specularReflectionAlpha = 0.22f
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xCC0E172A), Color(0xF0070B14))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x5506B6D4), accentColor.copy(alpha = 0.35f), Color(0x20D946EF))),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
                 )
                 GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xEB131626), Color(0xF50C0E1A))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x38FFFFFF), Color(0x10FFFFFF))),
-                    shadowElevation = 24.dp,
-                    shadowColor = Color.Black.copy(alpha = 0.55f),
-                    specularReflectionAlpha = 0.15f
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF50B1220), Color(0xFA050811))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x4006B6D4), Color(0x20D946EF))),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
                 )
             }
 
-            AppTheme.LEGO -> when (thickness) {
+            AppTheme.Y2K_CHROME -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = if (accentColor != Color.Transparent && accentColor != Color.White) {
-                        Brush.verticalGradient(listOf(accentColor, accentColor.copy(alpha = 0.85f)))
-                    } else {
-                        Brush.verticalGradient(listOf(Color(0xFFE51D24), Color(0xFFB81318)))
-                    },
-                    borderGradient = Brush.verticalGradient(listOf(Color(0xFFFF8286), Color(0xFF380204))),
-                    shadowElevation = 10.dp,
-                    shadowColor = Color(0x99000000),
-                    specularReflectionAlpha = 0.38f
-                )
-                GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xFF24262E), Color(0xFF16171B))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0xFF666B80), Color(0xFF282A34), Color(0xFF0C0D10))),
-                    shadowElevation = 14.dp,
-                    shadowColor = Color(0xCC000000),
-                    specularReflectionAlpha = 0.28f
-                )
-                GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xFF1D1F26), Color(0xFF101114))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0xFF7A8098), Color(0xFF20222A), Color(0xFF08090C))),
-                    shadowElevation = 22.dp,
-                    shadowColor = Color(0xF0000000),
-                    specularReflectionAlpha = 0.22f
-                )
-            }
-
-            AppTheme.CARTOON -> when (thickness) {
-                GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xFFFF4757), Color(0xFFFF2E44))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0xFF000000), Color(0xFF000000))),
-                    shadowElevation = 8.dp,
-                    shadowColor = Color.Black,
-                    specularReflectionAlpha = 0.40f
-                )
-                GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xFF2B2144), Color(0xFF1C152D))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0xFF000000), Color(0xFF000000))),
-                    shadowElevation = 12.dp,
-                    shadowColor = Color.Black,
-                    specularReflectionAlpha = 0.30f
-                )
-                GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xFF221A37), Color(0xFF130E20))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0xFF000000), Color(0xFF000000))),
-                    shadowElevation = 18.dp,
-                    shadowColor = Color.Black,
-                    specularReflectionAlpha = 0.20f
-                )
-            }
-
-            AppTheme.CYBER_CHROME -> when (thickness) {
-                GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.linearGradient(listOf(Color(0xFFE2E8F0), Color(0xFF94A3B8))),
+                    surfaceGradient = Brush.linearGradient(listOf(Color(0x35E2E8F0), Color(0x1594A3B8))),
                     borderGradient = Brush.linearGradient(listOf(Color(0xFFFFFFFF), Color(0xFF38BDF8), Color(0xFF64748B))),
-                    shadowElevation = 10.dp,
-                    shadowColor = Color(0x6038BDF8),
-                    specularReflectionAlpha = 0.45f
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xFF1E2330), Color(0xFF0F131C))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xD01E2330), Color(0xF00F131C))),
                     borderGradient = Brush.linearGradient(listOf(Color(0xFFE2E8F0), Color(0xFF38BDF8), Color(0xFF818CF8))),
-                    shadowElevation = 14.dp,
-                    shadowColor = Color(0x80000000),
-                    specularReflectionAlpha = 0.38f
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
                 )
                 GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xFF151922), Color(0xFF0A0D14))),
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF2151922), Color(0xFA0A0D14))),
                     borderGradient = Brush.linearGradient(listOf(Color(0xFFCBD5E1), Color(0xFF818CF8), Color(0xFF38BDF8))),
-                    shadowElevation = 22.dp,
-                    shadowColor = Color(0xCC000000),
-                    specularReflectionAlpha = 0.30f
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
                 )
             }
 
-            AppTheme.VAPORWAVE -> when (thickness) {
+            AppTheme.VELVET_NOIR -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.linearGradient(listOf(Color(0xFFEC4899), Color(0xFF8B5CF6))),
-                    borderGradient = Brush.linearGradient(listOf(Color(0xFFF472B6), Color(0xFF06B6D4))),
-                    shadowElevation = 10.dp,
-                    shadowColor = Color(0x66EC4899),
-                    specularReflectionAlpha = 0.35f
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x35701A75), Color(0x152E0854))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x60F59E0B), Color(0x20701A75))),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xFF2C1342), Color(0xFF180927))),
-                    borderGradient = Brush.linearGradient(listOf(Color(0xFFEC4899), Color(0xFF06B6D4))),
-                    shadowElevation = 14.dp,
-                    shadowColor = Color(0x88EC4899),
-                    specularReflectionAlpha = 0.28f
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xD5240E2B), Color(0xF2120617))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x55F59E0B), Color(0x30A855F7), Color(0x15F59E0B))),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
                 )
                 GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xFF210C33), Color(0xFF12041D))),
-                    borderGradient = Brush.linearGradient(listOf(Color(0xFFD946EF), Color(0xFF06B6D4))),
-                    shadowElevation = 20.dp,
-                    shadowColor = Color(0xAAEC4899),
-                    specularReflectionAlpha = 0.22f
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF51C0822), Color(0xFC0A030D))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x50F59E0B), Color(0x25701A75))),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
                 )
             }
 
-            AppTheme.OBSIDIAN_MATRIX -> when (thickness) {
+            AppTheme.SUNSET_RAVE -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xFF0B1914), Color(0xFF050D0A))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0xFF00FF88), Color(0xFF00552E))),
-                    shadowElevation = 8.dp,
-                    shadowColor = Color(0x6000FF88),
-                    specularReflectionAlpha = 0.30f
+                    surfaceGradient = Brush.linearGradient(listOf(Color(0x35F97316), Color(0x15EC4899))),
+                    borderGradient = Brush.linearGradient(listOf(Color(0x65F97316), Color(0x30A855F7))),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xFF0D1613), Color(0xFF060B09))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0xFF00FF88), Color(0xFF00E5FF), Color(0xFF032617))),
-                    shadowElevation = 12.dp,
-                    shadowColor = Color(0x4000FF88),
-                    specularReflectionAlpha = 0.25f
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xD02E1428), Color(0xF018081E))),
+                    borderGradient = Brush.linearGradient(listOf(Color(0x60F97316), Color(0x40EC4899), Color(0x25A855F7))),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
                 )
                 GlassThickness.THICK -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xFF09100D), Color(0xFF030605))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0xFF00FF88), Color(0xFF00381E))),
-                    shadowElevation = 20.dp,
-                    shadowColor = Color(0x8000FF88),
-                    specularReflectionAlpha = 0.20f
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF5240D20), Color(0xFC120414))),
+                    borderGradient = Brush.linearGradient(listOf(Color(0x50F97316), Color(0x25EC4899))),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
+                )
+            }
+
+            AppTheme.DIGITAL_ACID -> when (thickness) {
+                GlassThickness.THIN -> LiquidGlassSpec(
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x2884CC16), Color(0x10050805))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x6584CC16), Color(0x2015803D))),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
+                )
+                GlassThickness.REGULAR -> LiquidGlassSpec(
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xD00A1208), Color(0xF2040703))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x5584CC16), Color(0x3022C55E), Color(0x1584CC16))),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
+                )
+                GlassThickness.THICK -> LiquidGlassSpec(
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF5060C05), Color(0xFC020402))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x4584CC16), Color(0x2015803D))),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
+                )
+            }
+
+            AppTheme.MINIMAL_STUDIO -> when (thickness) {
+                GlassThickness.THIN -> LiquidGlassSpec(
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x25FFFFFF), Color(0x0CFFFFFF))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x40FFFFFF), Color(0x15FFFFFF))),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
+                )
+                GlassThickness.REGULAR -> LiquidGlassSpec(
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xD01C1C24), Color(0xF0121218))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x35FFFFFF), Color(0x12FFFFFF))),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
+                )
+                GlassThickness.THICK -> LiquidGlassSpec(
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF514141B), Color(0xFC0A0A0F))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x30FFFFFF), Color(0x10FFFFFF))),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
                 )
             }
         }
@@ -219,249 +197,97 @@ fun Modifier.liquidGlass(
 ): Modifier = composed {
     val activeTheme = appTheme ?: LocalAppTheme.current
     val spec = LiquidGlassDesign.getSpec(thickness, tintColor, activeTheme)
-    val effectiveBorderWidth = if (activeTheme == AppTheme.CARTOON) 2.4.dp else borderWidth
 
     this
-        .shadow(
-            elevation = spec.shadowElevation,
-            shape = shape,
-            ambientColor = if (tintColor != Color.Transparent) tintColor.copy(alpha = 0.25f) else spec.shadowColor,
-            spotColor = spec.shadowColor
-        )
         .clip(shape)
         .background(
-            brush = if (tintColor != Color.Transparent && activeTheme == AppTheme.GLASS) {
+            brush = if (tintColor != Color.Transparent && activeTheme == AppTheme.CYBER_NIGHTS) {
                 Brush.verticalGradient(
                     listOf(
-                        tintColor.copy(alpha = (tintAlpha * 1.5f).coerceIn(0.06f, 0.40f)),
-                        Color(0x950E101D)
+                        tintColor.copy(alpha = (tintAlpha * 1.5f).coerceIn(0.08f, 0.45f)),
+                        Color(0xF0080E1A)
                     )
                 )
             } else {
                 spec.surfaceGradient
-            }
+            },
+            shape = shape
         )
         .border(
-            width = effectiveBorderWidth,
+            width = borderWidth,
             brush = spec.borderGradient,
             shape = shape
         )
         .drawWithContent {
-            // A. TACTILE THEME BACKGROUND TEXTURES (Rendered BEHIND content so text/controls are 100% visible)
-
-            // 1. LEGO Cinematic Theme: Authentic Multi-Colored Molded Plastic Geometry, Brick Plates & Studs
-            if (activeTheme == AppTheme.LEGO) {
-                val legoPalette = listOf(
-                    Color(0xFFE51D24), // LEGO Classic Red
-                    Color(0xFFFFD500), // LEGO Bright Yellow
-                    Color(0xFF0055BF), // LEGO Classic Royal Blue
-                    Color(0xFF00A33B), // LEGO Classic Green
-                    Color(0xFFFF6F00), // LEGO Vibrant Orange
-                    Color(0xFF00A3DA), // LEGO Light Azure
-                    Color(0xFF8A151B), // LEGO Deep Burgundy
-                    Color(0xFF2A2D38), // LEGO Dark Stone Grey
-                    Color(0xFF434958)  // LEGO Medium Stone Grey
-                )
-
-                // a) Molded Horizontal Brick Construction Seams & Colored Brick Modules
-                if (size.height > 48f) {
-                    val seamStep = 44.dp.toPx()
-                    var seamY = seamStep
-                    var seamIndex = 0
-                    while (seamY < size.height - 6f) {
-                        val accentColor = legoPalette[seamIndex % legoPalette.size]
-                        // Subtle colored modular brick accent line
+            // Tactile theme textures rendered safely behind content
+            when (activeTheme) {
+                AppTheme.CYBER_NIGHTS -> {
+                    // Subtle cyber horizon neon line
+                    if (size.height > 60f) {
                         drawLine(
-                            color = accentColor.copy(alpha = 0.25f),
-                            start = Offset(6.dp.toPx(), seamY - 1.dp.toPx()),
-                            end = Offset(size.width - 6.dp.toPx(), seamY - 1.dp.toPx()),
-                            strokeWidth = 1.dp.toPx()
+                            color = Color(0x2206B6D4),
+                            start = Offset(12f, 0f),
+                            end = Offset(size.width - 12f, 0f),
+                            strokeWidth = 1.5f
                         )
-                        // Shadow groove
-                        drawLine(
-                            color = Color.Black.copy(alpha = 0.55f),
-                            start = Offset(4.dp.toPx(), seamY),
-                            end = Offset(size.width - 4.dp.toPx(), seamY),
-                            strokeWidth = 1.4.dp.toPx()
-                        )
-                        // Molded plastic light catch
-                        drawLine(
-                            color = Color.White.copy(alpha = 0.12f),
-                            start = Offset(4.dp.toPx(), seamY + 1.2.dp.toPx()),
-                            end = Offset(size.width - 4.dp.toPx(), seamY + 1.2.dp.toPx()),
-                            strokeWidth = 0.8.dp.toPx()
-                        )
-                        seamY += seamStep
-                        seamIndex++
                     }
                 }
-
-                // b) Colorful Molded ABS Circular Studs (Rendered in background with balanced depth)
-                if (size.width > 28f && size.height > 28f) {
-                    val studSpacing = 26.dp.toPx()
-                    val studRadius = 4.0.dp.toPx()
-                    val innerCavity = 1.8.dp.toPx()
-
-                    var col = 0
-                    var x = studSpacing / 2f
-                    while (x < size.width) {
-                        var row = 0
-                        var y = studSpacing / 2f
+                AppTheme.Y2K_CHROME -> {
+                    // Chrome metallic horizontal sheen lines
+                    if (size.height > 24f) {
+                        val gap = 6.dp.toPx()
+                        var y = 0f
                         while (y < size.height) {
-                            // Pick an authentic LEGO color for each individual stud in the structure
-                            val colorIdx = ((col * 3) + (row * 5) + col + row) % legoPalette.size
-                            val studColor = legoPalette[colorIdx]
-
-                            // 1. Ambient Occlusion Drop Shadow (Bottom-Right)
-                            drawCircle(
-                                color = Color.Black.copy(alpha = 0.40f),
-                                radius = studRadius + 1.2f,
-                                center = Offset(x + 1.2f, y + 1.6f)
+                            drawLine(
+                                color = Color(0x0C38BDF8),
+                                start = Offset(0f, y),
+                                end = Offset(size.width, y),
+                                strokeWidth = 1f
                             )
-                            // 2. Plastic Stud Outer Cylinder Body in authentic LEGO Color
-                            drawCircle(
-                                color = studColor.copy(alpha = 0.45f),
-                                radius = studRadius,
-                                center = Offset(x, y)
-                            )
-                            // 3. Molded Bevel Top-Left Light Highlight Arc
-                            drawCircle(
-                                color = Color.White.copy(alpha = 0.25f),
-                                radius = studRadius * 0.78f,
-                                center = Offset(x - 0.7f, y - 0.7f)
-                            )
-                            // 4. Stud Top Inner Ring
-                            drawCircle(
-                                color = studColor.copy(alpha = 0.60f),
-                                radius = studRadius * 0.58f,
-                                center = Offset(x, y)
-                            )
-                            // 5. Subtle Stud Inner Center Cavity
-                            drawCircle(
-                                color = Color(0xFF101116),
-                                radius = innerCavity,
-                                center = Offset(x, y)
-                            )
-
-                            y += studSpacing
-                            row++
+                            y += gap
                         }
-                        x += studSpacing
-                        col++
                     }
-
-                    // Soft background scrim to ensure foreground text, lyrics & controls have 100% crisp readability
-                    drawRect(
-                        color = Color(0xFF101115).copy(alpha = 0.28f),
-                        size = size
-                    )
                 }
-            }
-
-            // 2. CARTOON Theme: Pop Comic Halftone Dots
-            if (activeTheme == AppTheme.CARTOON && size.width > 20f && size.height > 20f) {
-                val dotSpacing = 16.dp.toPx()
-                val dotRadius = 1.6.dp.toPx()
-                var x = dotSpacing / 2f
-                while (x < size.width) {
-                    var y = dotSpacing / 2f
-                    while (y < size.height) {
-                        drawCircle(
-                            color = Color.White.copy(alpha = 0.07f),
-                            radius = dotRadius,
-                            center = Offset(x, y)
+                AppTheme.VELVET_NOIR -> {
+                    // Warm gold luxury edge accent
+                    if (size.width > 20f) {
+                        drawLine(
+                            color = Color(0x30F59E0B),
+                            start = Offset(size.width * 0.15f, 0f),
+                            end = Offset(size.width * 0.85f, 0f),
+                            strokeWidth = 1.2f
                         )
-                        y += dotSpacing
                     }
-                    x += dotSpacing
                 }
-
-                // Comic style dynamic specular highlight slash
-                val slashPath = Path().apply {
-                    moveTo(size.width * 0.65f, 0f)
-                    lineTo(size.width * 0.82f, 0f)
-                    lineTo(size.width * 0.72f, size.height * 0.35f)
-                    lineTo(size.width * 0.55f, size.height * 0.35f)
-                    close()
-                }
-                drawPath(path = slashPath, color = Color.White.copy(alpha = 0.12f))
-            }
-
-            // 3. CYBER CHROME Theme: Scanline Matrix & Iridescent Reflections
-            if (activeTheme == AppTheme.CYBER_CHROME && size.height > 20f) {
-                val scanlineGap = 5.dp.toPx()
-                var y = 0f
-                while (y < size.height) {
-                    drawLine(
-                        color = Color(0x1838BDF8),
-                        start = Offset(0f, y),
-                        end = Offset(size.width, y),
-                        strokeWidth = 1f
-                    )
-                    y += scanlineGap
-                }
-            }
-
-            // 4. VAPORWAVE Theme: Retro Perspective Grid & Sunset Horizon Glow
-            if (activeTheme == AppTheme.VAPORWAVE && size.height > 40f) {
-                val gridStartY = size.height * 0.55f
-                var lineY = gridStartY
-                var step = 5.dp.toPx()
-                while (lineY < size.height) {
-                    drawLine(
-                        color = Color(0x30EC4899),
-                        start = Offset(0f, lineY),
-                        end = Offset(size.width, lineY),
-                        strokeWidth = 1.2f
-                    )
-                    lineY += step
-                    step *= 1.3f
-                }
-            }
-
-            // 5. OBSIDIAN MATRIX Theme: Phosphor Laser Micro-Nodes & Top Laser Edge
-            if (activeTheme == AppTheme.OBSIDIAN_MATRIX && size.height > 30f) {
-                drawLine(
-                    color = Color(0x8000FF88),
-                    start = Offset(0f, 0f),
-                    end = Offset(size.width, 0f),
-                    strokeWidth = 1.8.dp.toPx()
-                )
-                val nodeSpacing = 28.dp.toPx()
-                var x = 12.dp.toPx()
-                while (x < size.width) {
-                    var y = 14.dp.toPx()
-                    while (y < size.height) {
-                        drawCircle(
-                            color = Color(0x2800FF88),
-                            radius = 1.2.dp.toPx(),
-                            center = Offset(x, y)
+                AppTheme.SUNSET_RAVE -> {
+                    // Solar sunset dusk line
+                    if (size.height > 40f) {
+                        drawLine(
+                            color = Color(0x30F97316),
+                            start = Offset(0f, 0f),
+                            end = Offset(size.width, 0f),
+                            strokeWidth = 1.5f
                         )
-                        y += nodeSpacing
                     }
-                    x += nodeSpacing
+                }
+                AppTheme.DIGITAL_ACID -> {
+                    // Neon lime laser micro-edge
+                    if (size.width > 30f) {
+                        drawLine(
+                            color = Color(0x5084CC16),
+                            start = Offset(0f, 0f),
+                            end = Offset(size.width, 0f),
+                            strokeWidth = 1.8f
+                        )
+                    }
+                }
+                AppTheme.MINIMAL_STUDIO -> {
+                    // Clean surgical border, zero distracting noise
                 }
             }
 
-            // B. DRAW CONTENT (Text, Artwork, Lyrics, Sliders, Buttons) CLEANLY ON TOP
+            // Draw foreground content (text, artwork, controls) cleanly on top
             drawContent()
-
-            // C. SUBTLE SPECULAR TOP-EDGE LIGHT SHEEN
-            if (spec.specularReflectionAlpha > 0f) {
-                val highlightHeight = (size.height * 0.28f).coerceAtLeast(8f)
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = spec.specularReflectionAlpha),
-                            Color.White.copy(alpha = 0f)
-                        ),
-                        startY = 0f,
-                        endY = highlightHeight
-                    ),
-                    topLeft = Offset.Zero,
-                    size = Size(size.width, highlightHeight)
-                )
-            }
         }
 }
 

@@ -104,7 +104,7 @@ class MusicRepository(
             }
 
             if (tracksFound.isNotEmpty()) {
-                musicDao.insertTracks(tracksFound)
+                musicDao.insertNewTracks(tracksFound)
             }
         } catch (e: Exception) {
             Log.e(tag, "Failed to scan MediaStore: ${e.message}")
@@ -118,7 +118,19 @@ class MusicRepository(
     }
 
     suspend fun recordPlay(trackId: String) = withContext(Dispatchers.IO) {
-        musicDao.recordPlay(trackId, System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        musicDao.recordPlay(trackId, now)
+        // Keep at most 10 items in Recently Played, removing the oldest from the end
+        try {
+            val allRecent = musicDao.getAllRecentlyPlayedTracksSync()
+            if (allRecent.size > 10) {
+                for (i in 10 until allRecent.size) {
+                    musicDao.clearTrackRecentTimestamp(allRecent[i].id)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to prune recently played: ${e.message}")
+        }
     }
 
     suspend fun recordPlaybackSession(

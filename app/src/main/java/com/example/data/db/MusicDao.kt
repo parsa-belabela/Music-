@@ -16,8 +16,11 @@ interface MusicDao {
     @Query("SELECT * FROM tracks WHERE isFavorite = 1 ORDER BY title ASC")
     fun getFavoriteTracks(): Flow<List<Track>>
 
-    @Query("SELECT * FROM tracks WHERE lastPlayedTimestamp > 0 ORDER BY lastPlayedTimestamp DESC LIMIT 30")
+    @Query("SELECT * FROM tracks WHERE lastPlayedTimestamp > 0 ORDER BY lastPlayedTimestamp DESC LIMIT 10")
     fun getRecentlyPlayedTracks(): Flow<List<Track>>
+
+    @Query("SELECT * FROM tracks WHERE lastPlayedTimestamp > 0 ORDER BY lastPlayedTimestamp DESC")
+    suspend fun getAllRecentlyPlayedTracksSync(): List<Track>
 
     @Query("SELECT * FROM tracks ORDER BY playCount DESC LIMIT 30")
     fun getMostPlayedTracks(): Flow<List<Track>>
@@ -31,6 +34,9 @@ interface MusicDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTracks(tracks: List<Track>)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertNewTracks(tracks: List<Track>): List<Long>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTrack(track: Track)
 
@@ -42,6 +48,12 @@ interface MusicDao {
 
     @Query("UPDATE tracks SET playCount = playCount + 1, lastPlayedTimestamp = :timestamp WHERE id = :trackId")
     suspend fun recordPlay(trackId: String, timestamp: Long)
+
+    @Query("UPDATE tracks SET lastPlayedTimestamp = 0 WHERE id = :trackId")
+    suspend fun clearTrackRecentTimestamp(trackId: String)
+
+    @Query("UPDATE tracks SET lastPlayedTimestamp = 0 WHERE id IN (SELECT id FROM tracks WHERE lastPlayedTimestamp > 0 ORDER BY lastPlayedTimestamp DESC LIMIT -1 OFFSET :limit)")
+    suspend fun pruneRecentlyPlayedBeyondLimit(limit: Int = 10)
 
     @Query("DELETE FROM tracks WHERE id = :trackId")
     suspend fun deleteTrack(trackId: String)

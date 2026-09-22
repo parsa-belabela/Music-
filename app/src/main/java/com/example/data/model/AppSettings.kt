@@ -6,12 +6,12 @@ enum class AppLanguage(val code: String, val titleEn: String, val titleFa: Strin
 }
 
 enum class AppTheme(val id: String, val titleEn: String, val titleFa: String, val descEn: String, val descFa: String) {
-    GLASS("glass", "Liquid Glass", "شیشه مایع", "Default crystal glassmorphism & fluid glow", "پیش‌فرض شیشه‌ای بلورین و نور سیال"),
-    LEGO("lego", "Brick Studio (Lego)", "بلوک‌های لگو ۳بعدی", "3D plastic studs, tactile bevels & toy sheen", "استادهای برجسته ۳بعدی و حس پلاستیک لگو"),
-    CARTOON("cartoon", "Anime Pop (Cartoon)", "کارتونی و انیمه", "Cel-shaded comic ink outlines & pop vibrancy", "خطوط پررنگ اینک، استایل کمیک و انیمه"),
-    CYBER_CHROME("chrome", "Y2K Cyber Chrome", "کروم متالیک Y2K", "Liquid mercury, silver sheen & prism reflection", "فلز مایع، جیوه براق و بازتاب هولوگرافیک"),
-    VAPORWAVE("vaporwave", "Synthwave Sunset", "غروب سینت‌ویو ۸۰s", "80s neon magenta, cyan dusk & retro grid", "نئون صورتی و سایان، گرادیان غروب دهه ۸۰"),
-    OBSIDIAN_MATRIX("matrix", "Obsidian Matrix", "ماتریکس دارک", "Cyber carbon weave & emerald laser HUD", "بافت کربن، لیزر سبز زمردی و هدآپ سایبری")
+    CYBER_NIGHTS("cyber_nights", "Cyber Nights", "شب‌های سایبری", "Neon cyan, deep navy & electric magenta", "نئون سایان، سرمه‌ای عمیق و ماژنتا الکتریک"),
+    Y2K_CHROME("chrome", "Y2K Chrome", "کروم متالیک Y2K", "Liquid mercury, silver sheen & industrial edge", "فلز مایع، جیوه نقره‌ای و بافت صنعتی"),
+    VELVET_NOIR("velvet_noir", "Velvet Noir", "ولوت نوآر", "Deep obsidian, rich burgundy & warm gold", "ابسیدین عمیق، شرابی غنی و طلایی لوکس"),
+    SUNSET_RAVE("sunset_rave", "Sunset Rave", "غروب پرانرژی", "Solar orange, dusk purple & vibrant heat", "نارنجی خورشیدی، بنفش غروب و انرژی تابناک"),
+    DIGITAL_ACID("digital_acid", "Digital Acid", "دیجیتال اسید", "OLED pitch black & electric acid lime", "سیاه مطلق اولد و سبز نئونی اسید لایم"),
+    MINIMAL_STUDIO("minimal_studio", "Minimal Studio", "مینیمال استودیو", "Crisp monochrome, graphite & surgical studio", "تک‌رنگ، گرافیت و طراحی استودیویی تمیز")
 }
 
 enum class VisualizerQuality(val titleEn: String, val titleFa: String, val fps: Int) {
@@ -22,7 +22,7 @@ enum class VisualizerQuality(val titleEn: String, val titleFa: String, val fps: 
 
 data class AppSettings(
     val language: AppLanguage = AppLanguage.ENGLISH,
-    val theme: AppTheme = AppTheme.GLASS,
+    val theme: AppTheme = AppTheme.CYBER_NIGHTS,
     val customAccentColor: Long = 0xFF8B5CF6, // Purple
     val crossfadeDurationSeconds: Int = 2,
     val gaplessEnabled: Boolean = true,

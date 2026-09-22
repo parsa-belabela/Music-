@@ -229,67 +229,43 @@ fun LiquidGlassProgressBar(
                 val thumbCenter = Offset(activeWidth.coerceIn(0f, w), centerY)
                 val thumbRadiusPx = thumbRadiusDp.toPx()
 
-                if (currentTheme == AppTheme.LEGO) {
-                    // LEGO 3D Molded Plastic Stud Scrubber Handle
-                    drawCircle(
-                        color = Color.Black.copy(alpha = 0.70f),
-                        radius = thumbRadiusPx + 2f,
-                        center = Offset(thumbCenter.x + 1.5f, thumbCenter.y + 2f)
-                    )
-                    drawCircle(
-                        color = palette.secondary,
-                        radius = thumbRadiusPx,
-                        center = thumbCenter
-                    )
-                    drawCircle(
-                        color = Color.White.copy(alpha = 0.65f),
-                        radius = thumbRadiusPx * 0.75f,
-                        center = Offset(thumbCenter.x - 1f, thumbCenter.y - 1f)
-                    )
-                    drawCircle(
-                        color = Color(0xFF14151B),
-                        radius = thumbRadiusPx * 0.40f,
-                        center = thumbCenter
-                    )
-                } else {
-                    // Modern Illuminated Neon Orb Thumb
-                    // A. Outermost Soft Luminous Bloom
-                    val bloomRadius = thumbRadiusPx * (2.8f + haloExpansion * 0.8f + bassPulse * 0.5f)
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                palette.accent.copy(alpha = 0.60f + haloExpansion * 0.25f),
-                                palette.primary.copy(alpha = 0.25f),
-                                Color.Transparent
-                            ),
-                            center = thumbCenter,
-                            radius = bloomRadius
+                // Modern Illuminated Neon Orb Thumb
+                // A. Outermost Soft Luminous Bloom
+                val bloomRadius = thumbRadiusPx * (2.8f + haloExpansion * 0.8f + bassPulse * 0.5f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            palette.accent.copy(alpha = 0.60f + haloExpansion * 0.25f),
+                            palette.primary.copy(alpha = 0.25f),
+                            Color.Transparent
                         ),
-                        radius = bloomRadius,
-                        center = thumbCenter
-                    )
+                        center = thumbCenter,
+                        radius = bloomRadius
+                    ),
+                    radius = bloomRadius,
+                    center = thumbCenter
+                )
 
-                    // B. Tactile Ambient Drop Shadow
-                    drawCircle(
-                        color = Color.Black.copy(alpha = 0.50f),
-                        radius = thumbRadiusPx + 1.5f,
-                        center = Offset(thumbCenter.x, thumbCenter.y + 1.5f)
-                    )
+                // B. Tactile Ambient Drop Shadow
+                drawCircle(
+                    color = Color.Black.copy(alpha = 0.50f),
+                    radius = thumbRadiusPx + 1.5f,
+                    center = Offset(thumbCenter.x, thumbCenter.y + 1.5f)
+                )
 
-                    // C. Luminous Outer Ring
-                    drawCircle(
-                        color = palette.accent,
-                        radius = thumbRadiusPx,
-                        center = thumbCenter
-                    )
+                // C. Luminous Outer Ring
+                drawCircle(
+                    color = palette.accent,
+                    radius = thumbRadiusPx,
+                    center = thumbCenter
+                )
 
-                    // D. Brilliant Specular White Center Core
-                    drawCircle(
-                        color = Color.White,
-                        radius = thumbRadiusPx * 0.65f,
-                        center = thumbCenter
-                    )
-                }
+                // D. Brilliant Specular White Center Core
+                drawCircle(
+                    color = Color.White,
+                    radius = thumbRadiusPx * 0.65f,
+                    center = thumbCenter
+                )
             }
         }
 

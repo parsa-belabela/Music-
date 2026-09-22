@@ -170,7 +170,7 @@ fun MiniPlayer(
                             Box(
                                 modifier = Modifier
                                     .size(46.dp)
-                                    .shadow(8.dp, RoundedCornerShape(14.dp), ambientColor = animatedPrimary, spotColor = animatedAccent)
+                                    .shadow(6.dp, RoundedCornerShape(14.dp), ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.45f))
                                     .clip(RoundedCornerShape(14.dp))
                                     .background(Color(0xFF141322)),
                                 contentAlignment = Alignment.Center

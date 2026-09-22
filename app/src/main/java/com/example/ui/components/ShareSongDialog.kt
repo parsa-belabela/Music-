@@ -134,7 +134,7 @@ fun ShareSongDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .shadow(16.dp, RoundedCornerShape(22.dp), ambientColor = palette.primary, spotColor = palette.accent)
+                        .shadow(12.dp, RoundedCornerShape(22.dp), ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.45f))
                         .clip(RoundedCornerShape(22.dp))
                         .background(
                             Brush.verticalGradient(
