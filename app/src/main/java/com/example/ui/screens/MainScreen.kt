@@ -299,6 +299,7 @@ fun MainScreen(
                             onTogglePlay = { viewModel.togglePlayPause() },
                             onOpenLibrary = { currentTab = MainTab.LIBRARY },
                             onOpenWrapped = { currentTab = MainTab.WRAPPED },
+                            onExpandNowPlaying = { viewModel.isNowPlayingExpanded.value = true },
                             timeSlotTracks = timeSlotTracks,
                             onThisDayHighlight = onThisDayHighlight,
                             weeklyRecapStats = weeklyRecapStats,

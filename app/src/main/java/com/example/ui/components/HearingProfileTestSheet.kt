@@ -1,22 +1,28 @@
 package com.example.ui.components
 
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Hearing
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -27,6 +33,14 @@ import com.example.audio.AmbientPalette
 import com.example.data.model.AppLanguage
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.math.PI
+import kotlin.math.pow
+import kotlin.math.sin
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,18 +51,131 @@ fun HearingProfileTestSheet(
     onDismiss: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
     var currentStep by remember { mutableStateOf(0) }
 
     // User preferences across 5 perceptual frequency ranges
     val userScores = remember { mutableStateListOf(0f, 0f, 0f, 0f, 0f) }
 
+    // Audio test playback state
+    var isPlayingSample by remember { mutableStateOf(false) }
+    var playingBoostValue by remember { mutableStateOf<Float?>(null) }
+    var playbackError by remember { mutableStateOf<String?>(null) }
+    var activeAudioJob by remember { mutableStateOf<Job?>(null) }
+
     val steps = listOf(
-        "Sub-Bass (31Hz - 62Hz)" to if (lang == AppLanguage.PERSIAN) "قدرت بیس عمیق و لرزش فرکانس‌های زیرین" else "Deep sub-bass impact & low-end rumble",
-        "Bass & Low Mids (125Hz - 250Hz)" to if (lang == AppLanguage.PERSIAN) "گرمی صدای خواننده مرد و بدنه گیتار بیس" else "Vocal warmth & bassline body",
-        "Midrange (500Hz - 1kHz)" to if (lang == AppLanguage.PERSIAN) "وضوح ملودی اصلی، پیانو و وکال زنانه" else "Main melodies, piano clarity & female vocals",
-        "Upper Mids (2kHz - 4kHz)" to if (lang == AppLanguage.PERSIAN) "شفافیت ادای کلمات و حمله سازهای ضربی" else "Vocal articulation & snare presence",
-        "Highs & Air (8kHz - 16kHz)" to if (lang == AppLanguage.PERSIAN) "درخشش سنج‌ها، کریستالی بودن صدا و هوا" else "Cymbal shimmer, sparkle & acoustic air"
+        HearingTestStep(
+            title = "Sub-Bass (31Hz - 62Hz)",
+            freqHz = 55.0,
+            descFa = "قدرت بیس عمیق و لرزش فرکانس‌های زیرین",
+            descEn = "Deep sub-bass impact & low-end rumble"
+        ),
+        HearingTestStep(
+            title = "Bass & Low Mids (125Hz - 250Hz)",
+            freqHz = 180.0,
+            descFa = "گرمی صدای خواننده مرد و بدنه گیتار بیس",
+            descEn = "Vocal warmth & bassline body"
+        ),
+        HearingTestStep(
+            title = "Midrange (500Hz - 1kHz)",
+            freqHz = 800.0,
+            descFa = "وضوح ملودی اصلی، پیانو و وکال زنانه",
+            descEn = "Main melodies, piano clarity & female vocals"
+        ),
+        HearingTestStep(
+            title = "Upper Mids (2kHz - 4kHz)",
+            freqHz = 3000.0,
+            descFa = "شفافیت ادای کلمات و حمله سازهای ضربی",
+            descEn = "Vocal articulation & snare presence"
+        ),
+        HearingTestStep(
+            title = "Highs & Air (8kHz - 16kHz)",
+            freqHz = 9500.0,
+            descFa = "درخشش سنج‌ها، کریستالی بودن صدا و هوا",
+            descEn = "Cymbal shimmer, sparkle & acoustic air"
+        )
     )
+
+    // Stop tone when leaving screen
+    DisposableEffect(Unit) {
+        onDispose {
+            activeAudioJob?.cancel()
+        }
+    }
+
+    fun playTestTone(freqHz: Double, boostDb: Float) {
+        activeAudioJob?.cancel()
+        playbackError = null
+        isPlayingSample = true
+        playingBoostValue = boostDb
+
+        activeAudioJob = coroutineScope.launch(Dispatchers.Default) {
+            var audioTrack: AudioTrack? = null
+            try {
+                val sampleRate = 44100
+                val durationSeconds = 1.3
+                val numSamples = (durationSeconds * sampleRate).toInt()
+                val buffer = ShortArray(numSamples)
+
+                // Gain multiplier based on boost in dB
+                val linearGain = (10.0.pow(boostDb / 20.0) * 0.28).coerceIn(0.08, 0.85)
+
+                for (i in 0 until numSamples) {
+                    val time = i.toDouble() / sampleRate
+                    // Apply smooth Hanning envelope to avoid any audio clicks
+                    val envelope = 0.5 * (1.0 - kotlin.math.cos(2.0 * PI * i / numSamples))
+                    val sine = sin(2.0 * PI * freqHz * time)
+                    // Add gentle musical harmonic for low frequencies
+                    val harmonic = if (freqHz < 100) 0.25 * sin(4.0 * PI * freqHz * time) else 0.0
+                    val sample = ((sine + harmonic) * linearGain * envelope * Short.MAX_VALUE).toInt()
+                    buffer[i] = sample.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+                }
+
+                val minBufSize = AudioTrack.getMinBufferSize(
+                    sampleRate,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
+                )
+
+                audioTrack = AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(sampleRate)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(maxOf(minBufSize, numSamples * 2))
+                    .setTransferMode(AudioTrack.MODE_STATIC)
+                    .build()
+
+                audioTrack.write(buffer, 0, numSamples)
+                audioTrack.play()
+
+                delay(1350L)
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    playbackError = if (lang == AppLanguage.PERSIAN) "خطا در پخش صدای تست" else "Error playing test tone"
+                }
+            } finally {
+                try {
+                    audioTrack?.stop()
+                    audioTrack?.release()
+                } catch (_: Exception) {}
+
+                withContext(Dispatchers.Main) {
+                    isPlayingSample = false
+                    playingBoostValue = null
+                }
+            }
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -81,7 +208,7 @@ fun HearingProfileTestSheet(
                     )
                 }
                 Text(
-                    text = if (lang == AppLanguage.PERSIAN) "تست کالیبراسیون شنوایی" else "Personal Hearing Calibration",
+                    text = if (lang == AppLanguage.PERSIAN) "تست کالیبراسیون شنوایی استودیویی" else "Studio Hearing Calibration",
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -102,10 +229,10 @@ fun HearingProfileTestSheet(
                 trackColor = Color(0x33FFFFFF)
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             if (currentStep < steps.size) {
-                val (rangeTitle, rangeDesc) = steps[currentStep]
+                val step = steps[currentStep]
 
                 Text(
                     text = if (lang == AppLanguage.PERSIAN) "مرحله ${currentStep + 1} از ${steps.size}" else "Step ${currentStep + 1} of ${steps.size}",
@@ -113,7 +240,7 @@ fun HearingProfileTestSheet(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = rangeTitle,
+                    text = step.title,
                     style = MaterialTheme.typography.titleLarge.copy(
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -122,7 +249,7 @@ fun HearingProfileTestSheet(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = rangeDesc,
+                    text = if (lang == AppLanguage.PERSIAN) step.descFa else step.descEn,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         color = Color(0xFFA0A5BA),
                         lineHeight = 20.sp
@@ -130,17 +257,28 @@ fun HearingProfileTestSheet(
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(28.dp))
+                if (playbackError != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = playbackError ?: "",
+                        color = Color(0xFFFF5252),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
 
-                // 3 Simple tactile choices
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // 3 Interactive choices with A/B sound comparison
                 val choices = listOf(
-                    ((if (lang == AppLanguage.PERSIAN) "طبیعی و تخت" else "Flat / Natural") to if (lang == AppLanguage.PERSIAN) "طبیعی و دست‌نخورده" else "Natural, as produced") to 0.0f,
-                    ((if (lang == AppLanguage.PERSIAN) "تقویت ملایم" else "Enhanced") to if (lang == AppLanguage.PERSIAN) "کمی تقویت‌شده (+۲.۵ dB)" else "Subtle boost (+2.5 dB)") to 2.5f,
-                    ((if (lang == AppLanguage.PERSIAN) "پرقدرت و کوبنده" else "Vibrant Punch") to if (lang == AppLanguage.PERSIAN) "قدرتمند و پررنگ (+۵ dB)" else "Rich emphasis (+5.0 dB)") to 5.0f
+                    ((if (lang == AppLanguage.PERSIAN) "طبیعی و دست‌نخورده" else "Natural / Flat") to if (lang == AppLanguage.PERSIAN) "پاسخ خطی و بدون تغییر (0 dB)" else "Studio linear response (0 dB)") to 0.0f,
+                    ((if (lang == AppLanguage.PERSIAN) "تقویت ملایم" else "Subtle Boost") to if (lang == AppLanguage.PERSIAN) "گرم‌تر و واضح‌تر (+۲.۵ dB)" else "Warm presence (+2.5 dB)") to 2.5f,
+                    ((if (lang == AppLanguage.PERSIAN) "پرقدرت و شفاف" else "Vibrant Punch") to if (lang == AppLanguage.PERSIAN) "تاکید قوی و درخشان (+۵.۰ dB)" else "Rich emphasis (+5.0 dB)") to 5.0f
                 )
 
                 choices.forEach { (textPair, boostValue) ->
                     val (title, sub) = textPair
+                    val isThisSamplePlaying = isPlayingSample && playingBoostValue == boostValue
+
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -148,9 +286,9 @@ fun HearingProfileTestSheet(
                             .liquidGlass(
                                 shape = RoundedCornerShape(16.dp),
                                 thickness = GlassThickness.REGULAR,
-                                tintColor = palette.primary,
-                                tintAlpha = 0.15f,
-                                borderWidth = 1.dp
+                                tintColor = if (isThisSamplePlaying) palette.accent else palette.primary,
+                                tintAlpha = if (isThisSamplePlaying) 0.28f else 0.14f,
+                                borderWidth = if (isThisSamplePlaying) 1.5.dp else 1.dp
                             )
                             .clickable {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -175,23 +313,40 @@ fun HearingProfileTestSheet(
                                     onDismiss()
                                 }
                             }
-                            .padding(16.dp)
+                            .padding(14.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(title, fontWeight = FontWeight.Bold, color = Color.White)
                                 Text(sub, fontSize = 12.sp, color = Color(0xFFA0A5BA))
                             }
-                            Icon(
-                                imageVector = Icons.Default.VolumeUp,
-                                contentDescription = null,
-                                tint = palette.accent,
-                                modifier = Modifier.size(20.dp)
-                            )
+
+                            // Sound Preview Button with animated wave indicator
+                            IconButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    playTestTone(step.freqHz, boostValue)
+                                },
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isThisSamplePlaying) palette.accent.copy(alpha = 0.35f) else Color(0x22FFFFFF))
+                            ) {
+                                if (isThisSamplePlaying) {
+                                    AnimatedWaveIcon(color = palette.accent)
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.VolumeUp,
+                                        contentDescription = "Test tone",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -199,5 +354,63 @@ fun HearingProfileTestSheet(
 
             Spacer(modifier = Modifier.height(20.dp))
         }
+    }
+}
+
+private data class HearingTestStep(
+    val title: String,
+    val freqHz: Double,
+    val descFa: String,
+    val descEn: String
+)
+
+@Composable
+private fun AnimatedWaveIcon(color: Color) {
+    val infiniteTransition = rememberInfiniteTransition(label = "toneWave")
+    val wave1 by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(tween(250, easing = LinearEasing), RepeatMode.Reverse),
+        label = "w1"
+    )
+    val wave2 by infiniteTransition.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 0.2f,
+        animationSpec = infiniteRepeatable(tween(320, easing = LinearEasing), RepeatMode.Reverse),
+        label = "w2"
+    )
+    val wave3 by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(tween(200, easing = LinearEasing), RepeatMode.Reverse),
+        label = "w3"
+    )
+
+    Canvas(modifier = Modifier.size(20.dp)) {
+        val w = size.width
+        val h = size.height
+        val barWidth = 3f
+
+        drawLine(
+            color = color,
+            start = Offset(w * 0.25f, h * (1f - wave1) / 2f),
+            end = Offset(w * 0.25f, h * (1f + wave1) / 2f),
+            strokeWidth = barWidth,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = color,
+            start = Offset(w * 0.50f, h * (1f - wave2) / 2f),
+            end = Offset(w * 0.50f, h * (1f + wave2) / 2f),
+            strokeWidth = barWidth,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = color,
+            start = Offset(w * 0.75f, h * (1f - wave3) / 2f),
+            end = Offset(w * 0.75f, h * (1f + wave3) / 2f),
+            strokeWidth = barWidth,
+            cap = StrokeCap.Round
+        )
     }
 }

@@ -53,21 +53,32 @@ fun LiquidGlassProgressBar(
     var ignoreExternalSyncUntilMs by remember { mutableLongStateOf(0L) }
     var componentWidthPx by remember { mutableFloatStateOf(1f) }
 
+    val currentDurationMs by rememberUpdatedState(durationMs)
+    val currentOnSeekTo by rememberUpdatedState(onSeekTo)
+    val currentPositionProviderUpdated by rememberUpdatedState(currentPositionProvider)
+
     // Active continuous ticker ensuring 60fps real-time sync with audio engine
     var internalCurrentMs by remember { mutableLongStateOf(currentPositionProvider()) }
+
+    // Reset scrubber state whenever durationMs changes (e.g. track change)
+    LaunchedEffect(durationMs) {
+        internalCurrentMs = currentPositionProviderUpdated()
+        dragProgress = 0f
+        ignoreExternalSyncUntilMs = 0L
+    }
 
     LaunchedEffect(isDragging) {
         if (!isDragging) {
             while (true) {
                 if (System.currentTimeMillis() > ignoreExternalSyncUntilMs) {
-                    internalCurrentMs = currentPositionProvider()
+                    internalCurrentMs = currentPositionProviderUpdated()
                 }
                 kotlinx.coroutines.delay(20L)
             }
         }
     }
 
-    val safeDuration = durationMs.coerceAtLeast(1L)
+    val safeDuration = currentDurationMs.coerceAtLeast(1L)
     val effectiveMs = if (isDragging) (dragProgress * safeDuration).toLong() else internalCurrentMs
     val playbackFraction = (effectiveMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
     val displayedProgress = playbackFraction
@@ -111,6 +122,8 @@ fun LiquidGlassProgressBar(
                             val width = componentWidthPx.coerceAtLeast(1f)
                             val initialFraction = (down.position.x / width).coerceIn(0f, 1f)
                             dragProgress = initialFraction
+                            val curSafeDur = currentDurationMs.coerceAtLeast(1L)
+                            internalCurrentMs = (initialFraction * curSafeDur).toLong()
 
                             while (true) {
                                 val event = awaitPointerEvent()
@@ -122,12 +135,12 @@ fun LiquidGlassProgressBar(
                                 pointer.consume()
                                 val newFraction = (pointer.position.x / width).coerceIn(0f, 1f)
                                 dragProgress = newFraction
+                                internalCurrentMs = (newFraction * curSafeDur).toLong()
                             }
-                            val curSafeDuration = durationMs.coerceAtLeast(1L)
-                            val targetMs = (dragProgress * curSafeDuration).toLong()
+                            val targetMs = (dragProgress * curSafeDur).toLong()
                             internalCurrentMs = targetMs
-                            ignoreExternalSyncUntilMs = System.currentTimeMillis() + 800L
-                            onSeekTo(targetMs)
+                            ignoreExternalSyncUntilMs = System.currentTimeMillis() + 600L
+                            currentOnSeekTo(targetMs)
                         } finally {
                             isDragging = false
                         }
@@ -342,14 +355,17 @@ fun LiquidGlassProgressBar(
     onSeek: (Float) -> Unit,
     palette: AmbientPalette,
     waveformEnvelope: FloatArray? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    durationMs: Long = 1000L,
+    currentPositionMs: Long = (progress * durationMs).toLong()
 ) {
+    val safeDur = durationMs.coerceAtLeast(1L)
     LiquidGlassProgressBar(
-        currentPositionProvider = { (progress * 1000f).toLong() },
-        durationMs = 1000L,
+        currentPositionProvider = { currentPositionMs },
+        durationMs = safeDur,
         palette = palette,
         analysisDataProvider = { AudioAnalysisData() },
-        onSeekTo = { ms -> onSeek((ms / 1000f).coerceIn(0f, 1f)) },
+        onSeekTo = { ms -> onSeek((ms.toFloat() / safeDur.toFloat()).coerceIn(0f, 1f)) },
         waveformEnvelope = waveformEnvelope,
         modifier = modifier
     )

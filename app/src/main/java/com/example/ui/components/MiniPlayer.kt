@@ -292,18 +292,28 @@ fun MiniPlayer(
                 var miniCurrentMs by remember { mutableLongStateOf(currentPositionProvider()) }
                 var miniIgnoreSyncUntil by remember { mutableLongStateOf(0L) }
 
+                val currentMiniDurationMs by rememberUpdatedState(playbackState.durationMs)
+                val currentMiniOnSeekTo by rememberUpdatedState(onSeekTo)
+                val currentMiniPositionProvider by rememberUpdatedState(currentPositionProvider)
+
+                LaunchedEffect(playbackState.currentTrack?.id, playbackState.durationMs) {
+                    miniCurrentMs = currentMiniPositionProvider()
+                    miniDragProgress = 0f
+                    miniIgnoreSyncUntil = 0L
+                }
+
                 LaunchedEffect(isMiniDragging) {
                     if (!isMiniDragging) {
                         while (true) {
                             if (System.currentTimeMillis() > miniIgnoreSyncUntil) {
-                                miniCurrentMs = currentPositionProvider()
+                                miniCurrentMs = currentMiniPositionProvider()
                             }
                             kotlinx.coroutines.delay(20L)
                         }
                     }
                 }
 
-                val safeMiniDuration = playbackState.durationMs.coerceAtLeast(1L)
+                val safeMiniDuration = currentMiniDurationMs.coerceAtLeast(1L)
                 val effectiveMiniMs = if (isMiniDragging) (miniDragProgress * safeMiniDuration).toLong() else miniCurrentMs
                 val effectiveFraction = (effectiveMiniMs.toFloat() / safeMiniDuration.toFloat()).coerceIn(0f, 1f)
 
@@ -317,7 +327,7 @@ fun MiniPlayer(
                         .fillMaxWidth()
                         .height(20.dp)
                         .onSizeChanged { miniBarWidthPx = it.width.toFloat().coerceAtLeast(1f) }
-                        .pointerInput(playbackState.durationMs) {
+                        .pointerInput(Unit) {
                             awaitEachGesture {
                                 try {
                                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -325,6 +335,8 @@ fun MiniPlayer(
                                     isMiniDragging = true
                                     val w = miniBarWidthPx.coerceAtLeast(1f)
                                     miniDragProgress = (down.position.x / w).coerceIn(0f, 1f)
+                                    val curSafeDur = currentMiniDurationMs.coerceAtLeast(1L)
+                                    miniCurrentMs = (miniDragProgress * curSafeDur).toLong()
 
                                     while (true) {
                                         val event = awaitPointerEvent()
@@ -335,11 +347,12 @@ fun MiniPlayer(
                                         }
                                         pointer.consume()
                                         miniDragProgress = (pointer.position.x / w).coerceIn(0f, 1f)
+                                        miniCurrentMs = (miniDragProgress * curSafeDur).toLong()
                                     }
-                                    val targetSeekMs = (miniDragProgress * safeMiniDuration).toLong()
+                                    val targetSeekMs = (miniDragProgress * curSafeDur).toLong()
                                     miniCurrentMs = targetSeekMs
-                                    miniIgnoreSyncUntil = System.currentTimeMillis() + 800L
-                                    onSeekTo(targetSeekMs)
+                                    miniIgnoreSyncUntil = System.currentTimeMillis() + 600L
+                                    currentMiniOnSeekTo(targetSeekMs)
                                 } finally {
                                     isMiniDragging = false
                                 }

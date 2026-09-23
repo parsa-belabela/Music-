@@ -182,116 +182,116 @@ fun LiquidGlassVolumeControl(
         onVolumeFractionChange?.invoke(1f)
     }
 
-    // Capsule container with Liquid Glass styling
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .liquidGlass(
-                shape = RoundedCornerShape(22.dp),
-                thickness = GlassThickness.THIN,
-                tintColor = palette.primary,
-                tintAlpha = 0.08f,
-                borderWidth = 0.9.dp,
-                appTheme = currentTheme
-            )
-            .padding(horizontal = 8.dp, vertical = 2.dp)
-            .testTag("liquid_glass_volume_control"),
-        contentAlignment = Alignment.Center
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            // Left/Start Icon: Mute / Low volume button
-            IconButton(
-                onClick = toggleMute,
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(if (displayedFraction <= 0.01f) Color(0x33F43F5E) else Color(0x0EFFFFFF))
-                    .testTag("volume_mute_button")
-            ) {
-                val icon = when {
-                    displayedFraction <= 0.01f -> Icons.Default.VolumeOff
-                    displayedFraction < 0.45f -> Icons.Default.VolumeMute
-                    else -> Icons.Default.VolumeDown
-                }
-                val iconTint = when {
-                    displayedFraction <= 0.01f -> Color(0xFFF43F5E)
-                    displayedFraction < 0.45f -> Color(0xFFE0E0F0)
-                    else -> palette.accent
-                }
-                Icon(
-                    imageVector = icon,
-                    contentDescription = "Volume Down / Mute",
-                    tint = iconTint,
-                    modifier = Modifier.size(16.dp)
+    // Always enforce LTR layout direction for volume controls (Low on left, High on right)
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        // Capsule container with Liquid Glass styling
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .liquidGlass(
+                    shape = RoundedCornerShape(22.dp),
+                    thickness = GlassThickness.THIN,
+                    tintColor = palette.primary,
+                    tintAlpha = 0.12f,
+                    borderWidth = 1.dp,
+                    appTheme = currentTheme
                 )
-            }
-
-            // Center: Interactive Liquid Glass Volume Scrubber
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(32.dp)
-                    .onSizeChanged { size ->
-                        trackWidthPx = size.width.toFloat().coerceAtLeast(1f)
-                    }
-                    .pointerInput(maxVolume, isRtl) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            isDragging = true
-                            triggerHaptic()
-
-                            val rawFraction = (down.position.x / trackWidthPx).coerceIn(0f, 1f)
-                            val initialFraction = if (isRtl) (1f - rawFraction) else rawFraction
-                            dragFraction = initialFraction
-                            val targetVolInt = (initialFraction * maxVolume).roundToInt().coerceIn(0, maxVolume)
-                            if (targetVolInt != deviceVolumeInt) {
-                                deviceVolumeInt = targetVolInt
-                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolInt, 0)
-                            }
-                            onVolumeFractionChange?.invoke(initialFraction)
-
-                            var pointerId = down.id
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-                                if (!change.pressed) break
-
-                                val currentX = change.position.x
-                                val rawFrac = (currentX / trackWidthPx).coerceIn(0f, 1f)
-                                val fraction = if (isRtl) (1f - rawFrac) else rawFrac
-                                dragFraction = fraction
-
-                                val currentStep = (fraction * 20f).toInt() // 5% ticks
-                                if (currentStep != lastTickStep) {
-                                    lastTickStep = currentStep
-                                    triggerHaptic()
-                                }
-
-                                val newVolInt = (fraction * maxVolume).roundToInt().coerceIn(0, maxVolume)
-                                if (newVolInt != deviceVolumeInt) {
-                                    deviceVolumeInt = newVolInt
-                                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVolInt, 0)
-                                }
-                                onVolumeFractionChange?.invoke(fraction)
-                                change.consume()
-                            }
-
-                            isDragging = false
-                            val finalVolInt = (dragFraction * maxVolume).roundToInt().coerceIn(0, maxVolume)
-                            deviceVolumeInt = finalVolInt
-                            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, finalVolInt, 0)
-                            if (finalVolInt > 0) {
-                                lastNonZeroVolumeFraction = dragFraction
-                            }
-                        }
-                    },
-                contentAlignment = Alignment.CenterStart
+                .padding(horizontal = 8.dp, vertical = 3.dp)
+                .testTag("liquid_glass_volume_control"),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                val primaryColor = palette.primary
+                // Left/Start Icon: Mute / Low volume button
+                IconButton(
+                    onClick = toggleMute,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(if (displayedFraction <= 0.01f) Color(0x33F43F5E) else Color(0x22000000))
+                        .border(0.8.dp, Color(0x25FFFFFF), CircleShape)
+                        .testTag("volume_mute_button")
+                ) {
+                    val icon = when {
+                        displayedFraction <= 0.01f -> Icons.Default.VolumeOff
+                        displayedFraction < 0.45f -> Icons.Default.VolumeMute
+                        else -> Icons.Default.VolumeDown
+                    }
+                    val iconTint = when {
+                        displayedFraction <= 0.01f -> Color(0xFFF43F5E)
+                        else -> Color.White
+                    }
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = "Volume Down / Mute",
+                        tint = iconTint,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+
+                // Center: Interactive Liquid Glass Volume Scrubber
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(32.dp)
+                        .onSizeChanged { size ->
+                            trackWidthPx = size.width.toFloat().coerceAtLeast(1f)
+                        }
+                        .pointerInput(maxVolume) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                isDragging = true
+                                triggerHaptic()
+
+                                val initialFraction = (down.position.x / trackWidthPx).coerceIn(0f, 1f)
+                                dragFraction = initialFraction
+                                val targetVolInt = (initialFraction * maxVolume).roundToInt().coerceIn(0, maxVolume)
+                                if (targetVolInt != deviceVolumeInt) {
+                                    deviceVolumeInt = targetVolInt
+                                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolInt, 0)
+                                }
+                                onVolumeFractionChange?.invoke(initialFraction)
+
+                                var pointerId = down.id
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                                    if (!change.pressed) break
+
+                                    val currentX = change.position.x
+                                    val fraction = (currentX / trackWidthPx).coerceIn(0f, 1f)
+                                    dragFraction = fraction
+
+                                    val currentStep = (fraction * 20f).toInt() // 5% ticks
+                                    if (currentStep != lastTickStep) {
+                                        lastTickStep = currentStep
+                                        triggerHaptic()
+                                    }
+
+                                    val newVolInt = (fraction * maxVolume).roundToInt().coerceIn(0, maxVolume)
+                                    if (newVolInt != deviceVolumeInt) {
+                                        deviceVolumeInt = newVolInt
+                                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVolInt, 0)
+                                    }
+                                    onVolumeFractionChange?.invoke(fraction)
+                                    change.consume()
+                                }
+
+                                isDragging = false
+                                val finalVolInt = (dragFraction * maxVolume).roundToInt().coerceIn(0, maxVolume)
+                                deviceVolumeInt = finalVolInt
+                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, finalVolInt, 0)
+                                if (finalVolInt > 0) {
+                                    lastNonZeroVolumeFraction = dragFraction
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    val primaryColor = palette.primary
                 val accentColor = palette.accent
                 val haloColor = palette.haloGlow
 
@@ -451,4 +451,5 @@ fun LiquidGlassVolumeControl(
             }
         }
     }
+}
 }

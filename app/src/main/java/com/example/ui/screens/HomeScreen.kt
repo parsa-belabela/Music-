@@ -32,9 +32,11 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.rememberAsyncImagePainter
@@ -59,6 +61,7 @@ fun HomeScreen(
     onTogglePlay: () -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenWrapped: () -> Unit,
+    onExpandNowPlaying: () -> Unit = {},
     bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
     timeSlotTracks: List<Track> = emptyList(),
     onThisDayHighlight: TopSongItem? = null,
@@ -160,6 +163,32 @@ fun HomeScreen(
             }
         }
 
+        // Section 1.1: Elevated Ambient Top Now Playing Card
+        val heroTrack = playbackState.currentTrack ?: allTracks.firstOrNull()
+        if (heroTrack != null) {
+            item {
+                HeroQuickPlayCard(
+                    heroTrack = heroTrack,
+                    playbackState = playbackState,
+                    palette = palette,
+                    allTracks = allTracks,
+                    hasActiveTrack = playbackState.currentTrack != null,
+                    appSettings = appSettings,
+                    currentPositionProvider = currentPositionProvider,
+                    onSeekTo = onSeekTo,
+                    onPlayTrack = onPlayTrack,
+                    onTogglePlay = {
+                        if (playbackState.currentTrack != null) {
+                            onTogglePlay()
+                        } else {
+                            onPlayTrack(heroTrack, allTracks)
+                        }
+                    },
+                    onExpandNowPlaying = onExpandNowPlaying
+                )
+            }
+        }
+
         // Instant Resume Notification Pill
         if (didRestoreSession && playbackState.currentTrack != null) {
             item {
@@ -253,31 +282,6 @@ fun HomeScreen(
                         )
                     }
                 }
-            }
-        }
-
-        // Hero CURRENTLY PLAYING Card (always visible on screen from start)
-        val heroTrack = playbackState.currentTrack ?: allTracks.firstOrNull()
-        if (heroTrack != null) {
-            item {
-                HeroQuickPlayCard(
-                    heroTrack = heroTrack,
-                    playbackState = playbackState,
-                    palette = palette,
-                    allTracks = allTracks,
-                    hasActiveTrack = playbackState.currentTrack != null,
-                    appSettings = appSettings,
-                    currentPositionProvider = currentPositionProvider,
-                    onSeekTo = onSeekTo,
-                    onPlayTrack = onPlayTrack,
-                    onTogglePlay = {
-                        if (playbackState.currentTrack != null) {
-                            onTogglePlay()
-                        } else {
-                            onPlayTrack(heroTrack, allTracks)
-                        }
-                    }
-                )
             }
         }
 
@@ -671,11 +675,24 @@ private fun HeroQuickPlayCard(
     onSeekTo: (Long) -> Unit,
     onPlayTrack: (Track, List<Track>) -> Unit,
     onTogglePlay: () -> Unit,
+    onExpandNowPlaying: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isPlaying = playbackState.status == PlayerStatus.PLAYING
     val context = LocalContext.current
     val cardShape = RoundedCornerShape(24.dp)
+
+    // Smooth 400ms crossfade on halo glow color
+    val animatedHaloColor by androidx.compose.animation.animateColorAsState(
+        targetValue = palette.primary,
+        animationSpec = tween(400),
+        label = "heroHaloColor"
+    )
+    val animatedAccentColor by androidx.compose.animation.animateColorAsState(
+        targetValue = palette.accent,
+        animationSpec = tween(400),
+        label = "heroAccentColor"
+    )
 
     // Colors only animate when song is playing; in normal/idle state they are stationary
     val rotationAngle by if (isPlaying) {
@@ -699,7 +716,11 @@ private fun HeroQuickPlayCard(
             .wrapContentHeight()
             .clip(cardShape)
             .clickable {
-                heroTrack?.let { onPlayTrack(it, allTracks) }
+                if (hasActiveTrack) {
+                    onExpandNowPlaying()
+                } else {
+                    heroTrack?.let { onPlayTrack(it, allTracks) }
+                }
             }
             .testTag("hero_quick_play_card")
     ) {
@@ -715,7 +736,7 @@ private fun HeroQuickPlayCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()
-                    .blur(14.dp)
+                    .blur(16.dp)
             )
         } else {
             Box(
@@ -723,7 +744,7 @@ private fun HeroQuickPlayCard(
                     .fillMaxSize()
                     .background(
                         Brush.linearGradient(
-                            listOf(palette.primary.copy(alpha = 0.35f), Color(0xFF0D0F1B))
+                            listOf(animatedHaloColor.copy(alpha = 0.45f), Color(0xFF0D0F1B))
                         )
                     )
             )
@@ -735,8 +756,8 @@ private fun HeroQuickPlayCard(
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            Color(0x800A0C16),
-                            Color(0xCC080A12)
+                            Color(0x880A0C16),
+                            Color(0xDC080A12)
                         )
                     )
                 )
@@ -759,13 +780,13 @@ private fun HeroQuickPlayCard(
                                     Color.White.copy(alpha = 0.90f),
                                     palette.richBlack
                                 ) else listOf(
-                                    palette.accent,
+                                    animatedAccentColor,
                                     palette.secondary,
-                                    palette.primary,
-                                    palette.accent.copy(alpha = 0.8f),
+                                    animatedHaloColor,
+                                    animatedAccentColor.copy(alpha = 0.8f),
                                     palette.secondary.copy(alpha = 0.9f),
-                                    palette.primary.copy(alpha = 0.75f),
-                                    palette.accent
+                                    animatedHaloColor.copy(alpha = 0.75f),
+                                    animatedAccentColor
                                 )
                             ),
                             radius = size.maxDimension * 0.85f,
@@ -782,21 +803,22 @@ private fun HeroQuickPlayCard(
                             Color.White.copy(alpha = 0.25f),
                             Color(0xFF07080E)
                         ) else listOf(
-                            palette.accent.copy(alpha = 0.65f),
-                            palette.secondary.copy(alpha = 0.35f),
-                            Color.White.copy(alpha = 0.20f)
+                            animatedAccentColor.copy(alpha = 0.75f),
+                            palette.secondary.copy(alpha = 0.40f),
+                            Color.White.copy(alpha = 0.25f)
                         )
                     ),
                     shape = cardShape
                 )
         )
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1004,6 +1026,7 @@ private fun HeroQuickPlayCard(
             }
         }
     }
+}
 }
 
 private fun formatHeroDuration(ms: Long): String {

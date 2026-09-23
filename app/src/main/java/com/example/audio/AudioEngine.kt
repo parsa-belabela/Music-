@@ -282,6 +282,11 @@ class AudioEngine(private val context: Context) {
 
         _status.value = if (autoPlay) PlayerStatus.BUFFERING else PlayerStatus.PAUSED
         _currentPosition.value = startPositionMs
+        _duration.value = track.durationMs.coerceAtLeast(1L)
+        isSeekingInProgress = false
+        pendingSeekPos = null
+        seekWatchdogJob?.cancel()
+        seekWatchdogJob = null
 
         // Check if track was preloaded
         val preloaded = preloadedPlayer
@@ -312,6 +317,21 @@ class AudioEngine(private val context: Context) {
                     _isPlayWhenReady.value = false
                     stopProgressTracker()
                     onTrackCompleted?.invoke()
+                }
+
+                preloaded.setOnSeekCompleteListener {
+                    seekWatchdogJob?.cancel()
+                    val nextSeek = pendingSeekPos
+                    pendingSeekPos = null
+                    if (nextSeek != null) {
+                        dispatchSeek(nextSeek)
+                    } else {
+                        isSeekingInProgress = false
+                        lastSeekTimestamp = System.currentTimeMillis()
+                        if (_isPlayWhenReady.value && preloaded.isPlaying) {
+                            startProgressTracker()
+                        }
+                    }
                 }
 
                 preloaded.setOnErrorListener { _, what, extra ->
@@ -450,9 +470,9 @@ class AudioEngine(private val context: Context) {
             } else if (track.uri.startsWith("/")) {
                 File(track.uri)
             } else {
-                DemoAudioGenerator.getOrCreateDemoAudio(context, track.id)
+                DemoAudioGenerator.getOrCreateDemoAudio(context, track.id, track.durationMs)
             }
-            val targetFile = if (file.exists() && file.length() > 0) file else DemoAudioGenerator.getOrCreateDemoAudio(context, track.id)
+            val targetFile = if (file.exists() && file.length() > 0) file else DemoAudioGenerator.getOrCreateDemoAudio(context, track.id, track.durationMs)
             mp.setDataSource(targetFile.absolutePath)
         } else if (track.uri.startsWith("content://media/")) {
             val uri = Uri.parse(track.uri)
@@ -467,7 +487,7 @@ class AudioEngine(private val context: Context) {
             mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
             afd.close()
         } else {
-            val fallbackWav = DemoAudioGenerator.getOrCreateDemoAudio(context, track.id)
+            val fallbackWav = DemoAudioGenerator.getOrCreateDemoAudio(context, track.id, track.durationMs)
             mp.setDataSource(fallbackWav.absolutePath)
         }
     }
@@ -631,10 +651,12 @@ class AudioEngine(private val context: Context) {
         }
 
         try {
+            val mpDur = try { mp.duration.toLong() } catch (_: Exception) { -1L }
+            val clampedPos = if (mpDur > 0) safePos.coerceIn(0L, mpDur) else safePos
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                mp.seekTo(safePos, android.media.MediaPlayer.SEEK_CLOSEST)
+                mp.seekTo(clampedPos, android.media.MediaPlayer.SEEK_CLOSEST)
             } else {
-                mp.seekTo(safePos.toInt())
+                mp.seekTo(clampedPos.toInt())
             }
             if (_isPlayWhenReady.value && mp.isPlaying) {
                 startProgressTracker()

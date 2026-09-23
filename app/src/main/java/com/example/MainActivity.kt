@@ -74,12 +74,9 @@ class MainActivity : ComponentActivity() {
                 appTheme = appSettings.theme,
                 accentColor = Color(appSettings.customAccentColor)
             ) {
-                val layoutDirection = if (appSettings.language == AppLanguage.PERSIAN) {
-                    LayoutDirection.Rtl
-                } else {
-                    LayoutDirection.Ltr
-                }
-                CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
+                // Ensure base layout direction is LTR for audio controls and sliders,
+                // while individual text items and list rows handle localized text flow.
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     MainScreen(
                         viewModel = viewModel,
                         modifier = Modifier.fillMaxSize()
