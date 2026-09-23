@@ -129,7 +129,6 @@ object UserProfileManager {
             .putLong(KEY_SUPPORTER_TIMESTAMP, System.currentTimeMillis())
             .apply()
 
-        com.example.monetization.EntitlementManager.grantVip(context, 3650, "donation_support")
         refreshProfile(context)
         return unlockedAngel
     }

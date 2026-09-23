@@ -36,6 +36,7 @@ import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
 import com.example.audio.ConnectedAudioDevice
 import com.example.data.model.PlaybackState
+import com.example.data.model.Track
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
 
@@ -49,20 +50,28 @@ import com.example.ui.theme.liquidGlass
  */
 @Composable
 fun MiniPlayer(
-    playbackState: PlaybackState,
-    palette: AmbientPalette,
-    onTogglePlay: () -> Unit,
-    onNext: () -> Unit,
+    playbackState: PlaybackState = PlaybackState(),
+    palette: AmbientPalette = AmbientPalette(),
+    onTogglePlay: () -> Unit = {},
+    onNext: () -> Unit = {},
     onPrevious: () -> Unit = {},
-    onExpandNowPlaying: () -> Unit,
+    onExpandNowPlaying: () -> Unit = {},
     modifier: Modifier = Modifier,
     connectedDevice: ConnectedAudioDevice? = null,
     analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() },
     currentPositionProvider: () -> Long = { playbackState.currentPositionMs },
-    onSeekTo: (Long) -> Unit = {}
+    onSeekTo: (Long) -> Unit = {},
+    currentPlayingTrack: Track? = null,
+    currentTrack: Track? = null,
+    track: Track? = null
 ) {
-    val track = playbackState.currentTrack ?: return
-    val isPlaying = playbackState.isPlaying
+    val activeTrack = track ?: currentTrack ?: currentPlayingTrack ?: playbackState.currentTrack ?: return
+    val effectivePlaybackState = if (playbackState.currentTrack == null) {
+        playbackState.copy(currentTrack = activeTrack)
+    } else {
+        playbackState
+    }
+    val isPlaying = effectivePlaybackState.isPlaying
 
     // Smooth color morphing
     val animatedPrimary by animateColorAsState(
@@ -153,7 +162,7 @@ fun MiniPlayer(
                     ) {
                         // Morphing Track Info (Artwork, Title, Artist)
                         AnimatedContent(
-                            targetState = track,
+                            targetState = activeTrack,
                             transitionSpec = {
                                 (fadeIn(animationSpec = tween(260, easing = FastOutSlowInEasing)) +
                                  scaleIn(initialScale = 0.95f, animationSpec = tween(260, easing = FastOutSlowInEasing)))

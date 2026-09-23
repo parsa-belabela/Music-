@@ -16,10 +16,10 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 data class AmbientPalette(
-    val primary: Color,
-    val secondary: Color,
-    val haloGlow: Color,
-    val accent: Color,
+    val primary: Color = Color(0xFF7C4DFF),
+    val secondary: Color = Color(0xFF00E676),
+    val haloGlow: Color = Color(0xFF651FFF),
+    val accent: Color = Color(0xFF00E676),
     val deepAtmosphere: Color = Color(0xFF07070E),
     val richBlack: Color = Color(0xFF07080E),
     val isLightLuminance: Boolean = false,

@@ -297,16 +297,21 @@ fun SupportDonationDialog(
                             Button(
                                 onClick = {
                                     if (promoCodeInput.trim().isNotEmpty()) {
-                                        val unlockedAngel = UserProfileManager.recordDonation(context, 100_000)
-                                        Toast.makeText(
-                                            context,
-                                            if (unlockedAngel)
-                                                "کد هدیه تایید شد! مدال «فرشته نجات سازنده 💙» برای شما آنلاک شد."
-                                            else
-                                                "کد هدیه تایید شد! نشان کاربر مهربون فعال شد ✨",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                        onSupportSuccess()
+                                        val redeemed = com.example.monetization.EntitlementManager.redeemPromoCode(context, promoCodeInput)
+                                        if (redeemed) {
+                                            Toast.makeText(
+                                                context,
+                                                if (isFa) "کد هدیه با موفقیت فعال شد ✨" else "Gift code redeemed successfully! ✨",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                            onSupportSuccess()
+                                        } else {
+                                            Toast.makeText(
+                                                context,
+                                                if (isFa) "کد واردشده نامعتبر است." else "Invalid gift code.",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
                                     }
                                 },
                                 shape = RoundedCornerShape(12.dp),
@@ -360,21 +365,11 @@ private fun handleDonationProcess(
             }
         )
     } else {
-        val unlockedAngel = UserProfileManager.recordDonation(context, amountToman)
-        if (unlockedAngel) {
-            Toast.makeText(
-                context,
-                if (isFa) "آچیومنت و مدال «فرشته نجات سازنده 💙» آنلاک شد! پیام برنامه‌نویس را در مدال‌ها بخوانید." else "Secret Guardian Angel badge unlocked! 💙",
-                Toast.LENGTH_LONG
-            ).show()
-        } else {
-            Toast.makeText(
-                context,
-                if (isFa) "حمایت شما ثبت شد! متشکریم ❤️" else "Thank you for supporting! ❤️",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-        onSuccess()
+        Toast.makeText(
+            context,
+            if (isFa) "امکان برقراری ارتباط با محیط برنامه جهت پرداخت وجود ندارد." else "Activity unavailable for payment flow.",
+            Toast.LENGTH_SHORT
+        ).show()
     }
 }
 

@@ -34,6 +34,10 @@ object MyketBillingManager {
     var isSetupDone = false
         private set
 
+    @Volatile
+    var isPurchaseInProgress = false
+        private set
+
     /**
      * Initialize IabHelper with public RSA key from BuildConfig.
      */
@@ -112,6 +116,11 @@ object MyketBillingManager {
         onSuccess: () -> Unit,
         onError: (String) -> Unit
     ) {
+        if (isPurchaseInProgress) {
+            onError("در حال ارتباط با مایکت... لطفاً لحظه‌ای شکیبا باشید.")
+            return
+        }
+
         val curHelper = helper
         if (curHelper == null || !isSetupDone) {
             // If setup hasn't finished or market is not available, init & inform
@@ -126,8 +135,10 @@ object MyketBillingManager {
         }
 
         try {
+            isPurchaseInProgress = true
             val payload = "aura_payload_${System.currentTimeMillis()}"
             curHelper.launchPurchaseFlow(activity, sku, { result: IabResult?, purchase: Purchase? ->
+                isPurchaseInProgress = false
                 if (helper == null) return@launchPurchaseFlow
                 if (result != null && result.isSuccess && purchase != null) {
                     Log.d(TAG, "Purchase succeeded for $sku")
@@ -141,6 +152,7 @@ object MyketBillingManager {
                 }
             }, payload)
         } catch (e: Exception) {
+            isPurchaseInProgress = false
             Log.e(TAG, "Error launching purchase flow", e)
             onError(e.localizedMessage ?: "خطای ناشناخته در خرید")
         }
@@ -168,5 +180,6 @@ object MyketBillingManager {
         } catch (_: Exception) {}
         helper = null
         isSetupDone = false
+        isPurchaseInProgress = false
     }
 }
