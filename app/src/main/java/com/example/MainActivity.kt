@@ -58,6 +58,11 @@ class MainActivity : ComponentActivity() {
             }
 
             LaunchedEffect(Unit) {
+                // Initialize Myket In-App Billing safely in background coroutine to ensure 0ms main thread stall
+                kotlinx.coroutines.Dispatchers.IO.let {
+                    com.example.billing.MyketBillingManager.init(this@MainActivity)
+                }
+
                 val permissionsToRequest = mutableListOf<String>()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
@@ -84,6 +89,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        com.example.billing.MyketBillingManager.dispose()
     }
 }
 

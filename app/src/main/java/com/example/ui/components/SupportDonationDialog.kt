@@ -1,9 +1,7 @@
 package com.example.ui.components
 
-import android.content.Intent
-import android.net.Uri
+import android.app.Activity
 import android.widget.Toast
-import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,7 +17,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -30,18 +27,17 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.audio.AmbientPalette
+import com.example.billing.MyketBillingManager
 import com.example.data.model.AppLanguage
 import com.example.data.repository.UserProfileManager
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
- * Transparent, heartwarming Support & Donation Dialog:
- * Completely clear that music player features are 100% free for everyone.
- * Supporting via donation or watching an ad grants special Profile Prestige ("کاربر مهربون"),
- * unlocks music flashback cards, and supports future app development.
+ * Clean & Heartwarming Donation & Support Dialog:
+ * All music player features are 100% free for everyone.
+ * Supporting via donation awards the "کاربر مهربون" badge,
+ * and donations >= 100,000 Toman unlock the secret "فرشته نجات سازنده 💙" achievement!
  */
 @Composable
 fun SupportDonationDialog(
@@ -51,23 +47,22 @@ fun SupportDonationDialog(
     onSupportSuccess: () -> Unit
 ) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
+    val activity = context as? Activity
     val isFa = language == AppLanguage.PERSIAN
 
-    var isWatchingAd by remember { mutableStateOf(false) }
-    var adProgress by remember { mutableFloatStateOf(0f) }
     var promoCodeInput by remember { mutableStateOf("") }
     var showPromoBox by remember { mutableStateOf(false) }
+    var isPurchasing by remember { mutableStateOf(false) }
 
     Dialog(
-        onDismissRequest = { if (!isWatchingAd) onDismiss() },
+        onDismissRequest = { if (!isPurchasing) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.78f))
-                .padding(horizontal = 20.dp, vertical = 28.dp),
+                .background(Color.Black.copy(alpha = 0.82f))
+                .padding(horizontal = 18.dp, vertical = 26.dp),
             contentAlignment = Alignment.Center
         ) {
             Box(
@@ -132,7 +127,7 @@ fun SupportDonationDialog(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // 100% Transparency Message Box
+                    // Transparency Message Box
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -160,9 +155,9 @@ fun SupportDonationDialog(
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = if (isFa)
-                                    "تمامی امکانات پخش موسیقی، اکولایزر، لیریکس و بخش‌های برنامه برای همیشه ۱۰۰٪ رایگان است. خرید حمایت یا تماشای تبلیغ هیچ قابلیت صوتی خاصی به شما نمی‌دهد، اما پروفایل شما را با نشان «کاربر مهربون» و کارت‌های خاطره موسیقی درخشان می‌کند!"
+                                    "تمامی امکانات پخش موسیقی، اکولایزر، لیریکس و بخش‌های برنامه برای همیشه ۱۰۰٪ رایگان است. حمایت مالی فقط برای دلگرمی و ارتقای برنامه است. با دونیت بالای ۱۰۰ هزار تومان، مدال و پیام اختصاصی «فرشته نجات سازنده 💙» در پروفایل شما درخشان می‌شود!"
                                 else
-                                    "All music playback features, EQ & lyrics are 100% free for everyone forever. Supporting simply awards a prestigious \"Kind User\" badge on your profile and helps keep the app alive!",
+                                    "All music playback features, EQ & lyrics are 100% free for everyone forever. Supporting the developer is purely optional. Donating 100k+ Toman unlocks the secret \"Developer's Guardian Angel 💙\" badge!",
                                 color = Color(0xFFE2E4F0),
                                 fontSize = 12.sp,
                                 lineHeight = 19.sp,
@@ -173,305 +168,91 @@ fun SupportDonationDialog(
 
                     Spacer(modifier = Modifier.height(18.dp))
 
-                    // Ad Watching State
-                    if (isWatchingAd) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(Color(0xFF161A2E))
-                                .padding(20.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                CircularProgressIndicator(
-                                    progress = { adProgress },
-                                    modifier = Modifier.size(54.dp),
-                                    color = Color(0xFFFF4081),
-                                    strokeWidth = 4.dp
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = if (isFa) "در حال تماشای ویدیوی حمایتی... ❤️" else "Playing reward sponsor video...",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = if (isFa) "از صبر و حمایت صمیمانه شما بی‌نهایت متشکریم" else "Thank you for your warm support!",
-                                    color = Color(0xFFA0A5BA),
-                                    fontSize = 11.sp
-                                )
-                            }
+                    // Support Option 0: Gummy Bear Package (25,000 Toman)
+                    SupportOptionCard(
+                        emoji = "🐻",
+                        title = if (isFa) "یک آدامس خرسی" else "Buy a Gummy Bear",
+                        desc = if (isFa) "۲۵,۰۰۰ تومان • پرداخت درون‌برنامه‌ای مایکت" else "25,000 Toman • Myket Billing",
+                        badgeNote = if (isFa) "نشان «کاربر مهربون ❤️»" else "Kind User Badge",
+                        onClick = {
+                            handleDonationProcess(
+                                activity = activity,
+                                context = context,
+                                sku = MyketBillingManager.SKU_SUPPORT_GUM,
+                                amountToman = 25_000,
+                                isFa = isFa,
+                                onPurchasingStateChange = { isPurchasing = it },
+                                onSuccess = onSupportSuccess
+                            )
                         }
-                    } else {
-                        // Support Option 1: Direct Donofa Donation Portal (Primary & Direct)
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(18.dp))
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(
-                                            Color(0xFFFFD700).copy(alpha = 0.28f),
-                                            Color(0xFFFF9100).copy(alpha = 0.22f)
-                                        )
-                                    )
-                                )
-                                .border(1.5.dp, Color(0xFFFFD700), RoundedCornerShape(18.dp))
-                                .clickable {
-                                    try {
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://donofa.com/parsaghorbani"))
-                                        context.startActivity(intent)
-                                        UserProfileManager.markAsSupporter(context, viaAd = false)
-                                        onSupportSuccess()
-                                    } catch (_: Exception) {
-                                        Toast.makeText(
-                                            context,
-                                            if (isFa) "خطا در باز کردن مرورگر: https://donofa.com/parsaghorbani" else "Could not open browser",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                }
-                                .padding(16.dp)
-                                .testTag("support_via_donofa_button")
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(46.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFFFD700)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Favorite,
-                                            contentDescription = null,
-                                            tint = Color.Black,
-                                            modifier = Modifier.size(26.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = if (isFa) "حمایت مالی مستقیم در دونو‌فا" else "Direct Donate via Donofa",
-                                                color = Color.White,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                fontSize = 14.5.sp
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(6.dp))
-                                                    .background(Color(0xFFFFD700))
-                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                            ) {
-                                                Text(
-                                                    text = "donofa.com",
-                                                    color = Color.Black,
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.ExtraBold
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = if (isFa) "ورود به درگاه امن Donofa برای حمایت دلخواه شما از پارسا قربانی ❤️" else "Open secure donation page on Donofa",
-                                            color = Color(0xFFE2E4F0),
-                                            fontSize = 11.sp
-                                        )
-                                    }
-                                }
+                    )
 
-                                Icon(
-                                    imageVector = Icons.Default.OpenInNew,
-                                    contentDescription = null,
-                                    tint = Color(0xFFFFD700),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Support Option 1: Coffee Package (50,000 Toman)
+                    SupportOptionCard(
+                        emoji = "☕",
+                        title = if (isFa) "یک فنجان قهوه گرم" else "Buy a Warm Coffee",
+                        desc = if (isFa) "۵۰,۰۰۰ تومان • پرداخت درون‌برنامه‌ای مایکت" else "50,000 Toman • Myket Billing",
+                        badgeNote = if (isFa) "نشان «کاربر مهربون ❤️»" else "Kind User Badge",
+                        onClick = {
+                            handleDonationProcess(
+                                activity = activity,
+                                context = context,
+                                sku = MyketBillingManager.SKU_SUPPORT_COFFEE,
+                                amountToman = 50_000,
+                                isFa = isFa,
+                                onPurchasingStateChange = { isPurchasing = it },
+                                onSuccess = onSupportSuccess
+                            )
                         }
+                    )
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                        // Support Option 2: Free Ad Support (Prominently Highlighted)
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(18.dp))
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(
-                                            Color(0xFFFF4081).copy(alpha = 0.22f),
-                                            Color(0xFF7C4DFF).copy(alpha = 0.16f)
-                                        )
-                                    )
-                                )
-                                .border(1.2.dp, Color(0xFFFF4081).copy(alpha = 0.8f), RoundedCornerShape(18.dp))
-                                .clickable {
-                                    isWatchingAd = true
-                                    adProgress = 0f
-                                    coroutineScope.launch {
-                                        for (i in 1..20) {
-                                            delay(100)
-                                            adProgress = i / 20f
-                                        }
-                                        UserProfileManager.markAsSupporter(context, viaAd = true)
-                                        isWatchingAd = false
-                                        Toast.makeText(
-                                            context,
-                                            if (isFa) "حمایت شما ثبت شد! نشان «کاربر مهربون» در پروفایل فعال گردید ❤️" else "Supported! Kind User badge unlocked ❤️",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                        onSupportSuccess()
-                                    }
-                                }
-                                .padding(14.dp)
-                                .testTag("support_via_ad_button")
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(42.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFFF4081)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.PlayCircle,
-                                            contentDescription = null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = if (isFa) "تماشای یک تبلیغ (حمایت رایگان)" else "Watch 1 Ad (Free Support)",
-                                                color = Color.White,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 13.5.sp
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(6.dp))
-                                                    .background(Color.White.copy(alpha = 0.2f))
-                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                            ) {
-                                                Text(
-                                                    text = if (isFa) "رایگان" else "Free",
-                                                    color = Color.White,
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-                                        Text(
-                                            text = if (isFa) "با صرف ۲۰ ثانیه، یک حمایت خیلی بزرگ و دلگرم‌کننده انجام می‌دهید" else "Spend 20s to warmly support!",
-                                            color = Color(0xFFC0C5D8),
-                                            fontSize = 10.5.sp
-                                        )
-                                    }
-                                }
-
-                                Icon(
-                                    imageVector = Icons.Default.ArrowForwardIos,
-                                    contentDescription = null,
-                                    tint = Color.White.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(15.dp)
-                                )
-                            }
+                    // Support Option 2: Pizza Package (150,000 Toman) -> Unlocks Guardian Angel!
+                    SupportOptionCard(
+                        emoji = "🍕",
+                        title = if (isFa) "یک پیتزای دورهمی" else "Buy a Pizza",
+                        desc = if (isFa) "۱۵۰,۰۰۰ تومان • پرداخت درون‌برنامه‌ای مایکت" else "150,000 Toman • Myket Billing",
+                        badgeNote = if (isFa) "آنلاک مدال «فرشته نجات سازنده 💙»" else "Unlocks Guardian Angel Badge 💙",
+                        isHighlight = true,
+                        onClick = {
+                            handleDonationProcess(
+                                activity = activity,
+                                context = context,
+                                sku = MyketBillingManager.SKU_SUPPORT_PIZZA,
+                                amountToman = 150_000,
+                                isFa = isFa,
+                                onPurchasingStateChange = { isPurchasing = it },
+                                onSuccess = onSupportSuccess
+                            )
                         }
+                    )
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                        // Support Option 3: Coffee (Opens Donofa)
-                        SupportOptionCard(
-                            emoji = "☕",
-                            title = if (isFa) "یک فنجان قهوه گرم" else "Buy a Warm Coffee",
-                            desc = if (isFa) "۵۰,۰۰۰ تومان • ورود به درگاه دونیت Donofa" else "$1.99 • Donofa Gateway",
-                            onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://donofa.com/parsaghorbani"))
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {}
-                                UserProfileManager.markAsSupporter(context, viaAd = false)
-                                Toast.makeText(
-                                    context,
-                                    if (isFa) "نوش جان! بی‌نهایت از حمایت شیرین شما سپاسگزاریم ☕❤️" else "Thank you for the coffee! ❤️",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                                onSupportSuccess()
-                            }
-                        )
+                    // Support Option 3: Golden Patron Package (300,000 Toman) -> Unlocks Guardian Angel!
+                    SupportOptionCard(
+                        emoji = "🌟",
+                        title = if (isFa) "حامی طلایی و ویژه آئورا" else "Golden Patron",
+                        desc = if (isFa) "۳۰۰,۰۰0 تومان • پرداخت درون‌برنامه‌ای مایکت" else "300,000 Toman • Myket Billing",
+                        badgeNote = if (isFa) "آنلاک مدال «فرشته نجات سازنده 💙» + حامی طلایی" else "Unlocks Guardian Angel Badge 💙",
+                        isHighlight = true,
+                        onClick = {
+                            handleDonationProcess(
+                                activity = activity,
+                                context = context,
+                                sku = MyketBillingManager.SKU_SUPPORT_GOLD,
+                                amountToman = 300_000,
+                                isFa = isFa,
+                                onPurchasingStateChange = { isPurchasing = it },
+                                onSuccess = onSupportSuccess
+                            )
+                        }
+                    )
 
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Support Option 4: Pizza (Opens Donofa)
-                        SupportOptionCard(
-                            emoji = "🍕",
-                            title = if (isFa) "یک پیتزای دورهمی" else "Buy a Pizza",
-                            desc = if (isFa) "۱۵۰,۰۰۰ تومان • ورود به درگاه دونیت Donofa" else "$4.99 • Donofa Gateway",
-                            onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://donofa.com/parsaghorbani"))
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {}
-                                UserProfileManager.markAsSupporter(context, viaAd = false)
-                                Toast.makeText(
-                                    context,
-                                    if (isFa) "خیلی باارزش و دلگرم‌کننده بود! پروفایل شما طلایی شد 🍕✨" else "Huge thanks for your generosity! ✨",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                                onSupportSuccess()
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Support Option 5: Golden Sponsor (Opens Donofa)
-                        SupportOptionCard(
-                            emoji = "🌟",
-                            title = if (isFa) "حامی طلایی و ویژه آئورا" else "Golden Patron",
-                            desc = if (isFa) "۳۰۰,۰۰۰ تومان • ورود به درگاه دونیت Donofa" else "$9.99 • Donofa Gateway",
-                            isHighlight = true,
-                            onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://donofa.com/parsaghorbani"))
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {}
-                                UserProfileManager.markAsSupporter(context, viaAd = false)
-                                Toast.makeText(
-                                    context,
-                                    if (isFa) "شما یک فرشته مهربان هستید! دستاورد حامی طلایی باز شد 🌟❤️" else "You are awesome! Golden Patron unlocked 🌟",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                                onSupportSuccess()
-                            }
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     // Promo / Gift Code Toggle
                     TextButton(
@@ -516,11 +297,14 @@ fun SupportDonationDialog(
                             Button(
                                 onClick = {
                                     if (promoCodeInput.trim().isNotEmpty()) {
-                                        UserProfileManager.markAsSupporter(context, viaAd = false)
+                                        val unlockedAngel = UserProfileManager.recordDonation(context, 100_000)
                                         Toast.makeText(
                                             context,
-                                            if (isFa) "کد هدیه تایید شد! نشان کاربر مهربون فعال شد ✨" else "Gift code applied! ✨",
-                                            Toast.LENGTH_SHORT
+                                            if (unlockedAngel)
+                                                "کد هدیه تایید شد! مدال «فرشته نجات سازنده 💙» برای شما آنلاک شد."
+                                            else
+                                                "کد هدیه تایید شد! نشان کاربر مهربون فعال شد ✨",
+                                            Toast.LENGTH_LONG
                                         ).show()
                                         onSupportSuccess()
                                     }
@@ -538,11 +322,68 @@ fun SupportDonationDialog(
     }
 }
 
+private fun handleDonationProcess(
+    activity: Activity?,
+    context: android.content.Context,
+    sku: String,
+    amountToman: Int,
+    isFa: Boolean,
+    onPurchasingStateChange: (Boolean) -> Unit,
+    onSuccess: () -> Unit
+) {
+    if (activity != null) {
+        onPurchasingStateChange(true)
+        MyketBillingManager.launchPurchase(
+            activity = activity,
+            sku = sku,
+            onSuccess = {
+                onPurchasingStateChange(false)
+                val unlockedAngel = UserProfileManager.recordDonation(context, amountToman)
+                if (unlockedAngel) {
+                    Toast.makeText(
+                        context,
+                        if (isFa) "آچیومنت و مدال «فرشته نجات سازنده 💙» آنلاک شد! پیام برنامه‌نویس را در مدال‌ها بخوانید." else "Secret Guardian Angel badge unlocked! 💙",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        context,
+                        if (isFa) "بی‌نهایت از حمایت شیرین شما سپاسگزاریم ❤️" else "Thank you for your warm support! ❤️",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                onSuccess()
+            },
+            onError = { errorMsg ->
+                onPurchasingStateChange(false)
+                Toast.makeText(context, errorMsg, Toast.LENGTH_SHORT).show()
+            }
+        )
+    } else {
+        val unlockedAngel = UserProfileManager.recordDonation(context, amountToman)
+        if (unlockedAngel) {
+            Toast.makeText(
+                context,
+                if (isFa) "آچیومنت و مدال «فرشته نجات سازنده 💙» آنلاک شد! پیام برنامه‌نویس را در مدال‌ها بخوانید." else "Secret Guardian Angel badge unlocked! 💙",
+                Toast.LENGTH_LONG
+            ).show()
+        } else {
+            Toast.makeText(
+                context,
+                if (isFa) "حمایت شما ثبت شد! متشکریم ❤️" else "Thank you for supporting! ❤️",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+        onSuccess()
+    }
+}
+
 @Composable
 private fun SupportOptionCard(
     emoji: String,
     title: String,
     desc: String,
+    badgeNote: String? = null,
     isHighlight: Boolean = false,
     onClick: () -> Unit
 ) {
@@ -550,14 +391,15 @@ private fun SupportOptionCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(if (isHighlight) Color(0x33FFD700) else Color(0xFF141727))
+            .background(if (isHighlight) Color(0x3300E676) else Color(0xFF141727))
             .border(
-                width = 1.dp,
-                color = if (isHighlight) Color(0xFFFFD700).copy(alpha = 0.6f) else Color.White.copy(alpha = 0.1f),
+                width = 1.2.dp,
+                color = if (isHighlight) Color(0xFF00E676).copy(alpha = 0.7f) else Color.White.copy(alpha = 0.1f),
                 shape = RoundedCornerShape(16.dp)
             )
             .clickable { onClick() }
             .padding(14.dp)
+            .testTag("support_option_card")
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -571,12 +413,31 @@ private fun SupportOptionCard(
                 Text(text = emoji, fontSize = 24.sp)
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
-                    Text(
-                        text = title,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = title,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.5.sp
+                        )
+                        if (badgeNote != null) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isHighlight) Color(0xFF00E676) else Color(0xFFFF4081))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = badgeNote,
+                                    color = Color.Black,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = desc,
                         color = Color(0xFFA0A5BA),

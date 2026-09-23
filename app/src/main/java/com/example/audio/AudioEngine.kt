@@ -97,11 +97,30 @@ class AudioEngine(private val context: Context) {
                 }
 
                 override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+                    val hadExternal = _connectedDevice.value != null
                     updateConnectedAudioDevices()
+                    val hasExternalNow = _connectedDevice.value != null
+                    if (hadExternal && !hasExternalNow && (_status.value == PlayerStatus.PLAYING || _isPlayWhenReady.value)) {
+                        Log.d(tag, "External audio device (Headphones/Bluetooth/Speaker) disconnected during playback -> PAUSING IMMEDIATELY")
+                        pause()
+                    }
                 }
             }
             audioManager.registerAudioDeviceCallback(callback, null)
             deviceCallback = callback
+
+            val noisyReceiver = object : android.content.BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: android.content.Intent?) {
+                    if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                        Log.d(tag, "ACTION_AUDIO_BECOMING_NOISY received -> PAUSING IMMEDIATELY to prevent internal speaker leak")
+                        pause()
+                    }
+                }
+            }
+            context.registerReceiver(
+                noisyReceiver,
+                android.content.IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+            )
         } catch (e: Exception) {
             Log.w(tag, "AudioDeviceCallback registration failed: ${e.message}")
         }
@@ -621,12 +640,6 @@ class AudioEngine(private val context: Context) {
         _currentPosition.value = safePos
         val mp = mediaPlayer
         if (mp != null && isPlayerPrepared) {
-            if (isSeekingInProgress) {
-                // If a seek is currently in progress, store the latest requested position
-                // so it will be dispatched as soon as the current seek finishes
-                pendingSeekPos = safePos
-                return
-            }
             dispatchSeek(safePos)
         }
     }
@@ -634,21 +647,9 @@ class AudioEngine(private val context: Context) {
     private fun dispatchSeek(safePos: Long) {
         val mp = mediaPlayer ?: return
         if (!isPlayerPrepared) return
-        isSeekingInProgress = true
+        isSeekingInProgress = false
         lastSeekTimestamp = System.currentTimeMillis()
-
         seekWatchdogJob?.cancel()
-        seekWatchdogJob = engineScope.launch {
-            delay(350L)
-            if (isSeekingInProgress) {
-                isSeekingInProgress = false
-                val next = pendingSeekPos
-                pendingSeekPos = null
-                if (next != null) {
-                    dispatchSeek(next)
-                }
-            }
-        }
 
         try {
             val mpDur = try { mp.duration.toLong() } catch (_: Exception) { -1L }
@@ -663,9 +664,6 @@ class AudioEngine(private val context: Context) {
             }
         } catch (e: Exception) {
             Log.e(tag, "Error seeking to $safePos", e)
-            seekWatchdogJob?.cancel()
-            isSeekingInProgress = false
-            pendingSeekPos = null
         }
     }
 

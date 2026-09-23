@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -79,6 +80,7 @@ fun HomeScreen(
 ) {
     val lang = appSettings.language
     val context = LocalContext.current
+    var showFocusInfoDialog by remember { mutableStateOf(false) }
 
     val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
     val timeSlotGreeting = when (currentHour) {
@@ -122,15 +124,18 @@ fun HomeScreen(
 
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     // Focus Mode Pill
-                    Box(
+                    Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(16.dp))
                             .background(if (appSettings.focusModeEnabled) palette.accent.copy(alpha = 0.30f) else Color(0x18FFFFFF))
                             .border(1.dp, if (appSettings.focusModeEnabled) palette.accent else Color(0x30FFFFFF), RoundedCornerShape(16.dp))
-                            .clickable { onToggleFocusMode() }
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier.clickable { onToggleFocusMode() },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.SelfImprovement,
                                 contentDescription = "Focus",
@@ -145,6 +150,15 @@ fun HomeScreen(
                                 fontWeight = FontWeight.Bold
                             )
                         }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "Focus Info",
+                            tint = Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier
+                                .size(15.dp)
+                                .clickable { showFocusInfoDialog = true }
+                        )
                     }
 
                     Box(
@@ -189,49 +203,6 @@ fun HomeScreen(
                     },
                     onExpandNowPlaying = onExpandNowPlaying
                 )
-            }
-        }
-
-        // Instant Resume Notification Pill
-        if (didRestoreSession && playbackState.currentTrack != null) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .liquidGlass(
-                            shape = RoundedCornerShape(16.dp),
-                            thickness = GlassThickness.THIN,
-                            tintColor = palette.secondary,
-                            tintAlpha = 0.18f,
-                            borderWidth = 1.dp
-                        )
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Icon(
-                                imageVector = Icons.Default.Restore,
-                                contentDescription = null,
-                                tint = palette.secondary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "${Localization.getString("welcome_back", lang)} • ${playbackState.currentTrack.title}",
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Medium
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
             }
         }
 
@@ -666,6 +637,14 @@ fun HomeScreen(
             }
         }
     }
+
+    if (showFocusInfoDialog) {
+        FocusModeExplainerDialog(
+            lang = lang,
+            palette = palette,
+            onDismiss = { showFocusInfoDialog = false }
+        )
+    }
 }
 
 @Composable
@@ -718,14 +697,29 @@ private fun HeroQuickPlayCard(
 
     val rotationAngle = if (isPlaying) playingAngle else 0f
 
+    val beatTransition = rememberInfiniteTransition(label = "heroCoverBeat")
+    val beatScale by if (isPlaying) {
+        beatTransition.animateFloat(
+            initialValue = 0.96f,
+            targetValue = 1.10f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 420, easing = FastOutSlowInEasing),
+                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+            ),
+            label = "beatScale"
+        )
+    } else {
+        remember { mutableFloatStateOf(1f) }
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
             .shadow(
-                elevation = 22.dp,
+                elevation = 28.dp,
                 shape = cardShape,
-                spotColor = animColor1.copy(alpha = 0.70f),
-                ambientColor = animColor2.copy(alpha = 0.55f)
+                spotColor = animColor1.copy(alpha = 0.85f),
+                ambientColor = animColor2.copy(alpha = 0.65f)
             )
             .clip(cardShape)
             .clickable {
@@ -737,45 +731,77 @@ private fun HeroQuickPlayCard(
             }
             .testTag("hero_quick_play_card")
     ) {
-        // Rotating 3-Color Dynamic Sweep Gradient Canvas (stops when paused, spins smoothly when playing)
+        // Layer 1: Deep atmospheric ambient background base
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(Color(0xFF090B14))
+        )
+
+        // Layer 2: Rotating 3-Color Dynamic Sweep Gradient Canvas with optimized cached brush
+        val sweepColors = remember(animColor1, animColor2, animColor3) {
+            listOf(
+                animColor1.copy(alpha = 0.95f),
+                animColor2.copy(alpha = 0.90f),
+                animColor3.copy(alpha = 0.95f),
+                animColor1.copy(alpha = 0.85f),
+                animColor2.copy(alpha = 0.92f),
+                animColor3.copy(alpha = 0.88f),
+                animColor1.copy(alpha = 0.95f)
+            )
+        }
         Canvas(modifier = Modifier.matchParentSize()) {
-            rotate(rotationAngle) {
+            val centerOffset = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
+            rotate(rotationAngle, pivot = centerOffset) {
                 drawCircle(
                     brush = Brush.sweepGradient(
-                        colors = listOf(
-                            animColor1,
-                            animColor2,
-                            animColor3,
-                            animColor1,
-                            animColor2,
-                            animColor3,
-                            animColor1
-                        )
+                        colors = sweepColors,
+                        center = centerOffset
                     ),
-                    radius = size.maxDimension * 1.1f
+                    radius = size.maxDimension * 1.25f,
+                    center = centerOffset
                 )
             }
         }
 
-        // Soft internal ambient overlay for depth, glow and contrast
+        // Layer 3: Soft blurred radial dispersion glow in the center for smooth silky luminescence
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.15f),
+                            Color.Black.copy(alpha = 0.55f)
+                        ),
+                        radius = 450f
+                    )
+                )
+        )
+
+        // Layer 4: Glassmorphic frost overlay with elegant double-border glow
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            Color.Black.copy(alpha = 0.05f),
-                            Color.Black.copy(alpha = 0.22f)
+                            Color.White.copy(alpha = 0.08f),
+                            Color.Black.copy(alpha = 0.18f),
+                            Color.Black.copy(alpha = 0.40f)
                         )
                     )
                 )
                 .border(
-                    width = 1.2.dp,
-                    brush = Brush.linearGradient(
+                    width = 1.4.dp,
+                    brush = Brush.sweepGradient(
                         listOf(
-                            Color.White.copy(alpha = 0.50f),
-                            animColor3.copy(alpha = 0.40f),
-                            Color.White.copy(alpha = 0.20f)
+                            Color.White.copy(alpha = 0.70f),
+                            animColor3.copy(alpha = 0.60f),
+                            Color.White.copy(alpha = 0.25f),
+                            animColor1.copy(alpha = 0.70f),
+                            Color.White.copy(alpha = 0.70f)
                         )
                     ),
                     shape = cardShape
@@ -849,29 +875,50 @@ private fun HeroQuickPlayCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Compact Album Art
-                Box(
-                    modifier = Modifier
-                        .size(54.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0x33000000))
-                        .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (!heroTrack?.artworkUri.isNullOrEmpty()) {
-                        coil.compose.AsyncImage(
-                            model = heroTrack?.artworkUri,
-                            contentDescription = heroTrack?.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
+                // Compact Album Art with glowing backlight and beat pulse bounce
+                Box(contentAlignment = Alignment.Center) {
+                    if (isPlaying) {
+                        Box(
+                            modifier = Modifier
+                                .size(54.dp)
+                                .scale(beatScale * 1.15f)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.radialGradient(
+                                        colors = listOf(
+                                            animColor3.copy(alpha = 0.90f),
+                                            animColor1.copy(alpha = 0.60f),
+                                            Color.Transparent
+                                        )
+                                    )
+                                )
                         )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.MusicNote,
-                            contentDescription = null,
-                            tint = Color.White.copy(alpha = 0.9f),
-                            modifier = Modifier.size(28.dp)
-                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .scale(beatScale)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0x33000000))
+                            .border(1.2.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!heroTrack?.artworkUri.isNullOrEmpty()) {
+                            coil.compose.AsyncImage(
+                                model = heroTrack?.artworkUri,
+                                contentDescription = heroTrack?.title,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.MusicNote,
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.9f),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
                 }
 
@@ -945,4 +992,88 @@ private fun formatHeroDuration(ms: Long): String {
     val min = totalSec / 60
     val sec = totalSec % 60
     return "%d:%02d".format(min, sec)
+}
+
+@Composable
+private fun FocusModeExplainerDialog(
+    lang: AppLanguage,
+    palette: AmbientPalette,
+    onDismiss: () -> Unit
+) {
+    val isFa = lang == AppLanguage.PERSIAN
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .liquidGlass(
+                    shape = RoundedCornerShape(26.dp),
+                    thickness = GlassThickness.THICK,
+                    tintColor = palette.primary,
+                    tintAlpha = 0.22f,
+                    borderWidth = 1.2.dp
+                )
+                .padding(22.dp)
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(palette.accent.copy(alpha = 0.25f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SelfImprovement,
+                        contentDescription = null,
+                        tint = palette.accent,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = if (isFa) "حالت تمرکز و مطالعه (Focus Mode) 🎧" else "Focus & Deep Study Mode 🎧",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                        fontSize = 16.sp
+                    ),
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = if (isFa)
+                        "حالت تمرکز برای اوقاتی طراحی شده که می‌خواهید مطالعه کنید، برنامه‌نویسی کنید، کار کنید یا عمیقاً تمرکز داشته باشید.\n\nبا فعال کردن این گزینه، اعلان‌ها و شلوغی‌های اضافه برنامه کنار رفته و ریتم‌های آرامش‌بخش، فرکانس‌های آلفا و ابزارهای تمرکز برای افزایش بهره‌وری شما اماده می‌شوند."
+                    else
+                        "Focus Mode is designed for study sessions, coding, deep work, or relaxation.\n\nWhen activated, unnecessary visual distractions are reduced and calming ambient flows keep you centered and productive.",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        color = Color(0xFFD1D5DB),
+                        fontSize = 12.5.sp,
+                        lineHeight = 20.sp
+                    ),
+                    textAlign = TextAlign.Justify
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(containerColor = palette.accent),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = if (isFa) "متوجه شدم 👍" else "Got It 👍",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
 }

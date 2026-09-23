@@ -37,22 +37,35 @@ fun MusicFlashbackCard(
     currentTrack: Track?,
     palette: AmbientPalette,
     language: AppLanguage,
+    customInsight: FunMusicInsight? = null,
     onShareInsight: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isFa = language == AppLanguage.PERSIAN
-    val track = currentTrack ?: Track(
-        id = "sample",
-        title = "آهنگ محبوب شما",
-        artist = "هنرمند منتخب",
-        album = "آلبوم اختصاصی",
-        durationMs = 210000L,
-        uri = ""
-    )
-
-    var insight by remember(track.id) {
-        mutableStateOf(UserProfileManager.generateFunInsight(track.title, track.artist, (4..12).random().toFloat()))
+    val fallbackInsight = remember(currentTrack) {
+        if (currentTrack != null) {
+            FunMusicInsight(
+                trackTitle = currentTrack.title,
+                artistName = currentTrack.artist,
+                messageFa = "🎧 قطعه «${currentTrack.title}» اثر ${currentTrack.artist} در حال پخش است.",
+                messageEn = "Currently playing \"${currentTrack.title}\" by ${currentTrack.artist}.",
+                badgeEmoji = "🎵",
+                statHighlight = "در حال پخش"
+            )
+        } else {
+            FunMusicInsight(
+                trackTitle = "",
+                artistName = "",
+                messageFa = "هنوز آهنگی پخش نشده است. با پخش موسیقی‌های مورد علاقه‌تان، خاطرات و فکت‌های واقعی شما در دیتابیس ثبت می‌شود.",
+                messageEn = "No music played yet. Start playing your favorite tracks to generate real music memories!",
+                badgeEmoji = "🎧",
+                statHighlight = "دفترچه خاطرات موسیقی"
+            )
+        }
     }
+
+    var refreshedInsight by remember { mutableStateOf<FunMusicInsight?>(null) }
+    val insight = refreshedInsight ?: customInsight ?: fallbackInsight
 
     Box(
         modifier = modifier
@@ -97,7 +110,9 @@ fun MusicFlashbackCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     IconButton(
                         onClick = {
-                            insight = UserProfileManager.generateFunInsight(track.title, track.artist, (3..14).random().toFloat())
+                            val title = currentTrack?.title ?: "آهنگ"
+                            val artist = currentTrack?.artist ?: "هنرمند"
+                            refreshedInsight = UserProfileManager.generateFunInsight(title, artist, (3..14).random().toFloat())
                         },
                         modifier = Modifier.size(32.dp)
                     ) {

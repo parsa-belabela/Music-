@@ -183,6 +183,7 @@ fun SettingsScreen(
                 currentTrack = null,
                 palette = palette,
                 language = lang,
+                customInsight = userProfile?.currentInsight,
                 onShareInsight = { text ->
                     val sendIntent = android.content.Intent().apply {
                         action = android.content.Intent.ACTION_SEND
@@ -915,7 +916,7 @@ private fun UserProfileCard(
                     text = if (p.isSupporter) {
                         if (isFa) "شما حامی مهربون برنامه هستید ❤️ (افزایش حمایت)" else "You are a Kind Supporter ❤️ (Donate More)"
                     } else {
-                        if (isFa) "حمایت از سازنده و برنامه ❤️ (رایگان با دیدن تبلیغ یا دونیت)" else "Support the Developer ❤️ (Free Ad or Donation)"
+                        if (isFa) "حمایت از برنامه و سازنده ❤️ (رایگان با دیدن تبلیغ یا خرید مایکت)" else "Support Developer ❤️ (Free Ad or Myket Purchase)"
                     },
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp

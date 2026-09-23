@@ -112,6 +112,21 @@ interface MusicDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPlaybackEvent(event: PlaybackEvent)
 
+    @Query("SELECT COUNT(*) FROM tracks WHERE isFavorite = 1 AND isHiddenDuplicate = 0")
+    suspend fun getFavoriteCount(): Int
+
+    @Query("SELECT COUNT(*) FROM tracks WHERE isFavorite = 1 AND isHiddenDuplicate = 0")
+    fun getFavoriteCountFlow(): Flow<Int>
+
+    @Query("SELECT COALESCE(SUM(playCount), 0) FROM tracks")
+    suspend fun getTotalPlayCount(): Int
+
+    @Query("SELECT * FROM tracks WHERE playCount > 0 ORDER BY playCount DESC LIMIT 1")
+    suspend fun getTopPlayedTrack(): Track?
+
+    @Query("SELECT * FROM tracks WHERE lastPlayedTimestamp > 0 ORDER BY lastPlayedTimestamp DESC LIMIT 1")
+    suspend fun getLastPlayedTrack(): Track?
+
     @Query("SELECT * FROM playback_events ORDER BY timestamp DESC")
     fun getAllPlaybackEventsFlow(): Flow<List<PlaybackEvent>>
 

@@ -12,6 +12,14 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="${marketPermission}" />
+
+    <queries>
+        <package android:name="${marketApplicationId}" />
+        <intent>
+            <action android:name="${marketBindAddress}" />
+        </intent>
+    </queries>
 
     <application
         android:name=".AuraApplication"

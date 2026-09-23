@@ -21,6 +21,19 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    val marketApplicationId = "ir.mservices.market"
+    val marketBindAddress = "ir.mservices.market.InAppBillingService.BIND"
+    manifestPlaceholders.apply {
+      this["marketApplicationId"] = marketApplicationId
+      this["marketBindAddress"] = marketBindAddress
+      this["marketPermission"] = "${marketApplicationId}.BILLING"
+    }
+    buildConfigField(
+      "String",
+      "IAB_PUBLIC_KEY",
+      "\"\""
+    )
   }
 
   signingConfigs {
@@ -119,6 +132,7 @@ dependencies {
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
+  implementation("com.github.myketstore:myket-billing-client:1.6")
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)

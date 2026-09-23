@@ -11,6 +11,7 @@ import com.example.audio.ArtworkPaletteExtractor
 import com.example.audio.AudioAnalysisData
 import com.example.audio.DeviceVolumeMemory
 import com.example.data.model.*
+import com.example.data.repository.UserProfileManager
 import com.example.lyrics.LrcParser
 import com.example.service.AudioPlaybackService
 import com.example.ui.components.DuplicateGroup
@@ -345,6 +346,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             _activePalette.value = palette
 
             repository.recordPlay(track.id)
+            UserProfileManager.refreshProfileWithDatabase(app, repository)
             saveLastPlayback(track.id, queue.map { it.id }, startPositionMs)
 
             if (_appSettings.value.preloadNextTrack && queue.size > 1) {
@@ -422,24 +424,31 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         val state = _playbackState.value
         if (state.queue.isEmpty()) return
 
-        val nextIndex = when (state.shuffleMode) {
-            ShuffleMode.OFF -> (state.queueIndex + 1) % state.queue.size
-            ShuffleMode.SHUFFLE -> state.queue.indices.random()
-            ShuffleMode.INTELLIGENT -> {
-                // Feature 5: Intelligent energy & tempo transition
-                val curProfile = _currentTrackAudioProfile.value
-                val curEnergy = curProfile?.energyLevel ?: 0.5f
-                val candidateIndices = state.queue.indices.filter { it != state.queueIndex }
-                if (candidateIndices.isNotEmpty()) {
-                    candidateIndices.random()
-                } else {
-                    0
+        if (state.shuffleMode != ShuffleMode.OFF) {
+            if (shuffledQueue.isEmpty()) {
+                val curTrack = state.currentTrack
+                val rest = state.queue.filter { it.id != curTrack?.id }.shuffled()
+                shuffledQueue = if (curTrack != null) listOf(curTrack) + rest else rest
+                shuffledQueueIndex = 0
+            } else {
+                shuffledQueueIndex++
+                if (shuffledQueueIndex >= shuffledQueue.size) {
+                    shuffledQueueIndex = 0
+                    val curTrack = state.currentTrack
+                    val pool = if (originalQueue.isNotEmpty()) originalQueue else state.queue
+                    val rest = pool.filter { it.id != curTrack?.id }.shuffled()
+                    shuffledQueue = if (curTrack != null) listOf(curTrack) + rest else rest
                 }
             }
+            val next = shuffledQueue.getOrNull(shuffledQueueIndex)
+            if (next != null) {
+                playTrack(next, shuffledQueue)
+            }
+        } else {
+            val nextIndex = (state.queueIndex + 1) % state.queue.size
+            val next = state.queue.getOrNull(nextIndex) ?: return
+            playTrack(next, state.queue)
         }
-
-        val next = state.queue.getOrNull(nextIndex) ?: return
-        playTrack(next, state.queue)
     }
 
     fun previousTrack() {
@@ -450,9 +459,23 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
 
         if (state.queue.isEmpty()) return
-        val prevIndex = if (state.queueIndex - 1 < 0) state.queue.size - 1 else state.queueIndex - 1
-        val prev = state.queue.getOrNull(prevIndex) ?: return
-        playTrack(prev, state.queue)
+
+        if (state.shuffleMode != ShuffleMode.OFF) {
+            if (shuffledQueue.isNotEmpty()) {
+                shuffledQueueIndex--
+                if (shuffledQueueIndex < 0) {
+                    shuffledQueueIndex = (shuffledQueue.size - 1).coerceAtLeast(0)
+                }
+                val prev = shuffledQueue.getOrNull(shuffledQueueIndex)
+                if (prev != null) {
+                    playTrack(prev, shuffledQueue)
+                }
+            }
+        } else {
+            val prevIndex = if (state.queueIndex - 1 < 0) state.queue.size - 1 else state.queueIndex - 1
+            val prev = state.queue.getOrNull(prevIndex) ?: return
+            playTrack(prev, state.queue)
+        }
     }
 
     private fun handleTrackCompleted() {
@@ -510,10 +533,38 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun setShuffleMode(mode: ShuffleMode) {
-        _playbackState.update {
-            it.copy(
-                shuffleMode = mode
-            )
+        val currentQueue = _playbackState.value.queue
+        val currentTrack = _playbackState.value.currentTrack
+
+        if (mode != ShuffleMode.OFF) {
+            if (originalQueue.isEmpty()) {
+                originalQueue = currentQueue
+            }
+            if (currentTrack != null) {
+                val rest = originalQueue.filter { it.id != currentTrack.id }.shuffled()
+                shuffledQueue = listOf(currentTrack) + rest
+                shuffledQueueIndex = 0
+            } else {
+                shuffledQueue = originalQueue.shuffled()
+                shuffledQueueIndex = 0
+            }
+            _playbackState.update {
+                it.copy(
+                    shuffleMode = mode,
+                    queue = shuffledQueue,
+                    queueIndex = 0
+                )
+            }
+        } else {
+            val restoredQueue = if (originalQueue.isNotEmpty()) originalQueue else currentQueue
+            val idx = if (currentTrack != null) restoredQueue.indexOfFirst { it.id == currentTrack.id }.coerceAtLeast(0) else 0
+            _playbackState.update {
+                it.copy(
+                    shuffleMode = ShuffleMode.OFF,
+                    queue = restoredQueue,
+                    queueIndex = idx
+                )
+            }
         }
     }
 
@@ -556,6 +607,16 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     // Lyrics
+    private var originalQueue: List<Track> = emptyList()
+    private var shuffledQueue: List<Track> = emptyList()
+    private var shuffledQueueIndex: Int = 0
+
+    fun refreshUserProfile() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            UserProfileManager.refreshProfileWithDatabase(app, repository)
+        }
+    }
+
     private fun loadLyricsForTrack(trackId: String) {
         lyricsJob?.cancel()
         lyricsJob = viewModelScope.launch {

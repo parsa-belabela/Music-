@@ -36,6 +36,9 @@ class AuraApplication : Application() {
         super.onCreate()
         instance = this
 
+        // Initialize AudioEngine eagerly so audio routing & device callbacks are registered
+        audioEngine.let { }
+
         applicationScope.launch {
             repository.initDefaultDataIfNeeded()
         }
