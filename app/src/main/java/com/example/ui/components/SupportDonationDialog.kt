@@ -1,5 +1,7 @@
 package com.example.ui.components
 
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -204,7 +206,7 @@ fun SupportDonationDialog(
                             }
                         }
                     } else {
-                        // Support Option 1: Free Ad Support (Prominently Highlighted)
+                        // Support Option 1: Direct Donofa Donation Portal (Primary & Direct)
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -212,12 +214,110 @@ fun SupportDonationDialog(
                                 .background(
                                     Brush.horizontalGradient(
                                         listOf(
-                                            Color(0xFFFF4081).copy(alpha = 0.28f),
-                                            Color(0xFF7C4DFF).copy(alpha = 0.20f)
+                                            Color(0xFFFFD700).copy(alpha = 0.28f),
+                                            Color(0xFFFF9100).copy(alpha = 0.22f)
                                         )
                                     )
                                 )
-                                .border(1.5.dp, Color(0xFFFF4081), RoundedCornerShape(18.dp))
+                                .border(1.5.dp, Color(0xFFFFD700), RoundedCornerShape(18.dp))
+                                .clickable {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://donofa.com/parsaghorbani"))
+                                        context.startActivity(intent)
+                                        UserProfileManager.markAsSupporter(context, viaAd = false)
+                                        onSupportSuccess()
+                                    } catch (_: Exception) {
+                                        Toast.makeText(
+                                            context,
+                                            if (isFa) "خطا در باز کردن مرورگر: https://donofa.com/parsaghorbani" else "Could not open browser",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                                .padding(16.dp)
+                                .testTag("support_via_donofa_button")
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(46.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFFFD700)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Favorite,
+                                            contentDescription = null,
+                                            tint = Color.Black,
+                                            modifier = Modifier.size(26.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = if (isFa) "حمایت مالی مستقیم در دونو‌فا" else "Direct Donate via Donofa",
+                                                color = Color.White,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 14.5.sp
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(Color(0xFFFFD700))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = "donofa.com",
+                                                    color = Color.Black,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.ExtraBold
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = if (isFa) "ورود به درگاه امن Donofa برای حمایت دلخواه شما از پارسا قربانی ❤️" else "Open secure donation page on Donofa",
+                                            color = Color(0xFFE2E4F0),
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+
+                                Icon(
+                                    imageVector = Icons.Default.OpenInNew,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFFD700),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Support Option 2: Free Ad Support (Prominently Highlighted)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            Color(0xFFFF4081).copy(alpha = 0.22f),
+                                            Color(0xFF7C4DFF).copy(alpha = 0.16f)
+                                        )
+                                    )
+                                )
+                                .border(1.2.dp, Color(0xFFFF4081).copy(alpha = 0.8f), RoundedCornerShape(18.dp))
                                 .clickable {
                                     isWatchingAd = true
                                     adProgress = 0f
@@ -236,7 +336,7 @@ fun SupportDonationDialog(
                                         onSupportSuccess()
                                     }
                                 }
-                                .padding(16.dp)
+                                .padding(14.dp)
                                 .testTag("support_via_ad_button")
                         ) {
                             Row(
@@ -250,7 +350,7 @@ fun SupportDonationDialog(
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(44.dp)
+                                            .size(42.dp)
                                             .clip(CircleShape)
                                             .background(Color(0xFFFF4081)),
                                         contentAlignment = Alignment.Center
@@ -259,7 +359,7 @@ fun SupportDonationDialog(
                                             imageVector = Icons.Default.PlayCircle,
                                             contentDescription = null,
                                             tint = Color.White,
-                                            modifier = Modifier.size(26.dp)
+                                            modifier = Modifier.size(24.dp)
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(12.dp))
@@ -268,28 +368,28 @@ fun SupportDonationDialog(
                                             Text(
                                                 text = if (isFa) "تماشای یک تبلیغ (حمایت رایگان)" else "Watch 1 Ad (Free Support)",
                                                 color = Color.White,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                fontSize = 14.sp
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.5.sp
                                             )
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Box(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(6.dp))
-                                                    .background(Color(0xFFFFD700))
+                                                    .background(Color.White.copy(alpha = 0.2f))
                                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                                             ) {
                                                 Text(
-                                                    text = if (isFa) "۴۸ ساعت نشان طلایی" else "48h Badge",
-                                                    color = Color.Black,
+                                                    text = if (isFa) "رایگان" else "Free",
+                                                    color = Color.White,
                                                     fontSize = 9.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                             }
                                         }
                                         Text(
-                                            text = if (isFa) "با صرف ۲۰ ثانیه، یک حمایت خیلی بزرگ و دلگرم‌کننده انجام می‌دهید ❤️" else "Spend 20s to warmly support the app's creator!",
+                                            text = if (isFa) "با صرف ۲۰ ثانیه، یک حمایت خیلی بزرگ و دلگرم‌کننده انجام می‌دهید" else "Spend 20s to warmly support!",
                                             color = Color(0xFFC0C5D8),
-                                            fontSize = 11.sp
+                                            fontSize = 10.5.sp
                                         )
                                     }
                                 }
@@ -297,20 +397,24 @@ fun SupportDonationDialog(
                                 Icon(
                                     imageVector = Icons.Default.ArrowForwardIos,
                                     contentDescription = null,
-                                    tint = Color.White.copy(alpha = 0.7f),
-                                    modifier = Modifier.size(16.dp)
+                                    tint = Color.White.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(15.dp)
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                        // Support Option 2: Coffee
+                        // Support Option 3: Coffee (Opens Donofa)
                         SupportOptionCard(
                             emoji = "☕",
                             title = if (isFa) "یک فنجان قهوه گرم" else "Buy a Warm Coffee",
-                            desc = if (isFa) "۵۰,۰۰۰ تومان • انرژی برای کدنویسی" else "$1.99 • Coding Fuel",
+                            desc = if (isFa) "۵۰,۰۰۰ تومان • ورود به درگاه دونیت Donofa" else "$1.99 • Donofa Gateway",
                             onClick = {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://donofa.com/parsaghorbani"))
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {}
                                 UserProfileManager.markAsSupporter(context, viaAd = false)
                                 Toast.makeText(
                                     context,
@@ -323,12 +427,16 @@ fun SupportDonationDialog(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Support Option 3: Pizza
+                        // Support Option 4: Pizza (Opens Donofa)
                         SupportOptionCard(
                             emoji = "🍕",
                             title = if (isFa) "یک پیتزای دورهمی" else "Buy a Pizza",
-                            desc = if (isFa) "۱۵۰,۰۰۰ تومان • حمایت ماندگار و پرانرژی" else "$4.99 • Pizza Party",
+                            desc = if (isFa) "۱۵۰,۰۰۰ تومان • ورود به درگاه دونیت Donofa" else "$4.99 • Donofa Gateway",
                             onClick = {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://donofa.com/parsaghorbani"))
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {}
                                 UserProfileManager.markAsSupporter(context, viaAd = false)
                                 Toast.makeText(
                                     context,
@@ -341,13 +449,17 @@ fun SupportDonationDialog(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Support Option 4: Golden Sponsor
+                        // Support Option 5: Golden Sponsor (Opens Donofa)
                         SupportOptionCard(
                             emoji = "🌟",
                             title = if (isFa) "حامی طلایی و ویژه آئورا" else "Golden Patron",
-                            desc = if (isFa) "۳۰۰,۰۰۰ تومان • نام شما در قلب برنامه" else "$9.99 • Forever Patron",
+                            desc = if (isFa) "۳۰۰,۰۰۰ تومان • ورود به درگاه دونیت Donofa" else "$9.99 • Donofa Gateway",
                             isHighlight = true,
                             onClick = {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://donofa.com/parsaghorbani"))
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {}
                                 UserProfileManager.markAsSupporter(context, viaAd = false)
                                 Toast.makeText(
                                     context,

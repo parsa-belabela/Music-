@@ -690,40 +690,42 @@ private fun HeroQuickPlayCard(
     // Smooth color animation when artwork/palette changes
     val animColor1 by androidx.compose.animation.animateColorAsState(
         targetValue = palette.primary,
-        animationSpec = tween(500, easing = FastOutSlowInEasing),
+        animationSpec = tween(400, easing = FastOutSlowInEasing),
         label = "heroColor1"
     )
     val animColor2 by androidx.compose.animation.animateColorAsState(
         targetValue = palette.secondary,
-        animationSpec = tween(500, easing = FastOutSlowInEasing),
+        animationSpec = tween(400, easing = FastOutSlowInEasing),
         label = "heroColor2"
     )
     val animColor3 by androidx.compose.animation.animateColorAsState(
         targetValue = palette.accent,
-        animationSpec = tween(500, easing = FastOutSlowInEasing),
+        animationSpec = tween(400, easing = FastOutSlowInEasing),
         label = "heroColor3"
     )
 
-    // Continuous 360 degree ambient light beam rotation
+    // Dynamic rotation: spins fast and smooth when playing (3200ms), stops completely when paused
     val infiniteTransition = rememberInfiniteTransition(label = "heroRotationBeam")
-    val rotationAngle by infiniteTransition.animateFloat(
+    val playingAngle by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = if (isPlaying) 6000 else 14000, easing = LinearEasing),
+            animation = tween(durationMillis = 3200, easing = LinearEasing),
             repeatMode = androidx.compose.animation.core.RepeatMode.Restart
         ),
         label = "lightBeamAngle"
     )
 
+    val rotationAngle = if (isPlaying) playingAngle else 0f
+
     Box(
         modifier = modifier
             .fillMaxWidth()
             .shadow(
-                elevation = 24.dp,
+                elevation = 22.dp,
                 shape = cardShape,
-                spotColor = animColor1.copy(alpha = 0.65f),
-                ambientColor = animColor2.copy(alpha = 0.5f)
+                spotColor = animColor1.copy(alpha = 0.70f),
+                ambientColor = animColor2.copy(alpha = 0.55f)
             )
             .clip(cardShape)
             .clickable {
@@ -735,7 +737,7 @@ private fun HeroQuickPlayCard(
             }
             .testTag("hero_quick_play_card")
     ) {
-        // Rotating 3-Color Dynamic Sweep Gradient Canvas
+        // Rotating 3-Color Dynamic Sweep Gradient Canvas (stops when paused, spins smoothly when playing)
         Canvas(modifier = Modifier.matchParentSize()) {
             rotate(rotationAngle) {
                 drawCircle(
@@ -744,48 +746,48 @@ private fun HeroQuickPlayCard(
                             animColor1,
                             animColor2,
                             animColor3,
-                            animColor1.copy(alpha = 0.85f),
+                            animColor1,
                             animColor2,
-                            animColor3.copy(alpha = 0.9f),
+                            animColor3,
                             animColor1
                         )
                     ),
-                    radius = size.maxDimension * 1.05f
+                    radius = size.maxDimension * 1.1f
                 )
             }
         }
 
-        // Soft internal ambient overlay for depth and contrast
+        // Soft internal ambient overlay for depth, glow and contrast
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            Color.Black.copy(alpha = 0.08f),
-                            Color.Black.copy(alpha = 0.28f)
+                            Color.Black.copy(alpha = 0.05f),
+                            Color.Black.copy(alpha = 0.22f)
                         )
                     )
                 )
                 .border(
-                    width = 1.3.dp,
+                    width = 1.2.dp,
                     brush = Brush.linearGradient(
                         listOf(
-                            Color.White.copy(alpha = 0.45f),
-                            animColor3.copy(alpha = 0.35f),
-                            Color.White.copy(alpha = 0.15f)
+                            Color.White.copy(alpha = 0.50f),
+                            animColor3.copy(alpha = 0.40f),
+                            Color.White.copy(alpha = 0.20f)
                         )
                     ),
                     shape = cardShape
                 )
         )
 
-        // Card Content (Extra tall & elongated glowing frame with delicate compact internal elements)
+        // Card Content (Moderate medium height and balanced layout)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .defaultMinSize(minHeight = 230.dp)
-                .padding(horizontal = 24.dp, vertical = 34.dp),
+                .defaultMinSize(minHeight = 150.dp)
+                .padding(horizontal = 22.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             // Top Status Row
@@ -801,7 +803,7 @@ private fun HeroQuickPlayCard(
                             initialValue = 0.8f,
                             targetValue = 1.3f,
                             animationSpec = infiniteRepeatable(
-                                animation = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+                                animation = tween(durationMillis = 500, easing = FastOutSlowInEasing),
                                 repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
                             ),
                             label = "dotScale"
@@ -839,7 +841,7 @@ private fun HeroQuickPlayCard(
                 )
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             // Main Track Info Row (Compact artwork, small title & artist, compact play button)
             Row(
@@ -847,13 +849,13 @@ private fun HeroQuickPlayCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Smaller Compact Album Art
+                // Compact Album Art
                 Box(
                     modifier = Modifier
-                        .size(52.dp)
-                        .clip(RoundedCornerShape(13.dp))
+                        .size(54.dp)
+                        .clip(RoundedCornerShape(14.dp))
                         .background(Color(0x33000000))
-                        .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(13.dp)),
+                        .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     if (!heroTrack?.artworkUri.isNullOrEmpty()) {
@@ -868,21 +870,21 @@ private fun HeroQuickPlayCard(
                             imageVector = Icons.Default.MusicNote,
                             contentDescription = null,
                             tint = Color.White.copy(alpha = 0.9f),
-                            modifier = Modifier.size(26.dp)
+                            modifier = Modifier.size(28.dp)
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.width(14.dp))
 
-                // Smaller Title and Artist typography
+                // Title and Artist typography
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = heroTrack?.title ?: "",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
-                            fontSize = 16.5.sp
+                            fontSize = 17.sp
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -893,7 +895,7 @@ private fun HeroQuickPlayCard(
                         style = MaterialTheme.typography.bodySmall.copy(
                             fontWeight = FontWeight.Normal,
                             color = Color.White.copy(alpha = 0.85f),
-                            fontSize = 12.sp
+                            fontSize = 12.5.sp
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -905,8 +907,8 @@ private fun HeroQuickPlayCard(
                 // Compact refined play button
                 Box(
                     modifier = Modifier
-                        .size(50.dp)
-                        .shadow(12.dp, CircleShape, spotColor = animColor1)
+                        .size(52.dp)
+                        .shadow(14.dp, CircleShape, spotColor = animColor1)
                         .clip(CircleShape)
                         .background(
                             Brush.linearGradient(
@@ -930,7 +932,7 @@ private fun HeroQuickPlayCard(
                         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (isPlaying) "Pause" else "Play",
                         tint = animColor1,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(30.dp)
                     )
                 }
             }

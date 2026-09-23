@@ -229,29 +229,29 @@ object ArtworkPaletteExtractor {
                 }
             }
 
-            val rawPrimary = dominantColors.getOrNull(0) ?: Color(0xFF00E5FF)
-            val rawSecondary = dominantColors.getOrNull(1) ?: Color(0xFF8B5CF6)
-            val rawAccent = dominantColors.getOrNull(2) ?: Color(0xFFFF007F)
+            val rawPrimary = dominantColors.getOrNull(0) ?: Color(0xFFFF007F)
+            val rawSecondary = dominantColors.getOrNull(1) ?: Color(0xFF00E5FF)
+            val rawAccent = dominantColors.getOrNull(2) ?: Color(0xFFFF9100)
 
-            // Cinematic color grading: boost saturation and vibrance like a movie poster
-            val primary = enhanceCinematicVibrance(rawPrimary, boostSat = 1.25f, boostVal = 1.15f)
-            val secondary = enhanceCinematicVibrance(rawSecondary, boostSat = 1.20f, boostVal = 1.10f)
-            val accent = enhanceCinematicVibrance(rawAccent, boostSat = 1.30f, boostVal = 1.20f)
+            // Dynamic high-energy cinematic color grading: maximize saturation and luminosity for vibrant neon glow
+            val primary = enhanceCinematicVibrance(rawPrimary, boostSat = 1.40f, boostVal = 1.30f)
+            val secondary = enhanceCinematicVibrance(rawSecondary, boostSat = 1.35f, boostVal = 1.25f)
+            val accent = enhanceCinematicVibrance(rawAccent, boostSat = 1.45f, boostVal = 1.35f)
 
             // Compute perceived luminance (Rec. 709 / W3C formula)
             val perceivedLuminance = (0.299f * primary.red + 0.587f * primary.green + 0.114f * primary.blue)
             val isLightLuminance = perceivedLuminance > 0.62f
 
-            // Deep background atmosphere derived cleanly from primary color hue
+            // Deep background atmosphere derived cleanly and richly from primary color hue
             val deepHsv = FloatArray(3)
             android.graphics.Color.colorToHSV(primary.toArgb(), deepHsv)
-            val deepRgb = android.graphics.Color.HSVToColor(floatArrayOf(deepHsv[0], 0.70f, 0.08f))
+            val deepRgb = android.graphics.Color.HSVToColor(floatArrayOf(deepHsv[0], 0.85f, 0.09f))
             val deepAtmosphere = Color(deepRgb)
 
             val rawPalette = AmbientPalette(
                 primary = primary,
                 secondary = secondary,
-                haloGlow = primary.copy(alpha = 0.65f),
+                haloGlow = primary.copy(alpha = 0.80f),
                 accent = accent,
                 deepAtmosphere = deepAtmosphere,
                 isLightLuminance = isLightLuminance
