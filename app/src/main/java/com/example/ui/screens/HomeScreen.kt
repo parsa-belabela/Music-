@@ -163,30 +163,40 @@ fun HomeScreen(
             }
         }
 
-        // Section 1.1: Elevated Ambient Top Now Playing Card
-        val heroTrack = playbackState.currentTrack ?: allTracks.firstOrNull()
-        if (heroTrack != null) {
-            item {
-                HeroQuickPlayCard(
-                    heroTrack = heroTrack,
-                    playbackState = playbackState,
-                    palette = palette,
-                    allTracks = allTracks,
-                    hasActiveTrack = playbackState.currentTrack != null,
-                    appSettings = appSettings,
-                    currentPositionProvider = currentPositionProvider,
-                    onSeekTo = onSeekTo,
-                    onPlayTrack = onPlayTrack,
-                    onTogglePlay = {
-                        if (playbackState.currentTrack != null) {
-                            onTogglePlay()
-                        } else {
-                            onPlayTrack(heroTrack, allTracks)
-                        }
-                    },
-                    onExpandNowPlaying = onExpandNowPlaying
-                )
-            }
+        // Section 1.1: Elevated Ambient Top Now Playing Card (Always visible as seen in Image 1)
+        val heroTrack = playbackState.currentTrack
+            ?: allTracks.firstOrNull()
+            ?: Track(
+                id = "hero_default_ski",
+                title = "SKI",
+                artist = "Future",
+                album = "High Off Life",
+                durationMs = 214000L,
+                uri = "",
+                genre = "Electronic",
+                artworkUri = null
+            )
+
+        item {
+            HeroQuickPlayCard(
+                heroTrack = heroTrack,
+                playbackState = playbackState,
+                palette = palette,
+                allTracks = allTracks,
+                hasActiveTrack = playbackState.currentTrack != null,
+                appSettings = appSettings,
+                currentPositionProvider = currentPositionProvider,
+                onSeekTo = onSeekTo,
+                onPlayTrack = onPlayTrack,
+                onTogglePlay = {
+                    if (playbackState.currentTrack != null) {
+                        onTogglePlay()
+                    } else {
+                        onPlayTrack(heroTrack, if (allTracks.isNotEmpty()) allTracks else listOf(heroTrack))
+                    }
+                },
+                onExpandNowPlaying = onExpandNowPlaying
+            )
         }
 
         // Instant Resume Notification Pill

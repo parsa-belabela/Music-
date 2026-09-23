@@ -136,6 +136,7 @@ fun NowPlayingScreen(
     val skinOptions = remember {
         listOf(
             SkinOption("default", "شیشه‌ای استاندارد (Liquid Glass)", "Liquid Glass Signature", Color(0xFF00E5FF)),
+            SkinOption("electric_turntable", "نئون سایبرپانک (Electric Turntable)", "Electric Cyber Turntable", Color(0xFF00E5FF)),
             SkinOption("barbie_dream", "باربی دریم (Barbie)", "Barbie Dream Glow", Color(0xFFFF1493)),
             SkinOption("batman_knight", "شوالیه تاریکی (Batman)", "The Dark Knight", Color(0xFFFFCC00)),
             SkinOption("last_of_us", "لست آف آز (The Last of Us)", "The Last of Us (Firefly)", Color(0xFF81C784))
@@ -169,6 +170,36 @@ fun NowPlayingScreen(
         val selectedStyle = appSettings.selectedNowPlayingStyle
 
         when (selectedStyle) {
+            "electric_turntable" -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                        .padding(top = 8.dp)
+                ) {
+                    CollectorSkinHeader(
+                        title = "CYBER TURNTABLE",
+                        palette = palette.copy(primary = Color(0xFF00E5FF), accent = Color(0xFF7C4DFF)),
+                        onCollapse = onCollapse,
+                        onShare = { onShareSong(track) },
+                        onOpenSkinPicker = { showSkinPickerSheet = true }
+                    )
+
+                    ElectricTurntableNowPlayingStyle(
+                        playbackState = playbackState,
+                        palette = palette,
+                        analysisData = analysisDataProvider(),
+                        waveformEnvelope = waveformFloats,
+                        onPlayPause = onTogglePlay,
+                        onNext = onNext,
+                        onPrevious = onPrevious,
+                        onSeek = onSeekTo,
+                        onToggleFavorite = { onToggleFavorite(track) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
             "barbie_dream" -> {
                 Column(
                     modifier = Modifier
@@ -260,17 +291,17 @@ fun NowPlayingScreen(
                 }
             }
             else -> {
-                // Standard Liquid Glass Mode
+                // Standard Liquid Glass Mode (Matching Screenshot 2)
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .statusBarsPadding()
                         .navigationBarsPadding()
-                        .padding(horizontal = 22.dp),
+                        .padding(horizontal = 20.dp, vertical = 6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Top Bar
+                    // 1. Top Bar
                     AnimatedVisibility(
                         visible = !isImmersive,
                         enter = fadeIn() + expandVertically(),
@@ -279,7 +310,7 @@ fun NowPlayingScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 10.dp),
+                                .padding(top = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -317,7 +348,7 @@ fun NowPlayingScreen(
                                     )
                                 )
                                 Text(
-                                    text = track.album,
+                                    text = track.title,
                                     style = MaterialTheme.typography.bodyMedium.copy(
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White
@@ -327,7 +358,7 @@ fun NowPlayingScreen(
                                 )
                             }
 
-                            // Right Options
+                            // Right Options (Skins, Sleep Timer & More)
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -350,36 +381,6 @@ fun NowPlayingScreen(
                                         tint = palette.accent,
                                         modifier = Modifier.size(20.dp)
                                     )
-                                }
-
-                                if (appSettings.sleepTimerMinutes > 0) {
-                                    Box(
-                                        modifier = Modifier
-                                            .liquidGlass(
-                                                shape = RoundedCornerShape(12.dp),
-                                                thickness = GlassThickness.THIN,
-                                                tintColor = palette.accent,
-                                                tintAlpha = 0.18f
-                                            )
-                                            .clickable { onOpenSleepTimer() }
-                                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                imageVector = Icons.Default.Timer,
-                                                contentDescription = null,
-                                                tint = palette.accent,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(
-                                                text = "${appSettings.sleepTimerMinutes}m",
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
                                 }
 
                                 Box {
@@ -440,67 +441,52 @@ fun NowPlayingScreen(
                                                 onShareSong(track)
                                             }
                                         )
-                                        val hasHearingAccess = com.example.monetization.EntitlementManager.hasAccess(context, "personal_hearing_profile")
-                                        DropdownMenuItem(
-                                            text = {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text(if (appSettings.language == AppLanguage.PERSIAN) "کالیبراسیون شنوایی" else "Hearing Calibration", color = Color.White)
-                                                    if (!hasHearingAccess) {
-                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                        Icon(Icons.Default.AutoAwesome, contentDescription = "VIP", tint = Color(0xFFFFD700), modifier = Modifier.size(13.dp))
-                                                    }
-                                                }
-                                            },
-                                            leadingIcon = { Icon(Icons.Default.Hearing, contentDescription = null, tint = palette.accent) },
-                                            onClick = {
-                                                showMoreMenu = false
-                                                if (hasHearingAccess) {
-                                                    onOpenHearingCalibration()
-                                                } else {
-                                                    onOpenVipPaywall("personal_hearing_profile")
-                                                }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Segmented Pills [ Artwork | Ambient Halo | Lyrics ] (Matching Screenshot 2)
+                    if (!isImmersive) {
+                        Box(
+                            modifier = Modifier
+                                .liquidGlass(
+                                    shape = RoundedCornerShape(20.dp),
+                                    thickness = GlassThickness.THIN,
+                                    tintColor = palette.primary,
+                                    tintAlpha = 0.12f
+                                )
+                                .padding(3.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                val tabs = listOf(
+                                    Triple("Artwork", NowPlayingCenterView.ARTWORK_AND_HALO, if (appSettings.language == AppLanguage.PERSIAN) "کاور آهنگ" else "Artwork"),
+                                    Triple("Ambient Halo", NowPlayingCenterView.VISUALIZER_FULL, if (appSettings.language == AppLanguage.PERSIAN) "هاله صوتی" else "Ambient Halo"),
+                                    Triple("Lyrics", NowPlayingCenterView.LYRICS, if (appSettings.language == AppLanguage.PERSIAN) "متن آهنگ" else "Lyrics")
+                                )
+
+                                tabs.forEach { (_, view, label) ->
+                                    val isSelected = centerView == view
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(if (isSelected) palette.primary else Color.Transparent)
+                                            .clickable {
+                                                triggerHaptic()
+                                                centerView = view
                                             }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "ویرایش و همگام‌سازی متن" else "Lyrics Studio", color = Color.White) },
-                                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = palette.accent) },
-                                            onClick = {
-                                                showMoreMenu = false
-                                                onOpenLyricsEditor()
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "تایمر خواب" else "Sleep Timer", color = Color.White) },
-                                            leadingIcon = { Icon(Icons.Default.Timer, contentDescription = null, tint = palette.accent) },
-                                            onClick = {
-                                                showMoreMenu = false
-                                                onOpenSleepTimer()
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "ویرایش اطلاعات آهنگ" else "Edit Metadata", color = Color.White) },
-                                            leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = palette.accent) },
-                                            onClick = {
-                                                showMoreMenu = false
-                                                onOpenMetadataEditor(track)
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    if (isImmersive) {
-                                                        if (appSettings.language == AppLanguage.PERSIAN) "خروج از حالت تمرکز" else "Exit Focus Mode"
-                                                    } else {
-                                                        if (appSettings.language == AppLanguage.PERSIAN) "حالت تمرکز سینمایی" else "Cinematic Focus Mode"
-                                                    },
-                                                    color = Color.White
-                                                )
-                                            },
-                                            leadingIcon = { Icon(Icons.Default.Fullscreen, contentDescription = null, tint = palette.secondary) },
-                                            onClick = {
-                                                showMoreMenu = false
-                                                isImmersive = !isImmersive
-                                            }
+                                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.65f),
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                         )
                                     }
                                 }
@@ -508,94 +494,38 @@ fun NowPlayingScreen(
                         }
                     }
 
-                    // Apple AirPods / Bluetooth connection indicator
-                    if (connectedDevice != null && !isImmersive) {
-                        AudioDeviceIndicator(
-                            device = connectedDevice,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
-
-                    // Center View
+                    // 3. Center View (Artwork / Visualizer / Lyrics)
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
-                            .padding(vertical = 12.dp),
+                            .padding(vertical = 8.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         when (centerView) {
                             NowPlayingCenterView.ARTWORK_AND_HALO -> {
                                 Box(
                                     modifier = Modifier
-                                        .size(310.dp)
-                                        .pointerInput(Unit) {
-                                            detectTapGestures(
-                                                onTap = {
-                                                    centerView = NowPlayingCenterView.VISUALIZER_FULL
-                                                },
-                                                onLongPress = {
-                                                    photoPickerLauncher.launch(
-                                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                    )
-                                                }
-                                            )
-                                        },
+                                        .size(285.dp)
+                                        .clip(RoundedCornerShape(32.dp))
+                                        .background(Color(0xFF141524))
+                                        .border(1.5.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(32.dp)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    // Ambient Rotating Aura Glow
-                                    val infiniteTransition = rememberInfiniteTransition(label = "nowPlayingHalo")
-                                    val glowRotation by infiniteTransition.animateFloat(
-                                        initialValue = 0f,
-                                        targetValue = 360f,
-                                        animationSpec = infiniteRepeatable(
-                                            animation = tween(12000, easing = LinearEasing),
-                                            repeatMode = RepeatMode.Restart
-                                        ),
-                                        label = "haloRotation"
-                                    )
-
-                                    Box(
-                                        modifier = Modifier
-                                            .size(295.dp)
-                                            .graphicsLayer(rotationZ = glowRotation)
-                                            .background(
-                                                Brush.sweepGradient(
-                                                    listOf(
-                                                        palette.primary.copy(alpha = 0.55f),
-                                                        palette.accent.copy(alpha = 0.45f),
-                                                        palette.secondary.copy(alpha = 0.35f),
-                                                        palette.primary.copy(alpha = 0.55f)
-                                                    )
-                                                ),
-                                                shape = RoundedCornerShape(36.dp)
-                                            )
-                                    )
-
-                                    // Artwork Container
-                                    Box(
-                                        modifier = Modifier
-                                            .size(270.dp)
-                                            .clip(RoundedCornerShape(32.dp))
-                                            .background(Color(0xFF141524))
-                                            .border(1.5.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(32.dp)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (track.artworkUri != null) {
-                                            AsyncImage(
-                                                model = track.artworkUri,
-                                                contentDescription = "Cover",
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-                                        } else {
-                                            Icon(
-                                                imageVector = Icons.Default.MusicNote,
-                                                contentDescription = null,
-                                                tint = palette.primary,
-                                                modifier = Modifier.size(80.dp)
-                                            )
-                                        }
+                                    if (track.artworkUri != null) {
+                                        AsyncImage(
+                                            model = track.artworkUri,
+                                            contentDescription = "Cover",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.MusicNote,
+                                            contentDescription = null,
+                                            tint = palette.primary,
+                                            modifier = Modifier.size(80.dp)
+                                        )
                                     }
                                 }
                             }
@@ -633,161 +563,194 @@ fun NowPlayingScreen(
                         }
                     }
 
-                    // Track Info & Progress
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    // 4. Track Info & Favorite Row (Matching Screenshot 2)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = track.title,
-                            style = MaterialTheme.typography.headlineSmall.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "${track.artist} • ${track.album}",
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                color = palette.accent,
-                                fontWeight = FontWeight.SemiBold
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = track.title,
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White,
+                                    fontSize = 22.sp
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "${track.artist} • ${track.album}",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    color = palette.accent,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
 
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // Liquid Glass Progress Bar
-                        LiquidGlassProgressBar(
-                            currentPositionProvider = currentPositionProvider,
-                            durationMs = playbackState.durationMs,
-                            palette = palette,
-                            analysisDataProvider = analysisDataProvider,
-                            onSeekTo = onSeekTo,
-                            waveformEnvelope = waveformFloats,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        IconButton(
+                            onClick = {
+                                triggerHaptic()
+                                onToggleFavorite(track)
+                            },
+                            modifier = Modifier
+                                .size(46.dp)
+                                .liquidGlass(
+                                    shape = CircleShape,
+                                    thickness = GlassThickness.THIN,
+                                    tintColor = if (track.isFavorite) Color.Red else palette.primary,
+                                    tintAlpha = if (track.isFavorite) 0.35f else 0.12f
+                                )
+                        ) {
+                            Icon(
+                                imageVector = if (track.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                contentDescription = "Favorite",
+                                tint = if (track.isFavorite) Color(0xFFFF3366) else Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                    // Controls Row
+                    // 5. Liquid Glass Waveform Progress Bar
+                    LiquidGlassProgressBar(
+                        currentPositionProvider = currentPositionProvider,
+                        durationMs = playbackState.durationMs,
+                        palette = palette,
+                        analysisDataProvider = analysisDataProvider,
+                        onSeekTo = onSeekTo,
+                        waveformEnvelope = waveformFloats,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // 6. Playback Controls Capsule Bar (Matching Screenshot 2)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .liquidGlass(
+                                shape = RoundedCornerShape(32.dp),
+                                thickness = GlassThickness.REGULAR,
+                                tintColor = Color(0xFF0F111E),
+                                tintAlpha = 0.65f
+                            )
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    triggerHaptic()
+                                    onToggleShuffle()
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Shuffle,
+                                    contentDescription = "Shuffle",
+                                    tint = if (playbackState.isShuffle) palette.accent else Color.White.copy(alpha = 0.55f),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    triggerHaptic()
+                                    onPrevious()
+                                },
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SkipPrevious,
+                                    contentDescription = "Previous",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+
+                            // Large Glowing Play/Pause Button
+                            Box(
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.linearGradient(
+                                            listOf(palette.primary, palette.accent)
+                                        )
+                                    )
+                                    .clickable {
+                                        triggerHaptic()
+                                        onTogglePlay()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = "Play/Pause",
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(34.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    triggerHaptic()
+                                    onNext()
+                                },
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SkipNext,
+                                    contentDescription = "Next",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    triggerHaptic()
+                                    onCycleRepeat()
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = when (playbackState.repeatMode) {
+                                        PlaybackRepeatMode.ONE -> Icons.Default.RepeatOne
+                                        PlaybackRepeatMode.ALL -> Icons.Default.Repeat
+                                        PlaybackRepeatMode.OFF -> Icons.Default.Repeat
+                                    },
+                                    contentDescription = "Repeat",
+                                    tint = if (playbackState.repeatMode != PlaybackRepeatMode.OFF) palette.accent else Color.White.copy(alpha = 0.55f),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // 7. Volume Control Row
+                    LiquidGlassVolumeControl(
+                        palette = palette,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    )
+
+                    // 8. Bottom Lyrics & Speed Bar
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = {
-                                triggerHaptic()
-                                onToggleShuffle()
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Shuffle,
-                                contentDescription = "Shuffle",
-                                tint = if (playbackState.isShuffle) palette.accent else Color.White.copy(alpha = 0.5f),
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                triggerHaptic()
-                                onPrevious()
-                            },
-                            modifier = Modifier
-                                .size(52.dp)
-                                .liquidGlass(
-                                    shape = CircleShape,
-                                    thickness = GlassThickness.REGULAR,
-                                    tintColor = palette.primary,
-                                    tintAlpha = 0.15f
-                                )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.SkipPrevious,
-                                contentDescription = "Previous",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-
-                        // Play/Pause Button
-                        Box(
-                            modifier = Modifier
-                                .size(72.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(palette.primary, palette.accent)
-                                    )
-                                )
-                                .clickable {
-                                    triggerHaptic()
-                                    onTogglePlay()
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = "Play/Pause",
-                                tint = Color.Black,
-                                modifier = Modifier.size(38.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                triggerHaptic()
-                                onNext()
-                            },
-                            modifier = Modifier
-                                .size(52.dp)
-                                .liquidGlass(
-                                    shape = CircleShape,
-                                    thickness = GlassThickness.REGULAR,
-                                    tintColor = palette.primary,
-                                    tintAlpha = 0.15f
-                                )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.SkipNext,
-                                contentDescription = "Next",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                triggerHaptic()
-                                onCycleRepeat()
-                            }
-                        ) {
-                            Icon(
-                                imageVector = when (playbackState.repeatMode) {
-                                    PlaybackRepeatMode.ONE -> Icons.Default.RepeatOne
-                                    PlaybackRepeatMode.ALL -> Icons.Default.Repeat
-                                    PlaybackRepeatMode.OFF -> Icons.Default.Repeat
-                                },
-                                contentDescription = "Repeat",
-                                tint = if (playbackState.repeatMode != PlaybackRepeatMode.OFF) palette.accent else Color.White.copy(alpha = 0.5f),
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
-
-                    // Bottom Lyrics & Speed Bar
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {

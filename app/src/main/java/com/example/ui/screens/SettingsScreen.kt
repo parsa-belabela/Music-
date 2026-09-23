@@ -269,6 +269,19 @@ fun SettingsScreen(
                         entitlementId = null
                     ),
                     CollectorSkinOption(
+                        id = "electric_turntable",
+                        titleFa = "گرامافون سایبرپانک (Electric Cyber Turntable)",
+                        titleEn = "Electric Cyber Turntable",
+                        tagFa = "پوسته VIP گرامافون نئونی 💽",
+                        tagEn = "VIP Neon Turntable 💽",
+                        descFa = "گرامافون سه‌بعدی چرخان با افکت آب‌وهوا و شیارهای نئونی نورانی",
+                        descEn = "3D spinning turntable vinyl with live weather HUD and glowing neon audio trails",
+                        primaryColor = Color(0xFF00E5FF),
+                        secondaryColor = Color(0xFF7C4DFF),
+                        icon = Icons.Default.Radio,
+                        entitlementId = "now_playing_electric"
+                    ),
+                    CollectorSkinOption(
                         id = "barbie_dream",
                         titleFa = "باربی دریم (Barbie Dream Glow)",
                         titleEn = "Barbie Dream Glow",
