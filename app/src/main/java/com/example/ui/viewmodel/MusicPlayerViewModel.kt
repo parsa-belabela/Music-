@@ -773,7 +773,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             .putBoolean("continuous_mix", settings.continuousMixEnabled)
             .putBoolean("focus_mode", settings.focusModeEnabled)
             .putString("np_style", settings.selectedNowPlayingStyle)
-            .apply()
+            .commit()
     }
 
     // Spotify-Wrapped Listen Stats

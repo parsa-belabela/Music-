@@ -50,6 +50,7 @@ fun LiquidGlassProgressBar(
     val currentTheme = LocalAppTheme.current
     var isDragging by remember { mutableStateOf(false) }
     var dragProgress by remember { mutableFloatStateOf(0f) }
+    var ignoreExternalSyncUntilMs by remember { mutableLongStateOf(0L) }
     var componentWidthPx by remember { mutableFloatStateOf(1f) }
 
     // Active continuous ticker ensuring 60fps real-time sync with audio engine
@@ -58,7 +59,9 @@ fun LiquidGlassProgressBar(
     LaunchedEffect(isDragging) {
         if (!isDragging) {
             while (true) {
-                internalCurrentMs = currentPositionProvider()
+                if (System.currentTimeMillis() > ignoreExternalSyncUntilMs) {
+                    internalCurrentMs = currentPositionProvider()
+                }
                 kotlinx.coroutines.delay(20L)
             }
         }
@@ -122,6 +125,8 @@ fun LiquidGlassProgressBar(
                             }
                             val curSafeDuration = durationMs.coerceAtLeast(1L)
                             val targetMs = (dragProgress * curSafeDuration).toLong()
+                            internalCurrentMs = targetMs
+                            ignoreExternalSyncUntilMs = System.currentTimeMillis() + 450L
                             onSeekTo(targetMs)
                         } finally {
                             isDragging = false

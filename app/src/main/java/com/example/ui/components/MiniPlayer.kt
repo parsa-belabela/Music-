@@ -15,14 +15,17 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -56,7 +59,8 @@ fun MiniPlayer(
     modifier: Modifier = Modifier,
     connectedDevice: ConnectedAudioDevice? = null,
     analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() },
-    currentPositionProvider: () -> Long = { playbackState.currentPositionMs }
+    currentPositionProvider: () -> Long = { playbackState.currentPositionMs },
+    onSeekTo: (Long) -> Unit = {}
 ) {
     val track = playbackState.currentTrack ?: return
     val isPlaying = playbackState.isPlaying
@@ -281,31 +285,88 @@ fun MiniPlayer(
                     }
                 }
 
-                // Glowing Liquid Progress Track at bottom of capsule
-                val currentPos = currentPositionProvider()
-                val progressFraction = if (playbackState.durationMs > 0) {
-                    (currentPos.toFloat() / playbackState.durationMs.toFloat()).coerceIn(0f, 1f)
-                } else 0f
+                // Glowing Liquid Progress Track at bottom of capsule with interactive drag-to-seek
+                var miniBarWidthPx by remember { mutableFloatStateOf(1f) }
+                var isMiniDragging by remember { mutableStateOf(false) }
+                var miniDragProgress by remember { mutableFloatStateOf(0f) }
+                var miniCurrentMs by remember { mutableLongStateOf(currentPositionProvider()) }
+                var miniIgnoreSyncUntil by remember { mutableLongStateOf(0L) }
+
+                LaunchedEffect(isMiniDragging) {
+                    if (!isMiniDragging) {
+                        while (true) {
+                            if (System.currentTimeMillis() > miniIgnoreSyncUntil) {
+                                miniCurrentMs = currentPositionProvider()
+                            }
+                            kotlinx.coroutines.delay(20L)
+                        }
+                    }
+                }
+
+                val safeMiniDuration = playbackState.durationMs.coerceAtLeast(1L)
+                val effectiveMiniMs = if (isMiniDragging) (miniDragProgress * safeMiniDuration).toLong() else miniCurrentMs
+                val effectiveFraction = (effectiveMiniMs.toFloat() / safeMiniDuration.toFloat()).coerceIn(0f, 1f)
+
+                val barHeight by animateDpAsState(
+                    targetValue = if (isMiniDragging) 6.dp else 3.dp,
+                    label = "miniBarHeight"
+                )
 
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(2.5.dp)
-                        .background(Color(0x1AFFFFFF))
+                        .height(20.dp)
+                        .onSizeChanged { miniBarWidthPx = it.width.toFloat().coerceAtLeast(1f) }
+                        .pointerInput(playbackState.durationMs) {
+                            awaitEachGesture {
+                                try {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    down.consume()
+                                    isMiniDragging = true
+                                    val w = miniBarWidthPx.coerceAtLeast(1f)
+                                    miniDragProgress = (down.position.x / w).coerceIn(0f, 1f)
+
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val pointer = event.changes.firstOrNull { it.id == down.id }
+                                        if (pointer == null || !pointer.pressed) {
+                                            pointer?.consume()
+                                            break
+                                        }
+                                        pointer.consume()
+                                        miniDragProgress = (pointer.position.x / w).coerceIn(0f, 1f)
+                                    }
+                                    val targetSeekMs = (miniDragProgress * safeMiniDuration).toLong()
+                                    miniCurrentMs = targetSeekMs
+                                    miniIgnoreSyncUntil = System.currentTimeMillis() + 450L
+                                    onSeekTo(targetSeekMs)
+                                } finally {
+                                    isMiniDragging = false
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.BottomCenter
                 ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(fraction = progressFraction)
-                            .fillMaxHeight()
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        animatedPrimary,
-                                        animatedAccent
+                            .fillMaxWidth()
+                            .height(barHeight)
+                            .background(Color(0x20FFFFFF))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(fraction = effectiveFraction)
+                                .fillMaxHeight()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            animatedPrimary,
+                                            animatedAccent
+                                        )
                                     )
                                 )
-                            )
-                    )
+                        )
+                    }
                 }
             }
         }

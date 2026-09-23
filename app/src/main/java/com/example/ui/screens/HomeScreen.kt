@@ -15,10 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -29,7 +26,11 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -66,6 +67,8 @@ fun HomeScreen(
     duplicateCount: Int = 0,
     onOpenDuplicatesReview: () -> Unit = {},
     onToggleFocusMode: () -> Unit = {},
+    currentPositionProvider: () -> Long = { playbackState.currentPositionMs },
+    onSeekTo: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val lang = appSettings.language
@@ -259,11 +262,13 @@ fun HomeScreen(
             item {
                 HeroQuickPlayCard(
                     heroTrack = heroTrack,
-                    isPlaying = playbackState.status == PlayerStatus.PLAYING,
+                    playbackState = playbackState,
                     palette = palette,
                     allTracks = allTracks,
                     hasActiveTrack = playbackState.currentTrack != null,
                     appSettings = appSettings,
+                    currentPositionProvider = currentPositionProvider,
+                    onSeekTo = onSeekTo,
                     onPlayTrack = onPlayTrack,
                     onTogglePlay = {
                         if (playbackState.currentTrack != null) {
@@ -657,15 +662,18 @@ fun HomeScreen(
 @Composable
 private fun HeroQuickPlayCard(
     heroTrack: Track?,
-    isPlaying: Boolean,
+    playbackState: PlaybackState,
     palette: AmbientPalette,
     allTracks: List<Track>,
     hasActiveTrack: Boolean,
     appSettings: AppSettings,
+    currentPositionProvider: () -> Long,
+    onSeekTo: (Long) -> Unit,
     onPlayTrack: (Track, List<Track>) -> Unit,
     onTogglePlay: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isPlaying = playbackState.status == PlayerStatus.PLAYING
     val context = LocalContext.current
     val cardShape = RoundedCornerShape(24.dp)
 
@@ -688,7 +696,7 @@ private fun HeroQuickPlayCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(180.dp)
+            .wrapContentHeight()
             .clip(cardShape)
             .clickable {
                 heroTrack?.let { onPlayTrack(it, allTracks) }
@@ -742,7 +750,15 @@ private fun HeroQuickPlayCard(
                     rotate(rotationAngle) {
                         drawCircle(
                             brush = Brush.sweepGradient(
-                                colors = listOf(
+                                colors = if (palette.isMonochrome) listOf(
+                                    palette.richBlack,
+                                    Color.White.copy(alpha = 0.85f),
+                                    Color(0xFF141724),
+                                    Color.White.copy(alpha = 0.45f),
+                                    palette.richBlack,
+                                    Color.White.copy(alpha = 0.90f),
+                                    palette.richBlack
+                                ) else listOf(
                                     palette.accent,
                                     palette.secondary,
                                     palette.primary,
@@ -753,14 +769,19 @@ private fun HeroQuickPlayCard(
                                 )
                             ),
                             radius = size.maxDimension * 0.85f,
-                            blendMode = BlendMode.Screen
+                            blendMode = if (palette.isMonochrome) BlendMode.SrcOver else BlendMode.Screen
                         )
                     }
                 }
                 .border(
                     width = 1.2.dp,
                     brush = Brush.linearGradient(
-                        listOf(
+                        if (palette.isMonochrome) listOf(
+                            Color.White.copy(alpha = 0.75f),
+                            Color(0xFF1E2232),
+                            Color.White.copy(alpha = 0.25f),
+                            Color(0xFF07080E)
+                        ) else listOf(
                             palette.accent.copy(alpha = 0.65f),
                             palette.secondary.copy(alpha = 0.35f),
                             Color.White.copy(alpha = 0.20f)
@@ -876,6 +897,118 @@ private fun HeroQuickPlayCard(
                     )
                 }
             }
+
+            if (hasActiveTrack && playbackState.durationMs > 0L) {
+                Spacer(modifier = Modifier.height(14.dp))
+
+                var isHeroDragging by remember { mutableStateOf(false) }
+                var heroDragProgress by remember { mutableFloatStateOf(0f) }
+                var heroBarWidthPx by remember { mutableFloatStateOf(1f) }
+                var heroCurrentMs by remember { mutableLongStateOf(currentPositionProvider()) }
+                var heroIgnoreSyncUntil by remember { mutableLongStateOf(0L) }
+
+                LaunchedEffect(isHeroDragging) {
+                    if (!isHeroDragging) {
+                        while (true) {
+                            if (System.currentTimeMillis() > heroIgnoreSyncUntil) {
+                                heroCurrentMs = currentPositionProvider()
+                            }
+                            kotlinx.coroutines.delay(20L)
+                        }
+                    }
+                }
+
+                val safeDur = playbackState.durationMs.coerceAtLeast(1L)
+                val effectiveHeroMs = if (isHeroDragging) (heroDragProgress * safeDur).toLong() else heroCurrentMs
+                val heroProgressFraction = (effectiveHeroMs.toFloat() / safeDur.toFloat()).coerceIn(0f, 1f)
+
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(24.dp)
+                            .onSizeChanged { heroBarWidthPx = it.width.toFloat().coerceAtLeast(1f) }
+                            .pointerInput(playbackState.durationMs) {
+                                awaitEachGesture {
+                                    try {
+                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                        down.consume()
+                                        isHeroDragging = true
+                                        val w = heroBarWidthPx.coerceAtLeast(1f)
+                                        heroDragProgress = (down.position.x / w).coerceIn(0f, 1f)
+
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val pointer = event.changes.firstOrNull { it.id == down.id }
+                                            if (pointer == null || !pointer.pressed) {
+                                                pointer?.consume()
+                                                break
+                                            }
+                                            pointer.consume()
+                                            heroDragProgress = (pointer.position.x / w).coerceIn(0f, 1f)
+                                        }
+                                        val target = (heroDragProgress * safeDur).toLong()
+                                        heroCurrentMs = target
+                                        heroIgnoreSyncUntil = System.currentTimeMillis() + 450L
+                                        onSeekTo(target)
+                                    } finally {
+                                        isHeroDragging = false
+                                    }
+                                }
+                            }
+                            .testTag("hero_seek_bar"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(if (isHeroDragging) 6.dp else 4.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color(0x33FFFFFF))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(fraction = heroProgressFraction)
+                                    .fillMaxHeight()
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(palette.primary, palette.accent)
+                                        )
+                                    )
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = formatHeroDuration(effectiveHeroMs),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = Color(0xFFC4C4D4),
+                                fontSize = 11.sp
+                            )
+                        )
+                        Text(
+                            text = formatHeroDuration(playbackState.durationMs),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = Color(0xFF9090A8),
+                                fontSize = 11.sp
+                            )
+                        )
+                    }
+                }
+            }
         }
     }
+}
+
+private fun formatHeroDuration(ms: Long): String {
+    val totalSec = (ms / 1000).coerceAtLeast(0)
+    val min = totalSec / 60
+    val sec = totalSec % 60
+    return "%d:%02d".format(min, sec)
 }

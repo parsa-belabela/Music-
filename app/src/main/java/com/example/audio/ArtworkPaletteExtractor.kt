@@ -21,7 +21,9 @@ data class AmbientPalette(
     val haloGlow: Color,
     val accent: Color,
     val deepAtmosphere: Color = Color(0xFF07070E),
-    val isLightLuminance: Boolean = false
+    val richBlack: Color = Color(0xFF07080E),
+    val isLightLuminance: Boolean = false,
+    val isMonochrome: Boolean = false
 )
 
 /**
@@ -148,20 +150,24 @@ object ArtworkPaletteExtractor {
             )
 
             if (isMonochrome) {
-                // High-Contrast Obsidian & Diamond White Liquid Glass Palette
+                // High-Contrast Rich Obsidian Black & Diamond White Palette
+                // Delivers intense monochrome aesthetic with deep rich blacks and luminous white highlights
                 val avgLum = if (validPixelCount > 0) sumLum / validPixelCount else 0.5f
-                val primary = if (avgLum > 0.6f) Color(0xFFFFFFFF) else Color(0xFFF1F5F9)
-                val secondary = Color(0xFF94A3B8)
-                val accent = Color(0xFFFFFFFF)
-                val deepAtmosphere = Color(0xFF050507)
+                val primary = if (avgLum > 0.6f) Color(0xFFFFFFFF) else Color(0xFFF8FAFC)
+                val secondary = Color(0xFF0E1019) // Rich Onyx / Obsidian Black
+                val accent = Color(0xFF1C1F2E) // Rich Charcoal Jet Black with deep metallic undertone
+                val deepAtmosphere = Color(0xFF030306) // Absolute deep pitch black atmosphere
+                val richBlack = Color(0xFF07080E) // Deepest rich velvet black
 
                 return AmbientPalette(
                     primary = primary,
                     secondary = secondary,
-                    haloGlow = Color(0x80FFFFFF),
+                    haloGlow = Color(0x99FFFFFF),
                     accent = accent,
                     deepAtmosphere = deepAtmosphere,
-                    isLightLuminance = false
+                    richBlack = richBlack,
+                    isLightLuminance = false,
+                    isMonochrome = true
                 )
             }
 
@@ -316,12 +322,14 @@ object ArtworkPaletteExtractor {
                 deepAtmosphere = Color(0xFF000000)
             )
             AppTheme.MONOCHROME_NOIR -> AmbientPalette(
-                primary = Color(0xFFF8FAFC), // Crisp Diamond White
-                secondary = Color(0xFF94A3B8), // Frosted Platinum Titanium
-                haloGlow = Color(0x80FFFFFF),
-                accent = Color(0xFFFFFFFF), // Pure Brilliant White Specular
-                deepAtmosphere = Color(0xFF060608), // Obsidian Pitch Black
-                isLightLuminance = false
+                primary = Color(0xFFFFFFFF), // Crisp Diamond White
+                secondary = Color(0xFF0E1019), // Rich Onyx / Obsidian Black
+                haloGlow = Color(0x99FFFFFF),
+                accent = Color(0xFF1C1F2E), // Rich Charcoal Jet Black
+                deepAtmosphere = Color(0xFF030306), // Obsidian Pitch Black
+                richBlack = Color(0xFF07080E),
+                isLightLuminance = false,
+                isMonochrome = true
             )
         }
     }

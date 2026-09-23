@@ -123,7 +123,8 @@ fun MainScreen(
                                     onExpandNowPlaying = { viewModel.isNowPlayingExpanded.value = true },
                                     connectedDevice = connectedDevice,
                                     analysisDataProvider = { viewModel.analysisData.value },
-                                    currentPositionProvider = { viewModel.currentPositionMs.value }
+                                    currentPositionProvider = { viewModel.currentPositionMs.value },
+                                    onSeekTo = { viewModel.seekTo(it) }
                                 )
                             }
 
@@ -286,6 +287,8 @@ fun MainScreen(
                             onToggleFocusMode = {
                                 viewModel.updateSettings(appSettings.copy(focusModeEnabled = !appSettings.focusModeEnabled))
                             },
+                            currentPositionProvider = { viewModel.currentPositionMs.value },
+                            onSeekTo = { viewModel.seekTo(it) },
                             bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()
                         )
