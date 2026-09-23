@@ -151,18 +151,17 @@ object ArtworkPaletteExtractor {
 
             if (isMonochrome) {
                 // High-Contrast Rich Obsidian Black & Diamond White Palette
-                // Delivers intense monochrome aesthetic with deep rich blacks and luminous white highlights
                 val avgLum = if (validPixelCount > 0) sumLum / validPixelCount else 0.5f
                 val primary = if (avgLum > 0.6f) Color(0xFFFFFFFF) else Color(0xFFF8FAFC)
-                val secondary = Color(0xFF0E1019) // Rich Onyx / Obsidian Black
-                val accent = Color(0xFF1C1F2E) // Rich Charcoal Jet Black with deep metallic undertone
-                val deepAtmosphere = Color(0xFF030306) // Absolute deep pitch black atmosphere
-                val richBlack = Color(0xFF07080E) // Deepest rich velvet black
+                val secondary = Color(0xFF090B12) // Rich Velvet Obsidian Black
+                val accent = Color(0xFF282C3D) // Sleek Metallic Gunmetal
+                val deepAtmosphere = Color(0xFF020204) // Deepest rich velvet pitch-black atmosphere
+                val richBlack = Color(0xFF000000) // Absolute Pure Black
 
                 return AmbientPalette(
                     primary = primary,
                     secondary = secondary,
-                    haloGlow = Color(0x99FFFFFF),
+                    haloGlow = Color(0x65FFFFFF),
                     accent = accent,
                     deepAtmosphere = deepAtmosphere,
                     richBlack = richBlack,
@@ -249,7 +248,7 @@ object ArtworkPaletteExtractor {
             val deepRgb = android.graphics.Color.HSVToColor(floatArrayOf(deepHsv[0], 0.70f, 0.08f))
             val deepAtmosphere = Color(deepRgb)
 
-            AmbientPalette(
+            val rawPalette = AmbientPalette(
                 primary = primary,
                 secondary = secondary,
                 haloGlow = primary.copy(alpha = 0.65f),
@@ -257,9 +256,80 @@ object ArtworkPaletteExtractor {
                 deepAtmosphere = deepAtmosphere,
                 isLightLuminance = isLightLuminance
             )
+            applyThemeGrade(rawPalette, theme)
         } catch (_: Exception) {
             getDefaultPalette(theme)
         }
+    }
+
+    fun applyThemeGrade(raw: AmbientPalette, theme: AppTheme): AmbientPalette {
+        return when (theme) {
+            AppTheme.MONOCHROME_NOIR -> AmbientPalette(
+                primary = Color(0xFFF8FAFC), // Pure Diamond White
+                secondary = Color(0xFF090B12), // Rich Velvet Obsidian Black
+                haloGlow = Color(0x65FFFFFF),
+                accent = Color(0xFF282C3D), // Sleek Graphite / Gunmetal
+                deepAtmosphere = Color(0xFF020204), // Deepest Void Black
+                richBlack = Color(0xFF000000),
+                isLightLuminance = false,
+                isMonochrome = true
+            )
+            AppTheme.CYBER_NIGHTS -> AmbientPalette(
+                primary = blendColors(raw.primary, Color(0xFF00F0FF), 0.45f), // Cyan Cyberpunk
+                secondary = Color(0xFFFF007F), // Laser Rose Pink
+                haloGlow = Color(0x9900F0FF),
+                accent = Color(0xFF9D4EDD), // Neon Ultraviolet
+                deepAtmosphere = Color(0xFF020716),
+                richBlack = Color(0xFF03050B)
+            )
+            AppTheme.VELVET_NOIR -> AmbientPalette(
+                primary = blendColors(raw.primary, Color(0xFFFFD700), 0.35f), // Imperial Gold
+                secondary = Color(0xFF9333EA), // Royal Velvet Purple
+                haloGlow = Color(0x99FFD700),
+                accent = Color(0xFFBE185D), // Radiant Burgundy
+                deepAtmosphere = Color(0xFF0B020E),
+                richBlack = Color(0xFF08020A)
+            )
+            AppTheme.SUNSET_RAVE -> AmbientPalette(
+                primary = blendColors(raw.primary, Color(0xFFFF5E00), 0.40f), // Solar Orange
+                secondary = Color(0xFFFF1361), // Hot Synth Coral Pink
+                haloGlow = Color(0x99FF5E00),
+                accent = Color(0xFFFFD200), // Radiant Sunbeam Gold
+                deepAtmosphere = Color(0xFF130314),
+                richBlack = Color(0xFF09010A)
+            )
+            AppTheme.DIGITAL_ACID -> AmbientPalette(
+                primary = Color(0xFF39FF14), // Radioactive Acid Lime
+                secondary = Color(0xFF00FF66), // Toxic Matrix Green
+                haloGlow = Color(0x9939FF14),
+                accent = Color(0xFF00F5D4), // Phosphor Cyan
+                deepAtmosphere = Color(0xFF000500),
+                richBlack = Color(0xFF000200)
+            )
+            AppTheme.Y2K_CHROME -> AmbientPalette(
+                primary = blendColors(raw.primary, Color(0xFFE2E8F0), 0.50f), // Liquid Mercury Silver
+                secondary = Color(0xFF38BDF8), // Electric Ice Blue
+                haloGlow = Color(0x8038BDF8),
+                accent = Color(0xFFCBD5E1), // Platinum Chrome
+                deepAtmosphere = Color(0xFF080B10),
+                richBlack = Color(0xFF040608)
+            )
+            AppTheme.PURE_LIQUID_GLASS -> AmbientPalette(
+                primary = raw.primary,
+                secondary = blendColors(raw.secondary, Color(0xFF8B5CF6), 0.30f),
+                haloGlow = raw.primary.copy(alpha = 0.65f),
+                accent = Color(0xFF00E5FF),
+                deepAtmosphere = Color(0xFF060812),
+                richBlack = Color(0xFF04050A)
+            )
+        }
+    }
+
+    private fun blendColors(c1: Color, c2: Color, ratio: Float): Color {
+        val r = (c1.red * (1f - ratio) + c2.red * ratio).coerceIn(0f, 1f)
+        val g = (c1.green * (1f - ratio) + c2.green * ratio).coerceIn(0f, 1f)
+        val b = (c1.blue * (1f - ratio) + c2.blue * ratio).coerceIn(0f, 1f)
+        return Color(r, g, b, 1f)
     }
 
     private fun enhanceCinematicVibrance(color: Color, boostSat: Float, boostVal: Float): Color {

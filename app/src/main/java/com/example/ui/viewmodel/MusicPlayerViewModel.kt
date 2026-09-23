@@ -234,10 +234,38 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun refreshUnlockedStyles() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val unlocked = repository.checkMilestones().toMutableList()
+            if (com.example.monetization.EntitlementManager.hasAccess(app, "now_playing_vinyl")) {
+                if (!unlocked.contains("vinyl_turntable")) {
+                    unlocked.add("vinyl_turntable")
+                }
+            }
+            _unlockedStyles.value = unlocked
+        }
+    }
+
+    suspend fun getListeningStatsForAchievements(): Triple<Long, Int, Int> {
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val events = repository.getAllPlaybackEvents()
+            val totalMs = events.sumOf { it.durationListenedMs }
+            val uniqueTracks = events.map { it.trackId }.distinct().size
+            val sdf = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US)
+            val days = events.map { sdf.format(java.util.Date(it.timestamp)) }.distinct().size
+            Triple(totalMs, uniqueTracks, days.coerceAtLeast(1))
+        }
+    }
+
     private fun checkSmartFeatures() {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            // Check milestones (e.g. Vinyl turntable style)
-            val unlocked = repository.checkMilestones()
+            // Check milestones (e.g. Vinyl turntable style + Entitlement)
+            val unlocked = repository.checkMilestones().toMutableList()
+            if (com.example.monetization.EntitlementManager.hasAccess(app, "now_playing_vinyl")) {
+                if (!unlocked.contains("vinyl_turntable")) {
+                    unlocked.add("vinyl_turntable")
+                }
+            }
             _unlockedStyles.value = unlocked
 
             // Time of day recommendation tracks
@@ -702,8 +730,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun loadPersistedSettings(): AppSettings {
         val prefs = app.getSharedPreferences("aura_settings", Context.MODE_PRIVATE)
-        val langStr = prefs.getString("language", AppLanguage.ENGLISH.name) ?: AppLanguage.ENGLISH.name
-        val lang = try { AppLanguage.valueOf(langStr) } catch (e: Exception) { AppLanguage.ENGLISH }
+        val langStr = prefs.getString("language", AppLanguage.PERSIAN.name) ?: AppLanguage.PERSIAN.name
+        val lang = try { AppLanguage.valueOf(langStr) } catch (e: Exception) { AppLanguage.PERSIAN }
         val themeStr = prefs.getString("theme", AppTheme.PURE_LIQUID_GLASS.name) ?: AppTheme.PURE_LIQUID_GLASS.name
         val theme = try { AppTheme.valueOf(themeStr) } catch (e: Exception) { AppTheme.PURE_LIQUID_GLASS }
         val modeStr = prefs.getString("viz_mode", VisualizerMode.AMBIENT_HALO.name) ?: VisualizerMode.AMBIENT_HALO.name

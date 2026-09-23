@@ -1,23 +1,26 @@
 package com.example.data.model
 
-enum class VisualizerMode(val title: String) {
-    AMBIENT_HALO("Ambient Halo"),
-    BASS_GLOW("Bass Glow"),
-    SPECTRUM("Spectrum"),
-    CIRCULAR_SPECTRUM("Circular Spectrum"),
-    WAVEFORM("Waveform"),
-    RADIAL_WAVE("Radial Wave"),
-    PULSE_RING("Pulse Ring"),
-    AURORA("Aurora"),
-    LIQUID("Liquid"),
-    PARTICLE_FIELD("Particle Field"),
-    DOTS("Dots"),
-    CINEMATIC_FOG("Cinematic Fog")
+enum class VisualizerMode(val title: String, val titleFa: String) {
+    AMBIENT_HALO("Ambient Halo", "هاله محیطی"),
+    BASS_GLOW("Bass Glow", "درخشش بیس"),
+    SPECTRUM("Spectrum", "طیف فرکانسی"),
+    CIRCULAR_SPECTRUM("Circular Spectrum", "طیف دایره‌ای"),
+    WAVEFORM("Waveform", "امواج صوتی"),
+    RADIAL_WAVE("Radial Wave", "موج شعاعی"),
+    PULSE_RING("Pulse Ring", "حلقه‌های پالس"),
+    AURORA("Aurora", "شفق قطبی"),
+    LIQUID("Liquid", "شیشه مایع"),
+    PARTICLE_FIELD("Particle Field", "میدان ذرات"),
+    DOTS("Dots", "ماتریس نقاط"),
+    CINEMATIC_FOG("Cinematic Fog", "مه سینمایی");
+
+    fun getTitle(lang: AppLanguage): String = if (lang == AppLanguage.PERSIAN) titleFa else title
 }
 
 data class VisualizerPreset(
     val id: String,
     val name: String,
+    val nameFa: String = name,
     val mode: VisualizerMode = VisualizerMode.AMBIENT_HALO,
     val sensitivity: Float = 1.0f,
     val bassResponse: Float = 1.2f,
@@ -32,10 +35,13 @@ data class VisualizerPreset(
     val autoColorFromArtwork: Boolean = true,
     val fps: Int = 60
 ) {
+    fun getName(lang: AppLanguage): String = if (lang == AppLanguage.PERSIAN) nameFa else name
+
     companion object {
         val SOFT = VisualizerPreset(
             id = "soft",
             name = "Soft",
+            nameFa = "ملایم (Soft)",
             mode = VisualizerMode.AMBIENT_HALO,
             sensitivity = 0.7f,
             bassResponse = 0.8f,
@@ -47,6 +53,7 @@ data class VisualizerPreset(
         val DEEP_BASS = VisualizerPreset(
             id = "deep_bass",
             name = "Deep Bass",
+            nameFa = "بیس عمیق",
             mode = VisualizerMode.BASS_GLOW,
             sensitivity = 1.2f,
             bassResponse = 1.8f,
@@ -58,6 +65,7 @@ data class VisualizerPreset(
         val NIGHT_DRIVE = VisualizerPreset(
             id = "night_drive",
             name = "Night Drive",
+            nameFa = "رانندگی شبانه",
             mode = VisualizerMode.SPECTRUM,
             sensitivity = 1.1f,
             bassResponse = 1.3f,
@@ -68,6 +76,7 @@ data class VisualizerPreset(
         val DREAM = VisualizerPreset(
             id = "dream",
             name = "Dream",
+            nameFa = "رویایی (Dream)",
             mode = VisualizerMode.AURORA,
             sensitivity = 0.85f,
             bassResponse = 0.9f,
@@ -78,6 +87,7 @@ data class VisualizerPreset(
         val AGGRESSIVE = VisualizerPreset(
             id = "aggressive",
             name = "Aggressive",
+            nameFa = "پرانرژی و تپنده",
             mode = VisualizerMode.PULSE_RING,
             sensitivity = 1.5f,
             bassResponse = 2.0f,
@@ -89,6 +99,7 @@ data class VisualizerPreset(
         val MINIMAL = VisualizerPreset(
             id = "minimal",
             name = "Minimal",
+            nameFa = "مینیمال",
             mode = VisualizerMode.WAVEFORM,
             sensitivity = 0.8f,
             bassResponse = 0.9f,
@@ -99,6 +110,7 @@ data class VisualizerPreset(
         val NEON = VisualizerPreset(
             id = "neon",
             name = "Neon",
+            nameFa = "نئون درخشان",
             mode = VisualizerMode.CIRCULAR_SPECTRUM,
             sensitivity = 1.3f,
             bassResponse = 1.4f,
@@ -109,6 +121,7 @@ data class VisualizerPreset(
         val CINEMATIC = VisualizerPreset(
             id = "cinematic",
             name = "Cinematic",
+            nameFa = "سینمایی (Cinematic)",
             mode = VisualizerMode.CINEMATIC_FOG,
             sensitivity = 1.0f,
             bassResponse = 1.2f,

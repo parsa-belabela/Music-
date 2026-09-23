@@ -50,6 +50,8 @@ fun SettingsScreen(
     onOpenHearingProfileTest: () -> Unit = {},
     onOpenDuplicatesReview: () -> Unit = {},
     onSelectNowPlayingStyle: (String) -> Unit = {},
+    onOpenVipPaywall: (String?) -> Unit = {},
+    onOpenAchievements: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -63,6 +65,8 @@ fun SettingsScreen(
     var devTapCount by remember { mutableStateOf(0) }
 
     val lang = settings.language
+    val isVip = remember(settings) { com.example.monetization.EntitlementManager.isVip(context) }
+    val goldAccent = Color(0xFFFFD700)
 
     if (showFeaturesGuideDialog) {
         FeaturesGuideDialog(
@@ -115,6 +119,135 @@ fun SettingsScreen(
             }
         }
 
+        // Section: VIP Status & Achievements Showcase Banner
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .liquidGlass(
+                        shape = RoundedCornerShape(22.dp),
+                        thickness = GlassThickness.THICK,
+                        tintColor = if (isVip) goldAccent else palette.primary,
+                        tintAlpha = if (isVip) 0.26f else 0.18f,
+                        borderWidth = 1.2.dp,
+                        appTheme = settings.theme
+                    )
+                    .padding(18.dp)
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(goldAccent.copy(alpha = 0.22f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "VIP",
+                                    tint = goldAccent,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = if (isVip) {
+                                        if (lang == AppLanguage.PERSIAN) "عضویت طلایی Aura VIP فعال است ✨" else "Aura Golden VIP Active ✨"
+                                    } else {
+                                        if (lang == AppLanguage.PERSIAN) "ارتقا به نسخه VIP آئورا" else "Upgrade to Aura VIP"
+                                    },
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp
+                                    )
+                                )
+                                Text(
+                                    text = if (isVip) {
+                                        val exp = com.example.monetization.EntitlementManager.getVipExpiryMillis(context)
+                                        if (exp == Long.MAX_VALUE) {
+                                            if (lang == AppLanguage.PERSIAN) "اشتراک دائمی بدون محدودیت" else "Permanent VIP Access"
+                                        } else {
+                                            val rem = com.example.monetization.EntitlementManager.formatRemainingTime(exp - System.currentTimeMillis(), lang == AppLanguage.PERSIAN)
+                                            if (lang == AppLanguage.PERSIAN) "زمان باقی‌مانده: $rem" else "Expires in $rem"
+                                        }
+                                    } else {
+                                        if (lang == AppLanguage.PERSIAN) "دسترسی به ۵ تم لوکس، گرامافون و ۷ ویژوالایزر" else "5 luxury themes, vinyl & 7 visualizers"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = Color(0xFFC0C0D4),
+                                        fontSize = 11.sp
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { onOpenVipPaywall(null) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isVip) palette.primary.copy(alpha = 0.6f) else goldAccent,
+                                contentColor = if (isVip) Color.White else Color.Black
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isVip) Icons.Default.Settings else Icons.Default.WorkspacePremium,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isVip) {
+                                    if (lang == AppLanguage.PERSIAN) "مدیریت اشتراک / کد" else "Manage VIP / Code"
+                                } else {
+                                    if (lang == AppLanguage.PERSIAN) "ارتقا یا تست ۲۴ساعته" else "Upgrade / 24h Free"
+                                },
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = onOpenAchievements,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.EmojiEvents,
+                                contentDescription = null,
+                                tint = goldAccent,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (lang == AppLanguage.PERSIAN) "دستاوردها 🏆" else "Milestones 🏆",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // Section: Now Playing Visualizer Styles
         item {
             Box(
@@ -146,7 +279,8 @@ fun SettingsScreen(
                             label = { Text(if (lang == AppLanguage.PERSIAN) "طراحی شیشه‌ای Liquid Glass" else "Liquid Glass Standard", fontSize = 12.sp) }
                         )
 
-                        val isVinylUnlocked = unlockedStyles.contains("vinyl_turntable")
+                        val hasVinylEntitlement = com.example.monetization.EntitlementManager.hasAccess(context, "now_playing_vinyl")
+                        val isVinylUnlocked = unlockedStyles.contains("vinyl_turntable") || hasVinylEntitlement
                         FilterChip(
                             selected = settings.selectedNowPlayingStyle == "vinyl_turntable",
                             onClick = {
@@ -154,13 +288,13 @@ fun SettingsScreen(
                                     onSelectNowPlayingStyle("vinyl_turntable")
                                     onUpdateSettings(settings.copy(selectedNowPlayingStyle = "vinyl_turntable"))
                                 } else {
-                                    Toast.makeText(context, if (lang == AppLanguage.PERSIAN) "این استایل پس از ۵ ساعت گوش دادن باز می‌شود!" else "Unlocked after 5 hours of total listening!", Toast.LENGTH_SHORT).show()
+                                    onOpenVipPaywall("now_playing_vinyl")
                                 }
                             },
                             label = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     if (!isVinylUnlocked) {
-                                        Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(12.dp), tint = Color.Gray)
+                                        Icon(Icons.Default.AutoAwesome, contentDescription = "VIP", modifier = Modifier.size(12.dp), tint = goldAccent)
                                         Spacer(modifier = Modifier.width(4.dp))
                                     }
                                     Text(Localization.getString("vinyl_style", lang), fontSize = 12.sp)
@@ -174,6 +308,8 @@ fun SettingsScreen(
 
         // Section: Audio Hardware, DSP & Continuous Mix
         item {
+            val hasContinuousAccess = com.example.monetization.EntitlementManager.hasAccess(context, "continuous_mix")
+            val hasHearingAccess = com.example.monetization.EntitlementManager.hasAccess(context, "personal_hearing_profile")
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -200,18 +336,40 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(Localization.getString("continuous_mix", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.SemiBold))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(Localization.getString("continuous_mix", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.SemiBold))
+                                if (!hasContinuousAccess) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Icon(Icons.Default.AutoAwesome, contentDescription = "VIP", tint = goldAccent, modifier = Modifier.size(13.dp))
+                                }
+                            }
                             Text(Localization.getString("continuous_mix_desc", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)))
                         }
                         Switch(
                             checked = settings.continuousMixEnabled,
-                            onCheckedChange = { onUpdateSettings(settings.copy(continuousMixEnabled = it)) }
+                            onCheckedChange = { isChecked ->
+                                if (isChecked) {
+                                    if (hasContinuousAccess) {
+                                        onUpdateSettings(settings.copy(continuousMixEnabled = true))
+                                    } else {
+                                        onOpenVipPaywall("continuous_mix")
+                                    }
+                                } else {
+                                    onUpdateSettings(settings.copy(continuousMixEnabled = false))
+                                }
+                            }
                         )
                     }
 
                     // Hearing Calibration Profile Button
                     Button(
-                        onClick = onOpenHearingProfileTest,
+                        onClick = {
+                            if (hasHearingAccess) {
+                                onOpenHearingProfileTest()
+                            } else {
+                                onOpenVipPaywall("personal_hearing_profile")
+                            }
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = palette.accent.copy(alpha = 0.35f)),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -219,6 +377,10 @@ fun SettingsScreen(
                         Icon(Icons.Default.Hearing, contentDescription = null, modifier = Modifier.size(18.dp), tint = palette.accent)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(Localization.getString("hearing_profile", lang), color = Color.White)
+                        if (!hasHearingAccess) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(Icons.Default.AutoAwesome, contentDescription = "VIP", tint = goldAccent, modifier = Modifier.size(14.dp))
+                        }
                     }
 
                     // Open Standard Equalizer Button
@@ -328,10 +490,26 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(6.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(VisualizerPreset.DEFAULT_PRESETS) { preset ->
+                            val vFeature = getVisualizerFeatureId(preset.mode)
+                            val isLocked = vFeature != null && !com.example.monetization.EntitlementManager.hasAccess(context, vFeature)
                             FilterChip(
                                 selected = settings.visualizerMode == preset.mode,
-                                onClick = { onSetPreset(preset) },
-                                label = { Text(preset.name, fontSize = 11.sp) }
+                                onClick = {
+                                    if (isLocked) {
+                                        onOpenVipPaywall(vFeature)
+                                    } else {
+                                        onSetPreset(preset)
+                                    }
+                                },
+                                label = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(preset.name, fontSize = 11.sp)
+                                        if (isLocked) {
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Icon(Icons.Default.AutoAwesome, contentDescription = "VIP", modifier = Modifier.size(11.dp), tint = goldAccent)
+                                        }
+                                    }
+                                }
                             )
                         }
                     }
@@ -349,6 +527,54 @@ fun SettingsScreen(
                             checked = settings.autoColorFromArtwork,
                             onCheckedChange = { onUpdateSettings(settings.copy(autoColorFromArtwork = it)) }
                         )
+                    }
+                }
+            }
+        }
+
+        // Section: Language Selection
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .liquidGlass(
+                        shape = RoundedCornerShape(18.dp),
+                        thickness = GlassThickness.REGULAR,
+                        tintColor = palette.primary,
+                        tintAlpha = 0.12f,
+                        borderWidth = 1.dp,
+                        appTheme = settings.theme
+                    )
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.Language, contentDescription = null, tint = palette.accent)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = Localization.getString("language_settings", lang),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White)
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppLanguage.values().forEach { l ->
+                            FilterChip(
+                                selected = settings.language == l,
+                                onClick = {
+                                    onUpdateSettings(settings.copy(language = l))
+                                },
+                                label = {
+                                    Text(
+                                        text = if (l == AppLanguage.PERSIAN) "فارسی (پیش‌فرض)" else "English",
+                                        fontWeight = if (settings.language == l) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize = 12.sp
+                                    )
+                                },
+                                leadingIcon = if (settings.language == l) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                                } else null
+                            )
+                        }
                     }
                 }
             }
@@ -379,14 +605,37 @@ fun SettingsScreen(
 
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(AppTheme.values().toList()) { t ->
+                            val tFeature = getThemeFeatureId(t)
+                            val isLocked = tFeature != null && !com.example.monetization.EntitlementManager.hasAccess(context, tFeature)
                             FilterChip(
                                 selected = settings.theme == t,
                                 onClick = {
-                                    if (settings.theme != t) {
-                                        onUpdateSettings(settings.copy(theme = t))
+                                    if (isLocked) {
+                                        onOpenVipPaywall(tFeature)
+                                    } else {
+                                        if (settings.theme != t) {
+                                            val signatureAccent = when (t) {
+                                                AppTheme.PURE_LIQUID_GLASS -> 0xFF00E5FF
+                                                AppTheme.CYBER_NIGHTS -> 0xFF00F0FF
+                                                AppTheme.Y2K_CHROME -> 0xFF38BDF8
+                                                AppTheme.VELVET_NOIR -> 0xFFFFD700
+                                                AppTheme.SUNSET_RAVE -> 0xFFFF5E00
+                                                AppTheme.DIGITAL_ACID -> 0xFF39FF14
+                                                AppTheme.MONOCHROME_NOIR -> 0xFFFFFFFF
+                                            }
+                                            onUpdateSettings(settings.copy(theme = t, customAccentColor = signatureAccent))
+                                        }
                                     }
                                 },
-                                label = { Text(if (lang == AppLanguage.PERSIAN) t.titleFa else t.titleEn, fontSize = 12.sp) }
+                                label = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(if (lang == AppLanguage.PERSIAN) t.titleFa else t.titleEn, fontSize = 12.sp)
+                                        if (isLocked) {
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Icon(Icons.Default.AutoAwesome, contentDescription = "VIP", modifier = Modifier.size(11.dp), tint = goldAccent)
+                                        }
+                                    }
+                                }
                             )
                         }
                     }
@@ -472,7 +721,7 @@ fun SettingsScreen(
                     OutlinedButton(
                         onClick = {
                             onClearPlaybackHistory()
-                            Toast.makeText(context, "Playback history cleared", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, if (lang == AppLanguage.PERSIAN) "تاریخچه پخش پاکسازی شد" else "Playback history cleared", Toast.LENGTH_SHORT).show()
                         },
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -600,7 +849,11 @@ fun SettingsScreen(
                                 onUpdateSettings(settings.copy(developerModeEnabled = newDevState))
                                 Toast.makeText(
                                     context,
-                                    if (newDevState) "🚀 Developer HUD Activated!" else "Developer Mode Disabled",
+                                    if (newDevState) {
+                                        if (lang == AppLanguage.PERSIAN) "🚀 ابزار تله‌متری و دولوپر فعال شد!" else "🚀 Developer HUD Activated!"
+                                    } else {
+                                        if (lang == AppLanguage.PERSIAN) "حالت توسعه‌دهنده غیرفعال شد" else "Developer Mode Disabled"
+                                    },
                                     Toast.LENGTH_SHORT
                                 ).show()
                                 devTapCount = 0
@@ -609,7 +862,9 @@ fun SettingsScreen(
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 )
                 Text(
-                    text = "High-Fidelity Audio • 120 FPS Real-Time DSP • Dynamic Aurora",
+                    text = if (lang == AppLanguage.PERSIAN)
+                        "صدای شفاف استودیویی • پردازش بلادرنگ ۱۲۰ فریم • شیشه مایع آئورا"
+                    else "High-Fidelity Audio • 120 FPS Real-Time DSP • Dynamic Aurora",
                     style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF707086))
                 )
             }
@@ -619,11 +874,27 @@ fun SettingsScreen(
     if (showBackupDialog) {
         AlertDialog(
             onDismissRequest = { showBackupDialog = false },
-            title = { Text(if (isExportMode) "Export Backup JSON" else "Import Backup JSON") },
+            title = {
+                Text(
+                    if (isExportMode) {
+                        if (lang == AppLanguage.PERSIAN) "خروجی فایل پشتیبان JSON" else "Export Backup JSON"
+                    } else {
+                        if (lang == AppLanguage.PERSIAN) "بازیابی از فایل پشتیبان JSON" else "Import Backup JSON"
+                    }
+                )
+            },
             text = {
                 Column {
                     Text(
-                        text = if (isExportMode) "Copy this JSON to backup your playlists, favorites and settings:" else "Paste your backup JSON below:",
+                        text = if (isExportMode) {
+                            if (lang == AppLanguage.PERSIAN)
+                                "این متن JSON را کپی کنید تا از لیست‌های پخش، علاقه‌مندی‌ها و تنظیمات پشتیبان داشته باشید:"
+                            else "Copy this JSON to backup your playlists, favorites and settings:"
+                        } else {
+                            if (lang == AppLanguage.PERSIAN)
+                                "متن JSON پشتیبان را در کادر زیر جای‌گذاری کنید:"
+                            else "Paste your backup JSON below:"
+                        },
                         style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B0))
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -642,7 +913,15 @@ fun SettingsScreen(
                         if (!isExportMode) {
                             coroutineScope.launch {
                                 val success = onImportBackup(backupJsonText)
-                                Toast.makeText(context, if (success) "Restored successfully!" else "Invalid backup JSON", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(
+                                    context,
+                                    if (success) {
+                                        if (lang == AppLanguage.PERSIAN) "اطلاعات با موفقیت بازیابی شد!" else "Restored successfully!"
+                                    } else {
+                                        if (lang == AppLanguage.PERSIAN) "فرمت فایل پشتیبان نامعتبر است" else "Invalid backup JSON"
+                                    },
+                                    Toast.LENGTH_SHORT
+                                ).show()
                                 showBackupDialog = false
                             }
                         } else {
@@ -650,12 +929,43 @@ fun SettingsScreen(
                         }
                     }
                 ) {
-                    Text(if (isExportMode) "Close" else "Restore")
+                    Text(
+                        if (isExportMode) {
+                            if (lang == AppLanguage.PERSIAN) "بستن" else "Close"
+                        } else {
+                            if (lang == AppLanguage.PERSIAN) "بازیابی" else "Restore"
+                        }
+                    )
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showBackupDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showBackupDialog = false }) {
+                    Text(if (lang == AppLanguage.PERSIAN) "انصراف" else "Cancel")
+                }
             }
         )
     }
 }
+
+private fun getThemeFeatureId(theme: AppTheme): String? = when (theme) {
+    AppTheme.PURE_LIQUID_GLASS, AppTheme.CYBER_NIGHTS -> null
+    AppTheme.VELVET_NOIR -> "theme_velvet_noir"
+    AppTheme.SUNSET_RAVE -> "theme_sunset_rave"
+    AppTheme.DIGITAL_ACID -> "theme_digital_acid"
+    AppTheme.Y2K_CHROME -> "theme_y2k_chrome"
+    AppTheme.MONOCHROME_NOIR -> "theme_monochrome_noir"
+}
+
+private fun getVisualizerFeatureId(mode: VisualizerMode): String? = when (mode) {
+    VisualizerMode.AMBIENT_HALO, VisualizerMode.BASS_GLOW, VisualizerMode.SPECTRUM -> null
+    VisualizerMode.CIRCULAR_SPECTRUM -> "visualizer_circular_spectrum"
+    VisualizerMode.WAVEFORM -> "visualizer_waveform"
+    VisualizerMode.RADIAL_WAVE -> "visualizer_radial_wave"
+    VisualizerMode.PULSE_RING -> "visualizer_pulse_ring"
+    VisualizerMode.AURORA -> "visualizer_aurora"
+    VisualizerMode.LIQUID -> "visualizer_liquid"
+    VisualizerMode.PARTICLE_FIELD -> "visualizer_particle_field"
+    VisualizerMode.DOTS -> "visualizer_dots"
+    VisualizerMode.CINEMATIC_FOG -> "visualizer_cinematic_fog"
+}
+

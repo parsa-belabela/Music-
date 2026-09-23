@@ -24,14 +24,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
+import com.example.data.model.AppLanguage
 import com.example.data.model.AppSettings
 
 data class CalibratedEqPreset(
     val id: String,
     val name: String,
+    val nameFa: String = name,
     val bands: List<Float>, // 31Hz, 62Hz, 125Hz, 250Hz, 500Hz, 1kHz, 2kHz, 4kHz, 8kHz, 16kHz
     val recommendedBassBoost: Int = 0
-)
+) {
+    fun getName(lang: AppLanguage): String = if (lang == AppLanguage.PERSIAN) nameFa else name
+}
 
 /**
  * Audiophile-Calibrated Equalizer & DSP Audio Sheet.
@@ -47,6 +51,7 @@ fun EqualizerSheet(
     onUpdateSettings: (AppSettings) -> Unit,
     onClose: () -> Unit
 ) {
+    val lang = settings.language
     var eqEnabled by remember { mutableStateOf(settings.equalizerEnabled) }
     var bassBoost by remember { mutableFloatStateOf(settings.bassBoostStrength.toFloat()) }
     var crossfade by remember { mutableIntStateOf(settings.crossfadeDurationSeconds) }
@@ -73,72 +78,84 @@ fun EqualizerSheet(
             CalibratedEqPreset(
                 id = "flat",
                 name = "Flat (Studio)",
+                nameFa = "استودیویی تخت (Flat)",
                 bands = listOf(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f),
                 recommendedBassBoost = 0
             ),
             CalibratedEqPreset(
                 id = "bass_boost",
                 name = "Bass Boost (Deep)",
+                nameFa = "تقویت بیس عمیق",
                 bands = listOf(8.5f, 7.5f, 6.0f, 3.5f, 1.0f, 0.0f, -0.5f, 0.0f, 1.5f, 2.0f),
                 recommendedBassBoost = 650
             ),
             CalibratedEqPreset(
                 id = "edm",
                 name = "Electronic / EDM",
+                nameFa = "الکترونیک / EDM",
                 bands = listOf(7.5f, 6.5f, 4.0f, 0.5f, -1.5f, 1.0f, 2.5f, 4.5f, 6.0f, 6.5f),
                 recommendedBassBoost = 450
             ),
             CalibratedEqPreset(
                 id = "rock",
                 name = "Rock & Metal",
+                nameFa = "راک و متال",
                 bands = listOf(5.5f, 4.5f, 3.0f, -0.5f, -1.5f, 1.5f, 3.0f, 4.5f, 5.0f, 5.5f),
                 recommendedBassBoost = 250
             ),
             CalibratedEqPreset(
                 id = "pop",
                 name = "Pop Hits",
+                nameFa = "پاپ (Pop)",
                 bands = listOf(2.0f, 3.5f, 4.0f, 1.5f, 0.5f, 2.0f, 3.5f, 4.5f, 4.0f, 3.0f),
                 recommendedBassBoost = 200
             ),
             CalibratedEqPreset(
                 id = "hiphop",
                 name = "Hip-Hop & R&B",
+                nameFa = "هیپ‌هاپ و R&B",
                 bands = listOf(8.0f, 7.5f, 5.5f, 2.0f, -1.0f, 0.5f, 2.0f, 1.5f, 3.5f, 4.0f),
                 recommendedBassBoost = 500
             ),
             CalibratedEqPreset(
                 id = "vocal",
                 name = "Vocal & Podcast",
+                nameFa = "وکال و پادکست",
                 bands = listOf(-3.0f, -1.5f, 0.5f, 2.0f, 4.5f, 5.5f, 4.5f, 3.0f, 1.5f, 0.5f),
                 recommendedBassBoost = 0
             ),
             CalibratedEqPreset(
                 id = "acoustic",
                 name = "Acoustic / Warm",
+                nameFa = "آکوستیک و گرم",
                 bands = listOf(1.0f, 2.0f, 3.0f, 2.0f, 1.5f, 2.0f, 3.0f, 4.0f, 3.5f, 2.5f),
                 recommendedBassBoost = 150
             ),
             CalibratedEqPreset(
                 id = "classical",
                 name = "Classical & Symphony",
+                nameFa = "کلاسیک و سمفونی",
                 bands = listOf(4.0f, 3.5f, 2.5f, 1.0f, 0.0f, 0.5f, 2.0f, 3.5f, 4.5f, 5.0f),
                 recommendedBassBoost = 100
             ),
             CalibratedEqPreset(
                 id = "jazz",
                 name = "Jazz & Soul",
+                nameFa = "جاز و بلوز",
                 bands = listOf(3.5f, 3.0f, 2.0f, 1.5f, 0.5f, 1.0f, 2.0f, 3.0f, 3.5f, 3.5f),
                 recommendedBassBoost = 150
             ),
             CalibratedEqPreset(
                 id = "chill",
                 name = "Lounge / Chill",
+                nameFa = "ریلکس و آرامش‌بخش",
                 bands = listOf(5.0f, 4.5f, 3.0f, 1.5f, 1.0f, 1.5f, 2.0f, 2.0f, 1.5f, 0.5f),
                 recommendedBassBoost = 300
             ),
             CalibratedEqPreset(
                 id = "treble",
                 name = "Bright Treble",
+                nameFa = "تقویت فرکانس‌های بالا",
                 bands = listOf(-3.0f, -2.0f, -1.0f, 0.5f, 2.0f, 4.0f, 6.0f, 7.5f, 8.5f, 9.0f),
                 recommendedBassBoost = 0
             )
@@ -185,14 +202,18 @@ fun EqualizerSheet(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "Audiophile DSP Equalizer",
+                            text = if (lang == AppLanguage.PERSIAN) "اکولایزر و پردازشگر صدا (DSP)" else "Audiophile DSP Equalizer",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
                             )
                         )
                         Text(
-                            text = if (eqEnabled) "10-Band Hardware DSP Active" else "Bypassed",
+                            text = if (eqEnabled) {
+                                if (lang == AppLanguage.PERSIAN) "پردازش ۱۰ کاناله سخت‌افزاری فعال" else "10-Band Hardware DSP Active"
+                            } else {
+                                if (lang == AppLanguage.PERSIAN) "غیرفعال (صدای اصلی)" else "Bypassed"
+                            },
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = if (eqEnabled) palette.accent else Color(0xFF88889C),
                                 fontSize = 11.sp
@@ -227,7 +248,7 @@ fun EqualizerSheet(
 
             // Presets Horizontal list with active selection indicator
             Text(
-                text = "CALIBRATED PRESETS",
+                text = if (lang == AppLanguage.PERSIAN) "پریست‌های کالیبره‌شده" else "CALIBRATED PRESETS",
                 style = MaterialTheme.typography.labelSmall.copy(
                     color = palette.accent,
                     letterSpacing = 1.2.sp,
@@ -273,7 +294,7 @@ fun EqualizerSheet(
                         } else null,
                         label = {
                             Text(
-                                text = preset.name,
+                                text = preset.getName(lang),
                                 fontSize = 12.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                             )
@@ -313,7 +334,7 @@ fun EqualizerSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "ACOUSTIC FREQUENCY RESPONSE",
+                    text = if (lang == AppLanguage.PERSIAN) "منحنی پاسخ فرکانسی آکوستیک" else "ACOUSTIC FREQUENCY RESPONSE",
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = Color(0xFFA5ABC0),
                         letterSpacing = 1.2.sp,
@@ -321,7 +342,9 @@ fun EqualizerSheet(
                     )
                 )
                 Text(
-                    text = if (activePresetName.isNotBlank()) activePresetName else "Custom",
+                    text = if (activePresetName.isNotBlank()) {
+                        calibratedPresets.find { it.name == activePresetName }?.getName(lang) ?: (if (lang == AppLanguage.PERSIAN) "شخصی‌سازی" else "Custom")
+                    } else (if (lang == AppLanguage.PERSIAN) "شخصی‌سازی" else "Custom"),
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = palette.accent,
                         fontWeight = FontWeight.Bold
@@ -502,7 +525,7 @@ fun EqualizerSheet(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "Deep Bass Enhancer",
+                            text = if (lang == AppLanguage.PERSIAN) "تقویت‌کننده بیس عمیق (Bass Boost)" else "Deep Bass Enhancer",
                             style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.SemiBold)
                         )
                         Text(
@@ -528,11 +551,15 @@ fun EqualizerSheet(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "Crossfade Between Songs",
+                            text = if (lang == AppLanguage.PERSIAN) "محو و اتصال بین آهنگ‌ها (Crossfade)" else "Crossfade Between Songs",
                             style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.SemiBold)
                         )
                         Text(
-                            text = if (crossfade > 0) "${crossfade}s" else "Off",
+                            text = if (crossfade > 0) {
+                                if (lang == AppLanguage.PERSIAN) "$crossfade ثانیه" else "${crossfade}s"
+                            } else {
+                                if (lang == AppLanguage.PERSIAN) "خاموش" else "Off"
+                            },
                             style = MaterialTheme.typography.bodyMedium.copy(color = palette.accent, fontWeight = FontWeight.Bold)
                         )
                     }
@@ -556,11 +583,11 @@ fun EqualizerSheet(
                     ) {
                         Column {
                             Text(
-                                text = "Gapless Playback",
+                                text = if (lang == AppLanguage.PERSIAN) "پخش بدون وقفه (Gapless)" else "Gapless Playback",
                                 style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.SemiBold)
                             )
                             Text(
-                                text = "Continuous transitions without pause",
+                                text = if (lang == AppLanguage.PERSIAN) "انتقال یکپارچه بین قطعات بدون سکوت" else "Continuous transitions without pause",
                                 style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B5), fontSize = 11.sp)
                             )
                         }
@@ -583,7 +610,7 @@ fun EqualizerSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Audio Playback Pitch & Speed",
+                            text = if (lang == AppLanguage.PERSIAN) "سرعت پخش موسیقی" else "Audio Playback Pitch & Speed",
                             style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.SemiBold)
                         )
                         Text(

@@ -129,7 +129,7 @@ fun DuplicatesReviewDialog(
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
-                                            text = "Keep: ${group.winner.bitrate} kbps",
+                                            text = if (lang == AppLanguage.PERSIAN) "انتخاب شده: ${group.winner.bitrate} kbps" else "Keep: ${group.winner.bitrate} kbps",
                                             style = MaterialTheme.typography.labelSmall.copy(
                                                 color = palette.accent,
                                                 fontWeight = FontWeight.Bold
@@ -145,7 +145,7 @@ fun DuplicatesReviewDialog(
                                     }
 
                                     Text(
-                                        text = "Hide ${group.losers.size} lower copy",
+                                        text = if (lang == AppLanguage.PERSIAN) "مخفی‌سازی ${group.losers.size} نسخه ضعیف‌تر" else "Hide ${group.losers.size} lower copy",
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             color = Color(0xFF8E8EA0)
                                         )

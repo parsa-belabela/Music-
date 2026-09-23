@@ -82,6 +82,7 @@ class AudioEngine(private val context: Context) {
     private var isSeekingInProgress = false
     private var pendingSeekPos: Long? = null
     private var lastSeekTimestamp = 0L
+    private var seekWatchdogJob: Job? = null
 
     init {
         initAudioDeviceMonitor()
@@ -402,19 +403,17 @@ class AudioEngine(private val context: Context) {
             }
 
             mp.setOnSeekCompleteListener {
+                seekWatchdogJob?.cancel()
                 val nextSeek = pendingSeekPos
-                if (nextSeek != null && nextSeek != _currentPosition.value) {
-                    pendingSeekPos = null
+                pendingSeekPos = null
+                if (nextSeek != null) {
                     dispatchSeek(nextSeek)
                 } else {
                     isSeekingInProgress = false
-                    pendingSeekPos = null
-                    try {
-                        val pos = mp.currentPosition.toLong()
-                        if (pos >= 0L) {
-                            _currentPosition.value = pos
-                        }
-                    } catch (_: Exception) {}
+                    lastSeekTimestamp = System.currentTimeMillis()
+                    if (_isPlayWhenReady.value && mp.isPlaying) {
+                        startProgressTracker()
+                    }
                 }
             }
 
@@ -617,6 +616,20 @@ class AudioEngine(private val context: Context) {
         if (!isPlayerPrepared) return
         isSeekingInProgress = true
         lastSeekTimestamp = System.currentTimeMillis()
+
+        seekWatchdogJob?.cancel()
+        seekWatchdogJob = engineScope.launch {
+            delay(350L)
+            if (isSeekingInProgress) {
+                isSeekingInProgress = false
+                val next = pendingSeekPos
+                pendingSeekPos = null
+                if (next != null) {
+                    dispatchSeek(next)
+                }
+            }
+        }
+
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 mp.seekTo(safePos, android.media.MediaPlayer.SEEK_CLOSEST)
@@ -628,6 +641,7 @@ class AudioEngine(private val context: Context) {
             }
         } catch (e: Exception) {
             Log.e(tag, "Error seeking to $safePos", e)
+            seekWatchdogJob?.cancel()
             isSeekingInProgress = false
             pendingSeekPos = null
         }

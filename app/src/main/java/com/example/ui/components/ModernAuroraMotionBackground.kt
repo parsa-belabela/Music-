@@ -98,100 +98,202 @@ fun ModernAuroraMotionBackground(
             val currentBoost = energyBoostProvider()
             val effectiveScale = pulseScale * (1f + currentBoost * 0.45f) * intensity
 
-            // Node 1: Primary Radiant Living Orb (Top Right to Center)
-            val orb1X = width * 0.65f + (cos(rad1).toFloat() * width * 0.24f)
-            val orb1Y = height * 0.24f + (sin(rad1).toFloat() * height * 0.20f)
-            val orb1Radius = (width * 0.62f) * effectiveScale
+            val isMono = palette.isMonochrome || appTheme == AppTheme.MONOCHROME_NOIR
 
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        palette.primary.copy(alpha = 0.85f * intensity),
-                        palette.primary.copy(alpha = 0.45f * intensity),
-                        palette.primary.copy(alpha = 0f)
+            if (isMono) {
+                // High-Contrast Monochrome Aesthetic: Pure Diamond White Highlights with Swirling Rich Obsidian Black Shadows
+                // Node 1: Diamond White Light Core (Top Right)
+                val orb1X = width * 0.65f + (cos(rad1).toFloat() * width * 0.22f)
+                val orb1Y = height * 0.22f + (sin(rad1).toFloat() * height * 0.18f)
+                val orb1Radius = (width * 0.58f) * effectiveScale
+
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFFFFFFFF).copy(alpha = 0.85f * intensity),
+                            Color(0xFFE2E8F0).copy(alpha = 0.40f * intensity),
+                            Color(0x00FFFFFF)
+                        ),
+                        center = Offset(orb1X, orb1Y),
+                        radius = orb1Radius
                     ),
                     center = Offset(orb1X, orb1Y),
                     radius = orb1Radius
-                ),
-                center = Offset(orb1X, orb1Y),
-                radius = orb1Radius
-            )
+                )
 
-            // Node 2: Secondary Electric Azure/Cyan Fluid Orb (Bottom Left to Center)
-            val orb2X = width * 0.30f + (sin(rad2).toFloat() * width * 0.26f)
-            val orb2Y = height * 0.58f + (cos(rad2).toFloat() * height * 0.22f)
-            val orb2Radius = (width * 0.66f) * effectiveScale
+                // Node 2: Swirling Rich Obsidian Jet Black Shadow Orb (Bottom Left)
+                // Adds real, deep, velvety black presence to the ambient atmosphere
+                val orb2X = width * 0.32f + (sin(rad2).toFloat() * width * 0.24f)
+                val orb2Y = height * 0.56f + (cos(rad2).toFloat() * height * 0.20f)
+                val orb2Radius = (width * 0.68f) * effectiveScale
 
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        palette.secondary.copy(alpha = 0.80f * intensity),
-                        palette.secondary.copy(alpha = 0.40f * intensity),
-                        palette.secondary.copy(alpha = 0f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF000000).copy(alpha = 0.95f * intensity),
+                            Color(0xFF080A12).copy(alpha = 0.70f * intensity),
+                            Color(0x00000000)
+                        ),
+                        center = Offset(orb2X, orb2Y),
+                        radius = orb2Radius
                     ),
                     center = Offset(orb2X, orb2Y),
                     radius = orb2Radius
-                ),
-                center = Offset(orb2X, orb2Y),
-                radius = orb2Radius
-            )
+                )
 
-            // Node 3: Vivid Accent / Neon Electric Glow Orb (Top Left to Bottom Right)
-            val orb3X = width * 0.22f + (cos(rad2 * 0.85).toFloat() * width * 0.22f)
-            val orb3Y = height * 0.16f + (sin(rad1 * 0.75).toFloat() * height * 0.18f)
-            val orb3Radius = (width * 0.54f) * effectiveScale
+                // Node 3: Platinum Silver & Graphite Node (Top Left)
+                val orb3X = width * 0.22f + (cos(rad2 * 0.85).toFloat() * width * 0.20f)
+                val orb3Y = height * 0.16f + (sin(rad1 * 0.75).toFloat() * height * 0.16f)
+                val orb3Radius = (width * 0.52f) * effectiveScale
 
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        palette.accent.copy(alpha = 0.85f * intensity),
-                        palette.accent.copy(alpha = 0.38f * intensity),
-                        palette.accent.copy(alpha = 0f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF94A3B8).copy(alpha = 0.55f * intensity),
+                            Color(0xFF334155).copy(alpha = 0.30f * intensity),
+                            Color(0x00000000)
+                        ),
+                        center = Offset(orb3X, orb3Y),
+                        radius = orb3Radius
                     ),
                     center = Offset(orb3X, orb3Y),
                     radius = orb3Radius
-                ),
-                center = Offset(orb3X, orb3Y),
-                radius = orb3Radius
-            )
+                )
 
-            // Node 4: Dynamic Center Fusion Core (Breathing Harmonic Hearth)
-            val orb4X = width * 0.50f + (sin(rad1 * 0.5).toFloat() * width * 0.12f)
-            val orb4Y = height * 0.42f + (cos(rad2 * 0.5).toFloat() * height * 0.12f)
-            val orb4Radius = (width * 0.48f) * effectiveScale
+                // Node 4: Dynamic Center Obsidian Core (Swirling Deep Velvet Shadow)
+                val orb4X = width * 0.50f + (sin(rad1 * 0.5).toFloat() * width * 0.12f)
+                val orb4Y = height * 0.42f + (cos(rad2 * 0.5).toFloat() * height * 0.12f)
+                val orb4Radius = (width * 0.50f) * effectiveScale
 
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        palette.accent.copy(alpha = 0.60f * intensity),
-                        palette.primary.copy(alpha = 0.25f * intensity),
-                        palette.primary.copy(alpha = 0f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF020306).copy(alpha = 0.88f * intensity),
+                            Color(0xFF0E111C).copy(alpha = 0.40f * intensity),
+                            Color(0x00000000)
+                        ),
+                        center = Offset(orb4X, orb4Y),
+                        radius = orb4Radius
                     ),
                     center = Offset(orb4X, orb4Y),
                     radius = orb4Radius
-                ),
-                center = Offset(orb4X, orb4Y),
-                radius = orb4Radius
-            )
+                )
 
-            // Node 5: Deep Atmosphere Floor (Bottom Depth)
-            val orb5X = width * 0.78f + (sin(rad1 * 1.1).toFloat() * width * 0.18f)
-            val orb5Y = height * 0.82f + (cos(rad2 * 1.05).toFloat() * height * 0.15f)
-            val orb5Radius = (width * 0.58f) * effectiveScale
+                // Node 5: Pure Obsidian Pitch Floor (Bottom Right)
+                val orb5X = width * 0.78f + (sin(rad1 * 1.1).toFloat() * width * 0.16f)
+                val orb5Y = height * 0.82f + (cos(rad2 * 1.05).toFloat() * height * 0.14f)
+                val orb5Radius = (width * 0.60f) * effectiveScale
 
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        palette.deepAtmosphere.copy(alpha = 0.80f * intensity),
-                        palette.primary.copy(alpha = 0.35f * intensity),
-                        palette.primary.copy(alpha = 0f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF000000).copy(alpha = 0.92f * intensity),
+                            Color(0xFF06070E).copy(alpha = 0.50f * intensity),
+                            Color(0x00000000)
+                        ),
+                        center = Offset(orb5X, orb5Y),
+                        radius = orb5Radius
                     ),
                     center = Offset(orb5X, orb5Y),
                     radius = orb5Radius
-                ),
-                center = Offset(orb5X, orb5Y),
-                radius = orb5Radius
-            )
+                )
+            } else {
+                // Multi-node dynamic chromatic mesh layer
+                // Node 1: Primary Radiant Living Orb (Top Right to Center)
+                val orb1X = width * 0.65f + (cos(rad1).toFloat() * width * 0.24f)
+                val orb1Y = height * 0.24f + (sin(rad1).toFloat() * height * 0.20f)
+                val orb1Radius = (width * 0.62f) * effectiveScale
+
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            palette.primary.copy(alpha = 0.85f * intensity),
+                            palette.primary.copy(alpha = 0.45f * intensity),
+                            palette.primary.copy(alpha = 0f)
+                        ),
+                        center = Offset(orb1X, orb1Y),
+                        radius = orb1Radius
+                    ),
+                    center = Offset(orb1X, orb1Y),
+                    radius = orb1Radius
+                )
+
+                // Node 2: Secondary Fluid Orb (Bottom Left to Center)
+                val orb2X = width * 0.30f + (sin(rad2).toFloat() * width * 0.26f)
+                val orb2Y = height * 0.58f + (cos(rad2).toFloat() * height * 0.22f)
+                val orb2Radius = (width * 0.66f) * effectiveScale
+
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            palette.secondary.copy(alpha = 0.80f * intensity),
+                            palette.secondary.copy(alpha = 0.40f * intensity),
+                            palette.secondary.copy(alpha = 0f)
+                        ),
+                        center = Offset(orb2X, orb2Y),
+                        radius = orb2Radius
+                    ),
+                    center = Offset(orb2X, orb2Y),
+                    radius = orb2Radius
+                )
+
+                // Node 3: Vivid Accent / Neon Electric Glow Orb (Top Left to Bottom Right)
+                val orb3X = width * 0.22f + (cos(rad2 * 0.85).toFloat() * width * 0.22f)
+                val orb3Y = height * 0.16f + (sin(rad1 * 0.75).toFloat() * height * 0.18f)
+                val orb3Radius = (width * 0.54f) * effectiveScale
+
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            palette.accent.copy(alpha = 0.85f * intensity),
+                            palette.accent.copy(alpha = 0.38f * intensity),
+                            palette.accent.copy(alpha = 0f)
+                        ),
+                        center = Offset(orb3X, orb3Y),
+                        radius = orb3Radius
+                    ),
+                    center = Offset(orb3X, orb3Y),
+                    radius = orb3Radius
+                )
+
+                // Node 4: Dynamic Center Fusion Core
+                val orb4X = width * 0.50f + (sin(rad1 * 0.5).toFloat() * width * 0.12f)
+                val orb4Y = height * 0.42f + (cos(rad2 * 0.5).toFloat() * height * 0.12f)
+                val orb4Radius = (width * 0.48f) * effectiveScale
+
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            palette.accent.copy(alpha = 0.60f * intensity),
+                            palette.primary.copy(alpha = 0.25f * intensity),
+                            palette.primary.copy(alpha = 0f)
+                        ),
+                        center = Offset(orb4X, orb4Y),
+                        radius = orb4Radius
+                    ),
+                    center = Offset(orb4X, orb4Y),
+                    radius = orb4Radius
+                )
+
+                // Node 5: Deep Atmosphere Floor (Bottom Depth)
+                val orb5X = width * 0.78f + (sin(rad1 * 1.1).toFloat() * width * 0.18f)
+                val orb5Y = height * 0.82f + (cos(rad2 * 1.05).toFloat() * height * 0.15f)
+                val orb5Radius = (width * 0.58f) * effectiveScale
+
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            palette.deepAtmosphere.copy(alpha = 0.80f * intensity),
+                            palette.primary.copy(alpha = 0.35f * intensity),
+                            palette.primary.copy(alpha = 0f)
+                        ),
+                        center = Offset(orb5X, orb5Y),
+                        radius = orb5Radius
+                    ),
+                    center = Offset(orb5X, orb5Y),
+                    radius = orb5Radius
+                )
+            }
         }
 
         // Ambient contrast gradient overlay: leaves lights alive while ensuring crisp text readability

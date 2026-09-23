@@ -174,16 +174,19 @@ object SongShareCardGenerator {
             }
             canvas.drawText("“ $snippet ”", width / 2f, waveTop + 140f, snippetPaint)
 
-            // 7. Aura Branding in bottom bar
-            val brandPaint = Paint().apply {
-                color = aInt
-                textSize = 38f
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                textAlign = Paint.Align.CENTER
-                isAntiAlias = true
-                letterSpacing = 0.15f
+            // 7. Aura Branding in bottom bar (Omitted for VIP users with watermark-free entitlement)
+            val hasWatermarkFree = com.example.monetization.EntitlementManager.hasAccess(context, "share_card_no_watermark")
+            if (!hasWatermarkFree) {
+                val brandPaint = Paint().apply {
+                    color = aInt
+                    textSize = 38f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    textAlign = Paint.Align.CENTER
+                    isAntiAlias = true
+                    letterSpacing = 0.15f
+                }
+                canvas.drawText("AURA MUSIC • LIQUID SOUND", width / 2f, height - 140f, brandPaint)
             }
-            canvas.drawText("AURA MUSIC • LIQUID SOUND", width / 2f, height - 140f, brandPaint)
 
             // Save to cacheDir
             val imagesDir = File(context.cacheDir, "images")

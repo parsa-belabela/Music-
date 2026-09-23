@@ -126,7 +126,7 @@ fun LiquidGlassProgressBar(
                             val curSafeDuration = durationMs.coerceAtLeast(1L)
                             val targetMs = (dragProgress * curSafeDuration).toLong()
                             internalCurrentMs = targetMs
-                            ignoreExternalSyncUntilMs = System.currentTimeMillis() + 450L
+                            ignoreExternalSyncUntilMs = System.currentTimeMillis() + 800L
                             onSeekTo(targetMs)
                         } finally {
                             isDragging = false

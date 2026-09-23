@@ -37,11 +37,13 @@ import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
 import com.example.util.Localization
 
-enum class SortOption(val label: String) {
-    TITLE("Title"),
-    ARTIST("Artist"),
-    DURATION("Duration"),
-    DATE_ADDED("Recently Added")
+enum class SortOption(val labelEn: String, val labelFa: String) {
+    TITLE("Title", "نام آهنگ"),
+    ARTIST("Artist", "نام هنرمند"),
+    DURATION("Duration", "مدت زمان"),
+    DATE_ADDED("Recently Added", "اخیراً اضافه شده");
+
+    fun getLabel(lang: AppLanguage): String = if (lang == AppLanguage.PERSIAN) labelFa else labelEn
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -140,7 +142,7 @@ fun LibraryScreen(
                             DropdownMenuItem(
                                 text = {
                                     Text(
-                                        text = option.label,
+                                        text = option.getLabel(lang),
                                         color = if (selectedSort == option) palette.primary else Color.White
                                     )
                                 },

@@ -19,6 +19,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
+import com.example.data.model.AppLanguage
 import com.example.data.model.PlaybackState
 import com.example.data.model.Track
 import com.example.ui.components.TrackArtworkThumbnail
@@ -28,6 +29,7 @@ import com.example.ui.components.TrackArtworkThumbnail
 fun QueueSheet(
     playbackState: PlaybackState,
     palette: AmbientPalette,
+    lang: AppLanguage = AppLanguage.PERSIAN,
     onPlayTrack: (Track) -> Unit,
     onRemoveFromQueue: (Int) -> Unit,
     onClearQueue: () -> Unit,
@@ -60,24 +62,32 @@ fun QueueSheet(
             ) {
                 Column {
                     Text(
-                        text = "Playing Queue",
+                        text = if (lang == AppLanguage.PERSIAN) "صف پخش آهنگ‌ها" else "Playing Queue",
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                     )
                     Text(
-                        text = "${playbackState.queue.size} tracks in queue",
+                        text = if (lang == AppLanguage.PERSIAN) "${playbackState.queue.size} آهنگ در صف پخش" else "${playbackState.queue.size} tracks in queue",
                         style = MaterialTheme.typography.bodySmall.copy(color = palette.accent)
                     )
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     IconButton(onClick = { showSaveDialog = true }) {
-                        Icon(imageVector = Icons.Default.PlaylistAdd, contentDescription = "Save as Playlist", tint = Color.White)
+                        Icon(
+                            imageVector = Icons.Default.PlaylistAdd,
+                            contentDescription = if (lang == AppLanguage.PERSIAN) "ذخیره به عنوان پلی‌لیست" else "Save as Playlist",
+                            tint = Color.White
+                        )
                     }
                     IconButton(onClick = onClearQueue) {
-                        Icon(imageVector = Icons.Default.ClearAll, contentDescription = "Clear Queue", tint = Color.Red.copy(alpha = 0.8f))
+                        Icon(
+                            imageVector = Icons.Default.ClearAll,
+                            contentDescription = if (lang == AppLanguage.PERSIAN) "پاک کردن صف" else "Clear Queue",
+                            tint = Color.Red.copy(alpha = 0.8f)
+                        )
                     }
                 }
             }
@@ -201,12 +211,12 @@ fun QueueSheet(
     if (showSaveDialog) {
         AlertDialog(
             onDismissRequest = { showSaveDialog = false },
-            title = { Text("Save Queue as Playlist") },
+            title = { Text(if (lang == AppLanguage.PERSIAN) "ذخیره صف به عنوان پلی‌لیست" else "Save Queue as Playlist") },
             text = {
                 OutlinedTextField(
                     value = playlistName,
                     onValueChange = { playlistName = it },
-                    label = { Text("Playlist Name") },
+                    label = { Text(if (lang == AppLanguage.PERSIAN) "نام پلی‌لیست" else "Playlist Name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -220,12 +230,12 @@ fun QueueSheet(
                         }
                     }
                 ) {
-                    Text("Save")
+                    Text(if (lang == AppLanguage.PERSIAN) "ذخیره" else "Save")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showSaveDialog = false }) {
-                    Text("Cancel")
+                    Text(if (lang == AppLanguage.PERSIAN) "انصراف" else "Cancel")
                 }
             }
         )

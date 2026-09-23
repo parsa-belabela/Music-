@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.Track
+import kotlinx.coroutines.launch
 import com.example.ui.components.*
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.LocalAppTheme
@@ -78,14 +79,34 @@ fun MainScreen(
     val showHearingProfileTest by viewModel.showHearingProfileTest.collectAsStateWithLifecycle()
     val showDuplicatesReview by viewModel.showDuplicatesReview.collectAsStateWithLifecycle()
 
+    var showVipPaywallForFeature by remember { mutableStateOf<String?>(null) }
+    var showAchievementsDialog by remember { mutableStateOf(false) }
+    var achievementItems by remember { mutableStateOf<List<com.example.monetization.AchievementItem>>(emptyList()) }
+    val coroutineScope = rememberCoroutineScope()
+
     var showInitialSplash by remember { mutableStateOf(true) }
     var currentTab by remember { mutableStateOf(MainTab.HOME) }
     val lang = appSettings.language
 
+    val openAchievementsAction: () -> Unit = {
+        coroutineScope.launch {
+            val stats = viewModel.getListeningStatsForAchievements()
+            achievementItems = com.example.monetization.AchievementManager.getAchievements(
+                context = context,
+                totalListenedMs = stats.first,
+                uniqueTracksCount = stats.second,
+                activeStreakDays = stats.third
+            )
+            showAchievementsDialog = true
+        }
+    }
+
     BackHandler(
-        enabled = isNowPlayingExpanded || showLyricsEditor || showEqualizer || showQueue || showSleepTimer || showHearingProfileTest || showDuplicatesReview || editingTrackMetadata != null || showShareCard != null || currentTab != MainTab.HOME
+        enabled = showVipPaywallForFeature != null || showAchievementsDialog || isNowPlayingExpanded || showLyricsEditor || showEqualizer || showQueue || showSleepTimer || showHearingProfileTest || showDuplicatesReview || editingTrackMetadata != null || showShareCard != null || currentTab != MainTab.HOME
     ) {
         when {
+            showVipPaywallForFeature != null -> showVipPaywallForFeature = null
+            showAchievementsDialog -> showAchievementsDialog = false
             showShareCard != null -> viewModel.dismissShareCard()
             showHearingProfileTest -> viewModel.showHearingProfileTest.value = false
             showDuplicatesReview -> viewModel.showDuplicatesReview.value = false
@@ -395,6 +416,8 @@ fun MainScreen(
                                 viewModel.checkDuplicates()
                             },
                             onSelectNowPlayingStyle = { styleId -> viewModel.selectNowPlayingStyle(styleId) },
+                            onOpenVipPaywall = { featureId -> showVipPaywallForFeature = featureId ?: "vip_general" },
+                            onOpenAchievements = openAchievementsAction,
                             bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()
                         )
@@ -431,6 +454,7 @@ fun MainScreen(
                         onOpenSleepTimer = { viewModel.showSleepTimer.value = true },
                         onOpenMetadataEditor = { viewModel.editingTrackMetadata.value = it },
                         onOpenHearingCalibration = { viewModel.showHearingProfileTest.value = true },
+                        onOpenVipPaywall = { featureId -> showVipPaywallForFeature = featureId ?: "vip_general" },
                         connectedDevice = connectedDevice,
                         onShareSong = { trk -> viewModel.showShareCard(trk) },
                         onPlaybackSpeedChange = { speed -> viewModel.setPlaybackSpeed(speed) }
@@ -494,6 +518,7 @@ fun MainScreen(
                 currentLyrics = currentLyrics,
                 currentPositionMs = viewModel.currentPositionMs.value,
                 palette = palette,
+                lang = appSettings.language,
                 onSave = { rawLrc, offsetMs ->
                     playbackState.currentTrack?.let {
                         viewModel.saveLyrics(it.id, rawLrc, offsetMs)
@@ -516,6 +541,7 @@ fun MainScreen(
             QueueSheet(
                 playbackState = playbackState,
                 palette = palette,
+                lang = appSettings.language,
                 onPlayTrack = { viewModel.playTrack(it) },
                 onRemoveFromQueue = { viewModel.removeFromQueue(it) },
                 onClearQueue = { viewModel.clearQueue() },
@@ -528,6 +554,7 @@ fun MainScreen(
         if (showSleepTimer) {
             SleepTimerDialog(
                 currentMinutes = appSettings.sleepTimerMinutes,
+                lang = appSettings.language,
                 onSelectMinutes = { viewModel.setSleepTimer(it) },
                 onDismiss = { viewModel.showSleepTimer.value = false }
             )
@@ -536,11 +563,49 @@ fun MainScreen(
         editingTrackMetadata?.let { trk ->
             MetadataEditorDialog(
                 track = trk,
+                lang = appSettings.language,
                 onSave = { title, artist, album, genre, year ->
                     viewModel.updateTrackMetadata(trk, title, artist, album, genre, year)
                     viewModel.editingTrackMetadata.value = null
                 },
                 onDismiss = { viewModel.editingTrackMetadata.value = null }
+            )
+        }
+
+        if (showVipPaywallForFeature != null) {
+            VipPaywallSheet(
+                targetFeatureId = showVipPaywallForFeature,
+                palette = palette,
+                lang = lang,
+                isDeveloperMode = appSettings.developerModeEnabled,
+                onDismiss = { showVipPaywallForFeature = null },
+                onVipGranted = {
+                    showVipPaywallForFeature = null
+                    viewModel.refreshUnlockedStyles()
+                    viewModel.updateSettings(appSettings.copy())
+                }
+            )
+        }
+
+        if (showAchievementsDialog) {
+            AchievementsDialog(
+                achievements = achievementItems,
+                palette = palette,
+                lang = lang,
+                onDismiss = { showAchievementsDialog = false },
+                onRewardClaimed = { bonusHours ->
+                    viewModel.refreshUnlockedStyles()
+                    viewModel.updateSettings(appSettings.copy())
+                    coroutineScope.launch {
+                        val stats = viewModel.getListeningStatsForAchievements()
+                        achievementItems = com.example.monetization.AchievementManager.getAchievements(
+                            context = context,
+                            totalListenedMs = stats.first,
+                            uniqueTracksCount = stats.second,
+                            activeStreakDays = stats.third
+                        )
+                    }
+                }
             )
         }
     }

@@ -338,7 +338,7 @@ fun MiniPlayer(
                                     }
                                     val targetSeekMs = (miniDragProgress * safeMiniDuration).toLong()
                                     miniCurrentMs = targetSeekMs
-                                    miniIgnoreSyncUntil = System.currentTimeMillis() + 450L
+                                    miniIgnoreSyncUntil = System.currentTimeMillis() + 800L
                                     onSeekTo(targetSeekMs)
                                 } finally {
                                     isMiniDragging = false

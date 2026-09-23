@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -75,10 +76,13 @@ fun NowPlayingScreen(
     audioProfile: TrackAudioProfile? = null,
     onCycleShuffleMode: () -> Unit = onToggleShuffle,
     onOpenHearingCalibration: () -> Unit = {},
+    onOpenVipPaywall: (String?) -> Unit = {},
     analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() },
     currentPositionProvider: () -> Long = { playbackState.currentPositionMs }
 ) {
+    val context = LocalContext.current
     val track = playbackState.currentTrack ?: return
+    val isVipUser = remember(appSettings) { com.example.monetization.EntitlementManager.isVip(context) }
     var centerView by remember { mutableStateOf(NowPlayingCenterView.ARTWORK_AND_HALO) }
     var isImmersive by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
@@ -327,7 +331,7 @@ fun NowPlayingScreen(
                                     modifier = Modifier.background(Color(0xF212131F))
                                 ) {
                                     DropdownMenuItem(
-                                        text = { Text("Equalizer & DSP", color = Color.White) },
+                                        text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "اکولایزر و تنظیمات صدا" else "Equalizer & DSP", color = Color.White) },
                                         leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null, tint = palette.accent) },
                                         onClick = {
                                             showMoreMenu = false
@@ -342,16 +346,29 @@ fun NowPlayingScreen(
                                             onShareSong(track)
                                         }
                                     )
+                                    val hasHearingAccess = com.example.monetization.EntitlementManager.hasAccess(context, "personal_hearing_profile")
                                     DropdownMenuItem(
-                                        text = { Text("Hearing Calibration", color = Color.White) },
+                                        text = {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(if (appSettings.language == AppLanguage.PERSIAN) "کالیبراسیون شنوایی" else "Hearing Calibration", color = Color.White)
+                                                if (!hasHearingAccess) {
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Icon(Icons.Default.AutoAwesome, contentDescription = "VIP", tint = Color(0xFFFFD700), modifier = Modifier.size(13.dp))
+                                                }
+                                            }
+                                        },
                                         leadingIcon = { Icon(Icons.Default.Hearing, contentDescription = null, tint = palette.accent) },
                                         onClick = {
                                             showMoreMenu = false
-                                            onOpenHearingCalibration()
+                                            if (hasHearingAccess) {
+                                                onOpenHearingCalibration()
+                                            } else {
+                                                onOpenVipPaywall("personal_hearing_profile")
+                                            }
                                         }
                                     )
                                     DropdownMenuItem(
-                                        text = { Text("Lyrics Studio", color = Color.White) },
+                                        text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "ویرایش و همگام‌سازی متن" else "Lyrics Studio", color = Color.White) },
                                         leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = palette.accent) },
                                         onClick = {
                                             showMoreMenu = false
@@ -359,7 +376,7 @@ fun NowPlayingScreen(
                                         }
                                     )
                                     DropdownMenuItem(
-                                        text = { Text("Sleep Timer", color = Color.White) },
+                                        text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "تایمر خواب" else "Sleep Timer", color = Color.White) },
                                         leadingIcon = { Icon(Icons.Default.Timer, contentDescription = null, tint = palette.accent) },
                                         onClick = {
                                             showMoreMenu = false
@@ -367,7 +384,7 @@ fun NowPlayingScreen(
                                         }
                                     )
                                     DropdownMenuItem(
-                                        text = { Text("Edit Metadata", color = Color.White) },
+                                        text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "ویرایش اطلاعات آهنگ" else "Edit Metadata", color = Color.White) },
                                         leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = palette.accent) },
                                         onClick = {
                                             showMoreMenu = false
@@ -375,7 +392,16 @@ fun NowPlayingScreen(
                                         }
                                     )
                                     DropdownMenuItem(
-                                        text = { Text(if (isImmersive) "Exit Focus Mode" else "Cinematic Focus Mode", color = Color.White) },
+                                        text = {
+                                            Text(
+                                                if (isImmersive) {
+                                                    if (appSettings.language == AppLanguage.PERSIAN) "خروج از حالت تمرکز" else "Exit Focus Mode"
+                                                } else {
+                                                    if (appSettings.language == AppLanguage.PERSIAN) "حالت تمرکز سینمایی" else "Cinematic Focus Mode"
+                                                },
+                                                color = Color.White
+                                            )
+                                        },
                                         leadingIcon = { Icon(Icons.Default.Fullscreen, contentDescription = null, tint = palette.secondary) },
                                         onClick = {
                                             showMoreMenu = false
@@ -419,7 +445,7 @@ fun NowPlayingScreen(
                                 triggerHaptic()
                                 centerView = NowPlayingCenterView.ARTWORK_AND_HALO
                             },
-                            label = { Text("Artwork", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
+                            label = { Text(if (appSettings.language == AppLanguage.PERSIAN) "کاور" else "Artwork", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = palette.primary.copy(alpha = 0.85f),
                                 selectedLabelColor = Color.White,
@@ -434,7 +460,7 @@ fun NowPlayingScreen(
                                 triggerHaptic()
                                 centerView = NowPlayingCenterView.VISUALIZER_FULL
                             },
-                            label = { Text(appSettings.visualizerMode.title, fontSize = 12.sp, fontWeight = FontWeight.Medium) },
+                            label = { Text(appSettings.visualizerMode.getTitle(appSettings.language), fontSize = 12.sp, fontWeight = FontWeight.Medium) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = palette.primary.copy(alpha = 0.85f),
                                 selectedLabelColor = Color.White,
@@ -449,7 +475,7 @@ fun NowPlayingScreen(
                                 triggerHaptic()
                                 centerView = NowPlayingCenterView.LYRICS
                             },
-                            label = { Text("Lyrics", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
+                            label = { Text(if (appSettings.language == AppLanguage.PERSIAN) "متن شعر" else "Lyrics", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = palette.primary.copy(alpha = 0.85f),
                                 selectedLabelColor = Color.White,
@@ -519,14 +545,24 @@ fun NowPlayingScreen(
                                         .clip(RoundedCornerShape(28.dp))
                                         .background(Color(0xFF131322))
                                         .border(
-                                            width = 1.5.dp,
-                                            brush = Brush.verticalGradient(
-                                                listOf(
-                                                    Color(0x60FFFFFF),
-                                                    palette.primary.copy(alpha = 0.45f),
-                                                    Color(0x10FFFFFF)
+                                            width = if (isVipUser) 2.dp else 1.5.dp,
+                                            brush = if (isVipUser) {
+                                                Brush.verticalGradient(
+                                                    listOf(
+                                                        Color(0xFFFFDF00),
+                                                        Color(0xCCFFA500),
+                                                        Color(0x40FFFFFF)
+                                                    )
                                                 )
-                                            ),
+                                            } else {
+                                                Brush.verticalGradient(
+                                                    listOf(
+                                                        Color(0x60FFFFFF),
+                                                        palette.primary.copy(alpha = 0.45f),
+                                                        Color(0x10FFFFFF)
+                                                    )
+                                                )
+                                            },
                                             shape = RoundedCornerShape(28.dp)
                                         ),
                                     contentAlignment = Alignment.Center
@@ -574,6 +610,26 @@ fun NowPlayingScreen(
                                                 )
                                             )
                                     )
+
+                                    if (isVipUser) {
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(12.dp)
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                                .background(Color.Black.copy(alpha = 0.65f))
+                                                .border(1.dp, Color(0xFFFFD700), CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.AutoAwesome,
+                                                contentDescription = "VIP",
+                                                tint = Color(0xFFFFD700),
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

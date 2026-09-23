@@ -22,7 +22,7 @@ enum class VisualizerQuality(val titleEn: String, val titleFa: String, val fps: 
 }
 
 data class AppSettings(
-    val language: AppLanguage = AppLanguage.ENGLISH,
+    val language: AppLanguage = AppLanguage.PERSIAN,
     val theme: AppTheme = AppTheme.PURE_LIQUID_GLASS,
     val customAccentColor: Long = 0xFF00E5FF, // Luminous Cyan
     val crossfadeDurationSeconds: Int = 2,

@@ -54,9 +54,11 @@ fun ShareSongDialog(
 
     val shareText = buildString {
         append("🎵 \"${track.title}\" - ${track.artist}\n")
-        if (track.album.isNotBlank()) append("Album: ${track.album}\n")
-        append("Quality: ${track.bitrate} kbps Hi-Fi Audio\n")
-        append("Shared via Aura Music Player")
+        if (track.album.isNotBlank()) {
+            append(if (language == AppLanguage.PERSIAN) "آلبوم: ${track.album}\n" else "Album: ${track.album}\n")
+        }
+        append(if (language == AppLanguage.PERSIAN) "کیفیت: ${track.bitrate} kbps صدای شفاف و استودیویی\n" else "Quality: ${track.bitrate} kbps Hi-Fi Audio\n")
+        append(if (language == AppLanguage.PERSIAN) "ارسال شده از موزیک پلیر Aura" else "Shared via Aura Music Player")
     }
 
     val onShareIntent = {

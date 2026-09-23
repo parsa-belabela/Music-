@@ -191,7 +191,7 @@ Audio Gapless: ${appSettings.gaplessEnabled}
                         ) {
                             Icon(
                                 Icons.Default.Close,
-                                contentDescription = "Close",
+                                contentDescription = Localization.getString("close", lang),
                                 tint = Color(0xFFAAAAAA),
                                 modifier = Modifier.size(20.dp)
                             )

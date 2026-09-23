@@ -108,7 +108,7 @@ fun HearingProfileTestSheet(
                 val (rangeTitle, rangeDesc) = steps[currentStep]
 
                 Text(
-                    text = "Step ${currentStep + 1} of ${steps.size}",
+                    text = if (lang == AppLanguage.PERSIAN) "مرحله ${currentStep + 1} از ${steps.size}" else "Step ${currentStep + 1} of ${steps.size}",
                     style = MaterialTheme.typography.labelMedium.copy(color = palette.accent)
                 )
                 Spacer(modifier = Modifier.height(6.dp))
@@ -134,9 +134,9 @@ fun HearingProfileTestSheet(
 
                 // 3 Simple tactile choices
                 val choices = listOf(
-                    ("Flat / Natural" to if (lang == AppLanguage.PERSIAN) "طبیعی و دست‌نخورده" else "Natural, as produced") to 0.0f,
-                    ("Enhanced" to if (lang == AppLanguage.PERSIAN) "کمی تقویت‌شده (+۲.۵ dB)" else "Subtle boost (+2.5 dB)") to 2.5f,
-                    ("Vibrant Punch" to if (lang == AppLanguage.PERSIAN) "قدرتمند و پررنگ (+۵ dB)" else "Rich emphasis (+5.0 dB)") to 5.0f
+                    ((if (lang == AppLanguage.PERSIAN) "طبیعی و تخت" else "Flat / Natural") to if (lang == AppLanguage.PERSIAN) "طبیعی و دست‌نخورده" else "Natural, as produced") to 0.0f,
+                    ((if (lang == AppLanguage.PERSIAN) "تقویت ملایم" else "Enhanced") to if (lang == AppLanguage.PERSIAN) "کمی تقویت‌شده (+۲.۵ dB)" else "Subtle boost (+2.5 dB)") to 2.5f,
+                    ((if (lang == AppLanguage.PERSIAN) "پرقدرت و کوبنده" else "Vibrant Punch") to if (lang == AppLanguage.PERSIAN) "قدرتمند و پررنگ (+۵ dB)" else "Rich emphasis (+5.0 dB)") to 5.0f
                 )
 
                 choices.forEach { (textPair, boostValue) ->

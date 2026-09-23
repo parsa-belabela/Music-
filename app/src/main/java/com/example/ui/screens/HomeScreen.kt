@@ -561,7 +561,7 @@ fun HomeScreen(
                 )
                 if (favoriteTracks.isNotEmpty()) {
                     Text(
-                        text = "${favoriteTracks.size} tracks",
+                        text = if (lang == AppLanguage.PERSIAN) "${favoriteTracks.size} قطعه" else "${favoriteTracks.size} tracks",
                         style = MaterialTheme.typography.bodySmall.copy(color = palette.accent)
                     )
                 }
@@ -860,7 +860,7 @@ private fun HeroQuickPlayCard(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = heroTrack?.title ?: "Select a Track",
+                        text = heroTrack?.title ?: (if (appSettings.language == AppLanguage.PERSIAN) "انتخاب آهنگ" else "Select a Track"),
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -869,7 +869,7 @@ private fun HeroQuickPlayCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = heroTrack?.artist ?: "Local-First Hi-Fi Audio",
+                        text = heroTrack?.artist ?: (if (appSettings.language == AppLanguage.PERSIAN) "موسیقی آفلاین با کیفیت بالا" else "Local-First Hi-Fi Audio"),
                         style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFFA0A0B8)),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis

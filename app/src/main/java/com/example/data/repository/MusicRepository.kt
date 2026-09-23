@@ -171,6 +171,10 @@ class MusicRepository(
         }
     }
 
+    suspend fun getAllPlaybackEvents(): List<PlaybackEvent> = withContext(Dispatchers.IO) {
+        musicDao.getAllPlaybackEvents()
+    }
+
     suspend fun checkMilestones(): List<String> = withContext(Dispatchers.IO) {
         val events = musicDao.getAllPlaybackEvents()
         val totalMs: Long = events.sumOf { it.durationListenedMs }

@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
+import com.example.data.model.AppLanguage
 import com.example.data.model.LyricsLine
 import com.example.data.model.Track
 import com.example.lyrics.LrcParser
@@ -33,6 +34,7 @@ fun LyricsEditorSheet(
     currentLyrics: List<LyricsLine>,
     currentPositionMs: Long,
     palette: AmbientPalette,
+    lang: AppLanguage = AppLanguage.PERSIAN,
     onSave: (String, Long) -> Unit,
     onClose: () -> Unit
 ) {
@@ -69,14 +71,18 @@ fun LyricsEditorSheet(
             ) {
                 Column {
                     Text(
-                        text = if (isLiveSyncMode) "Live Sync Recorder" else "Lyrics Studio",
+                        text = if (isLiveSyncMode) {
+                            if (lang == AppLanguage.PERSIAN) "ضبط زنده همگام‌سازی" else "Live Sync Recorder"
+                        } else {
+                            if (lang == AppLanguage.PERSIAN) "استودیوی متن ترانه" else "Lyrics Studio"
+                        },
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                     )
                     Text(
-                        text = track?.title ?: "No Track",
+                        text = track?.title ?: (if (lang == AppLanguage.PERSIAN) "بدون آهنگ" else "No Track"),
                         style = MaterialTheme.typography.bodySmall.copy(color = palette.accent)
                     )
                 }
@@ -86,7 +92,7 @@ fun LyricsEditorSheet(
                     FilterChip(
                         selected = isLiveSyncMode,
                         onClick = { isLiveSyncMode = !isLiveSyncMode },
-                        label = { Text("Live Sync") },
+                        label = { Text(if (lang == AppLanguage.PERSIAN) "همگام‌سازی زنده" else "Live Sync") },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.FiberManualRecord,
@@ -108,7 +114,7 @@ fun LyricsEditorSheet(
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.testTag("save_lyrics_button")
                     ) {
-                        Text("Save")
+                        Text(if (lang == AppLanguage.PERSIAN) "ذخیره" else "Save")
                     }
                 }
             }
@@ -129,7 +135,11 @@ fun LyricsEditorSheet(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Global Offset: ${if (globalOffsetMs >= 0) "+$globalOffsetMs" else "$globalOffsetMs"}ms",
+                        text = if (lang == AppLanguage.PERSIAN) {
+                            "تغییر زمان‌بندی: ${if (globalOffsetMs >= 0) "+$globalOffsetMs" else "$globalOffsetMs"}ms"
+                        } else {
+                            "Global Offset: ${if (globalOffsetMs >= 0) "+$globalOffsetMs" else "$globalOffsetMs"}ms"
+                        },
                         style = MaterialTheme.typography.bodySmall.copy(color = Color.White, fontWeight = FontWeight.Medium)
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -168,12 +178,16 @@ fun LyricsEditorSheet(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "Next Line to Stamp (${activeLiveLineIndex + 1}/${lines.size}):",
+                            text = if (lang == AppLanguage.PERSIAN) {
+                                "سطر بعدی برای ثبت زمان (${activeLiveLineIndex + 1}/${lines.size}):"
+                            } else {
+                                "Next Line to Stamp (${activeLiveLineIndex + 1}/${lines.size}):"
+                            },
                             style = MaterialTheme.typography.bodySmall.copy(color = palette.secondary)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = lines.getOrNull(activeLiveLineIndex)?.text ?: "All lines stamped!",
+                            text = lines.getOrNull(activeLiveLineIndex)?.text ?: (if (lang == AppLanguage.PERSIAN) "تمام سطرها ثبت شدند!" else "All lines stamped!"),
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
@@ -197,7 +211,7 @@ fun LyricsEditorSheet(
                         ) {
                             Icon(imageVector = Icons.Default.TouchApp, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("TAP TO STAMP (NOW)")
+                            Text(if (lang == AppLanguage.PERSIAN) "لمس برای ثبت این لحظه" else "TAP TO STAMP (NOW)")
                         }
                     }
                 }
@@ -212,7 +226,7 @@ fun LyricsEditorSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Lines (${lines.size})",
+                    text = if (lang == AppLanguage.PERSIAN) "سطرها (${lines.size})" else "Lines (${lines.size})",
                     style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFFA0A0B8))
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -224,15 +238,19 @@ fun LyricsEditorSheet(
                     ) {
                         Icon(imageVector = Icons.Default.Code, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Paste / Raw")
+                        Text(if (lang == AppLanguage.PERSIAN) "کد LRC" else "Paste / Raw")
                     }
 
                     IconButton(
                         onClick = {
-                            lines.add(LyricsLine(timestampMs = currentPositionMs, text = "New Lyric Line"))
+                            lines.add(LyricsLine(timestampMs = currentPositionMs, text = if (lang == AppLanguage.PERSIAN) "سطر جدید شعر" else "New Lyric Line"))
                         }
                     ) {
-                        Icon(imageVector = Icons.Default.Add, contentDescription = "Add Line", tint = palette.accent)
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = if (lang == AppLanguage.PERSIAN) "افزودن سطر" else "Add Line",
+                            tint = palette.accent
+                        )
                     }
                 }
             }
@@ -297,7 +315,7 @@ fun LyricsEditorSheet(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Timer,
-                                    contentDescription = "Sync to Now",
+                                    contentDescription = if (lang == AppLanguage.PERSIAN) "همگام‌سازی با این لحظه" else "Sync to Now",
                                     tint = palette.primary,
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -310,7 +328,7 @@ fun LyricsEditorSheet(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Delete,
-                                    contentDescription = "Delete Line",
+                                    contentDescription = if (lang == AppLanguage.PERSIAN) "حذف سطر" else "Delete Line",
                                     tint = Color.Red.copy(alpha = 0.7f),
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -326,19 +344,19 @@ fun LyricsEditorSheet(
     editingLineIndex?.let { idx ->
         AlertDialog(
             onDismissRequest = { editingLineIndex = null },
-            title = { Text("Edit Lyric Line") },
+            title = { Text(if (lang == AppLanguage.PERSIAN) "ویرایش سطر شعر" else "Edit Lyric Line") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = editingText,
                         onValueChange = { editingText = it },
-                        label = { Text("Lyric Text") },
+                        label = { Text(if (lang == AppLanguage.PERSIAN) "متن شعر" else "Lyric Text") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = editingTimeMs.toString(),
                         onValueChange = { editingTimeMs = it.toLongOrNull() ?: editingTimeMs },
-                        label = { Text("Timestamp (ms)") },
+                        label = { Text(if (lang == AppLanguage.PERSIAN) "زمان (میلی‌ثانیه)" else "Timestamp (ms)") },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -352,12 +370,12 @@ fun LyricsEditorSheet(
                         editingLineIndex = null
                     }
                 ) {
-                    Text("Done")
+                    Text(if (lang == AppLanguage.PERSIAN) "تأیید" else "Done")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { editingLineIndex = null }) {
-                    Text("Cancel")
+                    Text(if (lang == AppLanguage.PERSIAN) "انصراف" else "Cancel")
                 }
             }
         )
@@ -367,12 +385,12 @@ fun LyricsEditorSheet(
     if (rawTextMode) {
         AlertDialog(
             onDismissRequest = { rawTextMode = false },
-            title = { Text("Paste / Edit LRC Code") },
+            title = { Text(if (lang == AppLanguage.PERSIAN) "جای‌گذاری یا ویرایش کد LRC" else "Paste / Edit LRC Code") },
             text = {
                 OutlinedTextField(
                     value = rawTextInput,
                     onValueChange = { rawTextInput = it },
-                    label = { Text("LRC Content") },
+                    label = { Text(if (lang == AppLanguage.PERSIAN) "محتوای فایل LRC" else "LRC Content") },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(260.dp)
@@ -387,12 +405,12 @@ fun LyricsEditorSheet(
                         rawTextMode = false
                     }
                 ) {
-                    Text("Import Lines")
+                    Text(if (lang == AppLanguage.PERSIAN) "ورود سطرها" else "Import Lines")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { rawTextMode = false }) {
-                    Text("Cancel")
+                    Text(if (lang == AppLanguage.PERSIAN) "انصراف" else "Cancel")
                 }
             }
         )
