@@ -58,6 +58,7 @@ fun SettingsScreen(
     onSelectNowPlayingStyle: (String) -> Unit = {},
     onOpenVipPaywall: (String?) -> Unit = {},
     onOpenAchievements: () -> Unit = {},
+    currentPlayingTrack: Track? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current

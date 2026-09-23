@@ -407,7 +407,6 @@ fun MainScreen(
                         SettingsScreen(
                             settings = appSettings,
                             palette = palette,
-                            currentPlayingTrack = playbackState.currentTrack,
                             onUpdateSettings = { viewModel.updateSettings(it) },
                             onSetPreset = { viewModel.setVisualizerPreset(it) },
                             onExportBackup = { viewModel.exportBackupJson() },
