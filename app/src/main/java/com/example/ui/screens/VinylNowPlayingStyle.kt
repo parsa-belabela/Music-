@@ -27,11 +27,9 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -44,7 +42,6 @@ import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
 import kotlin.math.cos
 import kotlin.math.sin
-import kotlin.random.Random
 
 enum class TurntablePlinth(val id: String, val titleEn: String, val titleFa: String, val baseColor: Color, val accentColor: Color) {
     WALNUT_WOOD("walnut", "Walnut Masterwood", "چوب گردوی سلطنتی", Color(0xFF2C1810), Color(0xFFC68B59)),
@@ -86,8 +83,7 @@ fun VinylNowPlayingStyle(
 
     val currentRotation = if (isPlaying) spinAngle else 0f
 
-    // Animated Tonearm / Needle Angle:
-    // Rest position = -26f, On vinyl groove = 18f -> 32f based on track progress
+    // Animated Tonearm / Needle Angle
     val trackProgress = if (playbackState.durationMs > 0) {
         (playbackState.currentPositionMs.toFloat() / playbackState.durationMs.toFloat()).coerceIn(0f, 1f)
     } else 0f
@@ -117,279 +113,322 @@ fun VinylNowPlayingStyle(
         }
     }
 
-    // Reactive bass pulse on vinyl outer rim
-    val bassScale = 1f + (analysisData.bass * 0.035f).coerceIn(0f, 0.05f)
+    val bassPulse = if (isPlaying) (analysisData.kickPulse * 0.05f) else 0f
+    val vinylScale = 1.0f + bassPulse
 
-    // Ensure entire Now Playing layout for controls, seekbar, and turntable is LTR
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(horizontal = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            // Plinth & Vinyl Warmth Quick Bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Plinth Selector Pills
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TurntablePlinth.values().forEach { plinth ->
-                        val isSelected = selectedPlinth == plinth
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSelected) plinth.accentColor.copy(alpha = 0.28f) else Color(0x16FFFFFF))
-                                .border(1.dp, if (isSelected) plinth.accentColor else Color(0x22FFFFFF), RoundedCornerShape(12.dp))
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                selectedPlinth = plinth
-                            }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = plinth.titleEn.substringBefore(" "),
-                            color = if (isSelected) plinth.accentColor else Color(0xFFC0C0D0),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-
-            // Vinyl Warmth / Needle Surface Noise Toggle
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (vinylWarmthEnabled) palette.accent.copy(alpha = 0.25f) else Color(0x14FFFFFF))
-                    .border(1.dp, if (vinylWarmthEnabled) palette.accent else Color(0x22FFFFFF), RoundedCornerShape(12.dp))
-                    .clickable {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        vinylWarmthEnabled = !vinylWarmthEnabled
-                    }
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.GraphicEq,
-                        contentDescription = null,
-                        tint = if (vinylWarmthEnabled) palette.accent else Color(0xFF888898),
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = if (vinylWarmthEnabled) "Warmth ON" else "Warmth OFF",
-                        color = if (vinylWarmthEnabled) palette.accent else Color(0xFF888898),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        // Turntable Plinth Platform Deck
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        // Master Plinth Turntable Body
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(310.dp)
-                .clip(RoundedCornerShape(26.dp))
+                .weight(1f)
+                .clip(RoundedCornerShape(32.dp))
                 .background(
-                    Brush.linearGradient(
-                        listOf(
+                    Brush.radialGradient(
+                        colors = listOf(
                             selectedPlinth.baseColor,
-                            selectedPlinth.baseColor.copy(alpha = 0.85f),
-                            Color(0xFF07080D)
+                            Color(0xFF06070B)
                         )
                     )
                 )
-                .border(1.5.dp, selectedPlinth.accentColor.copy(alpha = 0.45f), RoundedCornerShape(26.dp))
-                .padding(12.dp),
-            contentAlignment = Alignment.Center
+                .border(
+                    width = 1.5.dp,
+                    brush = Brush.linearGradient(
+                        listOf(
+                            selectedPlinth.accentColor.copy(alpha = 0.65f),
+                            Color.White.copy(alpha = 0.12f),
+                            selectedPlinth.accentColor.copy(alpha = 0.35f)
+                        )
+                    ),
+                    shape = RoundedCornerShape(32.dp)
+                )
+                .padding(16.dp)
         ) {
-            // Vinyl Record with Grooves and Realistic Platter
-            Box(
-                modifier = Modifier
-                    .size(265.dp)
-                    .scale(bassScale),
-                contentAlignment = Alignment.Center
-            ) {
-                // Vinyl Record Grooves & Lighting Sheen Canvas
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val center = Offset(size.width / 2f, size.height / 2f)
-                    val radius = size.width / 2f
+            // Analog Platter & Strobe Dots
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val center = Offset(size.width * 0.44f, size.height * 0.50f)
+                val platterRadius = size.minDimension * 0.44f
 
-                    // Heavy Metallic Platter Edge
-                    drawCircle(
-                        color = Color(0xFF1E212B),
-                        radius = radius,
+                // Platter Metallic Edge
+                drawCircle(
+                    brush = Brush.sweepGradient(
+                        listOf(
+                            Color(0xFF3A3A42),
+                            Color(0xFF1E1F24),
+                            Color(0xFF4A4B54),
+                            Color(0xFF1E1F24),
+                            Color(0xFF3A3A42)
+                        ),
                         center = center
-                    )
+                    ),
+                    radius = platterRadius + 8.dp.toPx(),
+                    center = center
+                )
 
-                    // Deep Obsidian Vinyl Disc Base
+                // Strobe dots ring
+                val numDots = 36
+                for (i in 0 until numDots) {
+                    val angle = (i * (360f / numDots) + (if (isPlaying) spinAngle * 0.5f else 0f)) * (Math.PI / 180f)
+                    val dotRadius = platterRadius + 4.dp.toPx()
+                    val dx = center.x + dotRadius * cos(angle).toFloat()
+                    val dy = center.y + dotRadius * sin(angle).toFloat()
                     drawCircle(
-                        color = Color(0xFF090A0E),
-                        radius = radius - 4f,
-                        center = center
+                        color = selectedPlinth.accentColor.copy(alpha = 0.75f),
+                        radius = 2.dp.toPx(),
+                        center = Offset(dx, dy)
                     )
-
-                    // Micro Concentric Audio Grooves
-                    for (r in 38 until (radius - 12).toInt() step 5) {
-                        drawCircle(
-                            color = Color(0x18FFFFFF),
-                            radius = r.toFloat(),
-                            center = center,
-                            style = Stroke(width = 0.85f)
-                        )
-                    }
-
-                    // Rotating Specular Light Sheen (Two opposing light reflection cones)
-                    rotate(currentRotation, pivot = center) {
-                        drawCircle(
-                            brush = Brush.sweepGradient(
-                                0.0f to Color.Transparent,
-                                0.22f to Color(0x35FFFFFF),
-                                0.28f to Color.Transparent,
-                                0.72f to Color(0x35FFFFFF),
-                                0.78f to Color.Transparent,
-                                1.0f to Color.Transparent
-                            ),
-                            radius = radius - 8f,
-                            center = center
-                        )
-                    }
-
-                    // Outer Run-out Groove Rim
-                    drawCircle(
-                        color = Color(0x40FFFFFF),
-                        radius = radius - 6f,
-                        center = center,
-                        style = Stroke(width = 1.8f)
-                    )
-                }
-
-                // Center Label / Album Artwork
-                Box(
-                    modifier = Modifier
-                        .size(96.dp)
-                        .clip(CircleShape)
-                        .rotate(currentRotation)
-                        .background(palette.primary)
-                        .border(2.dp, selectedPlinth.accentColor, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (!track.artworkUri.isNullOrEmpty()) {
-                        AsyncImage(
-                            model = track.artworkUri,
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Text(
-                            text = track.title.take(1).uppercase(),
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 24.sp
-                        )
-                    }
-
-                    // Center Brass Spindle Hole
-                    Box(
-                        modifier = Modifier
-                            .size(16.dp)
-                            .clip(CircleShape)
-                            .background(selectedPlinth.accentColor)
-                            .border(1.dp, Color.Black, CircleShape)
-                    )
-                }
-
-                // Drifting Dust / Ambient Light Particles when playing
-                if (isPlaying) {
-                    VinylDustParticles(spinAngle = spinAngle)
                 }
             }
 
-            // Realistic Tonearm with Pivot, Chrome Arm, Counterweight & Cartridge Needle
-            Canvas(
+            // Spinning Vinyl Disc
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .size(260.dp)
+                    .align(Alignment.CenterStart)
+                    .offset(x = 10.dp)
+                    .scale(vinylScale)
             ) {
-                val pivotX = size.width - 24.dp.toPx()
-                val pivotY = 32.dp.toPx()
-                val armLength = 175.dp.toPx()
+                // Vinyl Record Background with Micro-Grooves & Dynamic Light Reflections
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .rotate(currentRotation)
+                ) {
+                    val center = Offset(size.width / 2f, size.height / 2f)
+                    val recordRadius = size.minDimension / 2f
 
-                // Tonearm Gimbal Pivot Base (Brushed Metallic Gimbal)
-                drawCircle(
-                    color = Color(0xFF333846),
-                    radius = 16.dp.toPx(),
-                    center = Offset(pivotX, pivotY)
-                )
-                drawCircle(
-                    color = selectedPlinth.accentColor,
-                    radius = 8.dp.toPx(),
-                    center = Offset(pivotX, pivotY)
-                )
-
-                // Rotate Tonearm from Pivot
-                rotate(degrees = tonearmAngle, pivot = Offset(pivotX, pivotY)) {
-                    val start = Offset(pivotX, pivotY)
-                    val end = Offset(pivotX - armLength * 0.85f, pivotY + armLength)
-
-                    // Counterweight behind pivot
-                    val counterOffset = Offset(pivotX + 14.dp.toPx(), pivotY - 14.dp.toPx())
+                    // Deep Black Vinyl Resin
                     drawCircle(
-                        color = Color(0xFF686F80),
-                        radius = 9.dp.toPx(),
-                        center = counterOffset
+                        color = Color(0xFF090A0D),
+                        radius = recordRadius,
+                        center = center
                     )
 
-                    // Chrome Silver Tonearm Wand
-                    drawLine(
-                        color = Color(0xFFD4D8E2),
-                        start = start,
-                        end = end,
-                        strokeWidth = 3.8f,
-                        cap = StrokeCap.Round
+                    // 12 Micro Groove Rings with Shimmering Specular Sheen
+                    for (i in 1..12) {
+                        val r = recordRadius * (0.36f + (i * 0.05f))
+                        drawCircle(
+                            color = Color.White.copy(alpha = if (i % 2 == 0) 0.08f else 0.04f),
+                            radius = r,
+                            center = center,
+                            style = Stroke(width = 1.2.dp.toPx())
+                        )
+                    }
+
+                    // Dual Anamorphic Light Reflection Glare (Opposing Wedges)
+                    drawCircle(
+                        brush = Brush.sweepGradient(
+                            listOf(
+                                Color.Transparent,
+                                Color.White.copy(alpha = 0.22f),
+                                Color.Transparent,
+                                Color.Transparent,
+                                Color.White.copy(alpha = 0.22f),
+                                Color.Transparent
+                            ),
+                            center = center
+                        ),
+                        radius = recordRadius,
+                        center = center
                     )
 
-                    // Headshell / Cartridge & Needle Point
-                    val headshellEnd = Offset(end.x - 14.dp.toPx(), end.y + 12.dp.toPx())
-                    drawLine(
+                    // Outer Rim Vinyl Bevel
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            listOf(Color.Transparent, Color.White.copy(alpha = 0.15f)),
+                            center = center,
+                            radius = recordRadius
+                        ),
+                        radius = recordRadius,
+                        center = center,
+                        style = Stroke(width = 2.5.dp.toPx())
+                    )
+                }
+
+                // Center Album Art Sticker / Label
+                Box(
+                    modifier = Modifier
+                        .size(96.dp)
+                        .align(Alignment.Center)
+                        .rotate(currentRotation)
+                        .clip(CircleShape)
+                        .background(Color(0xFF161822))
+                        .border(3.dp, selectedPlinth.accentColor.copy(alpha = 0.8f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (track.artworkUri != null) {
+                        AsyncImage(
+                            model = track.artworkUri,
+                            contentDescription = "Vinyl Label",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = null,
+                            tint = selectedPlinth.accentColor,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+
+                    // Center spindle hole
+                    Box(
+                        modifier = Modifier
+                            .size(14.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF0A0B10))
+                            .border(1.5.dp, Color(0xFFC0C5D0), CircleShape)
+                    )
+                }
+            }
+
+            // Pivot Base & Animated Tonearm
+            Box(
+                modifier = Modifier
+                    .size(width = 110.dp, height = 230.dp)
+                    .align(Alignment.TopEnd)
+                    .offset(x = (-4).dp, y = 20.dp)
+            ) {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                ) {
+                    val pivotCenter = Offset(size.width * 0.72f, 32.dp.toPx())
+
+                    // Pivot Turret Base (Solid Metal)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            listOf(Color(0xFF808595), Color(0xFF2B2D38), Color(0xFF14151B)),
+                            center = pivotCenter,
+                            radius = 24.dp.toPx()
+                        ),
+                        radius = 24.dp.toPx(),
+                        center = pivotCenter
+                    )
+                    drawCircle(
+                        color = selectedPlinth.accentColor.copy(alpha = 0.9f),
+                        radius = 8.dp.toPx(),
+                        center = pivotCenter
+                    )
+
+                    // Rotating Tonearm Rod with Cartridge & Stylus
+                    rotate(degrees = tonearmAngle, pivot = pivotCenter) {
+                        // Curved S-Shaped ToneArm Metal Rod
+                        val armLength = 175.dp.toPx()
+                        val endX = pivotCenter.x - 48.dp.toPx()
+                        val endY = pivotCenter.y + armLength
+
+                        drawLine(
+                            brush = Brush.linearGradient(
+                                listOf(Color(0xFFE0E5F0), Color(0xFF9095A5), Color(0xFF454854))
+                            ),
+                            start = pivotCenter,
+                            end = Offset(endX, endY),
+                            strokeWidth = 5.dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
+
+                        // Counterweight (Behind pivot)
+                        val cwCenter = Offset(pivotCenter.x + 8.dp.toPx(), pivotCenter.y - 18.dp.toPx())
+                        drawCircle(
+                            color = Color(0xFF1E2028),
+                            radius = 12.dp.toPx(),
+                            center = cwCenter
+                        )
+                        drawCircle(
+                            color = selectedPlinth.accentColor,
+                            radius = 4.dp.toPx(),
+                            center = cwCenter
+                        )
+
+                        // Headshell & Phono Cartridge with Gold Needle
+                        drawRoundRect(
+                            color = Color(0xFF10121A),
+                            topLeft = Offset(endX - 8.dp.toPx(), endY - 2.dp.toPx()),
+                            size = Size(16.dp.toPx(), 26.dp.toPx()),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
+                        )
+                        // Glowing Needle Tip
+                        drawCircle(
+                            color = if (isPlaying) Color(0xFFFF4500) else Color(0xFFFFD700),
+                            radius = 2.5.dp.toPx(),
+                            center = Offset(endX, endY + 24.dp.toPx())
+                        )
+                    }
+                }
+            }
+
+            // Top Status Badges: RPM & Plinth Switcher
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 33 ⅓ RPM Speed Pill
+                Box(
+                    modifier = Modifier
+                        .liquidGlass(
+                            shape = RoundedCornerShape(10.dp),
+                            thickness = GlassThickness.THIN,
+                            tintColor = selectedPlinth.accentColor,
+                            tintAlpha = 0.2f
+                        )
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = if (isPlaying) "33 ⅓ RPM • ANALOG ON" else "STANDBY • NEEDLE UP",
                         color = selectedPlinth.accentColor,
-                        start = end,
-                        end = headshellEnd,
-                        strokeWidth = 6.5f,
-                        cap = StrokeCap.Square
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
                     )
+                }
 
-                    // Glowing Needle Tip
-                    drawCircle(
-                        color = if (isPlaying) Color(0xFFFF3366) else Color(0xFF9094A0),
-                        radius = 2.5.dp.toPx(),
-                        center = headshellEnd
-                    )
+                // Plinth Material Cycle Button
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TurntablePlinth.values().forEach { plinth ->
+                        val isSel = selectedPlinth == plinth
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(plinth.baseColor)
+                                .border(
+                                    width = if (isSel) 2.dp else 1.dp,
+                                    color = if (isSel) plinth.accentColor else Color.White.copy(alpha = 0.3f),
+                                    shape = CircleShape
+                                )
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    selectedPlinth = plinth
+                                }
+                        )
+                    }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
-        // Title and Artist Info
+        // Track Title & Artist
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         ) {
             Text(
                 text = track.title,
                 style = MaterialTheme.typography.titleLarge.copy(
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.ExtraBold,
                     color = Color.White
                 ),
                 maxLines = 1,
@@ -400,7 +439,8 @@ fun VinylNowPlayingStyle(
             Text(
                 text = "${track.artist} • ${track.album}",
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    color = Color(0xFFA0A5BA)
+                    color = Color(0xFFA5ABC0),
+                    fontSize = 13.sp
                 ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -410,7 +450,7 @@ fun VinylNowPlayingStyle(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Waveform / Scrubber
+        // Progress Bar
         LiquidGlassProgressBar(
             currentPositionProvider = { playbackState.currentPositionMs },
             durationMs = playbackState.durationMs,
@@ -421,97 +461,124 @@ fun VinylNowPlayingStyle(
             modifier = Modifier.fillMaxWidth()
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // Playback Controls
+        // Tactile Turntable Controls (Previous, Play/Pause, Next, Favorite)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(bottom = 12.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onToggleFavorite) {
+            // Favorite Button
+            IconButton(
+                onClick = onToggleFavorite,
+                modifier = Modifier
+                    .size(44.dp)
+                    .liquidGlass(
+                        shape = CircleShape,
+                        thickness = GlassThickness.THIN,
+                        tintColor = palette.primary,
+                        tintAlpha = 0.15f
+                    )
+            ) {
                 Icon(
                     imageVector = if (track.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                     contentDescription = "Favorite",
-                    tint = if (track.isFavorite) palette.accent else Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.size(26.dp)
+                    tint = if (track.isFavorite) Color(0xFFFF3366) else Color.White,
+                    modifier = Modifier.size(22.dp)
                 )
             }
 
-            IconButton(onClick = onPrevious) {
+            // Previous Button
+            IconButton(
+                onClick = onPrevious,
+                modifier = Modifier
+                    .size(50.dp)
+                    .liquidGlass(
+                        shape = CircleShape,
+                        thickness = GlassThickness.REGULAR,
+                        tintColor = selectedPlinth.accentColor,
+                        tintAlpha = 0.18f
+                    )
+            ) {
                 Icon(
                     imageVector = Icons.Default.SkipPrevious,
                     contentDescription = "Previous",
                     tint = Color.White,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(28.dp)
                 )
             }
 
+            // Master Play / Pause Knob
             Box(
                 modifier = Modifier
-                    .size(68.dp)
-                    .liquidGlass(
-                        shape = CircleShape,
-                        thickness = GlassThickness.REGULAR,
-                        tintColor = palette.primary,
-                        tintAlpha = 0.35f,
-                        borderWidth = 1.5.dp
+                    .size(72.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            listOf(
+                                selectedPlinth.accentColor,
+                                selectedPlinth.accentColor.copy(alpha = 0.65f),
+                                Color(0xFF14151E)
+                            )
+                        )
                     )
+                    .border(2.dp, Color.White.copy(alpha = 0.6f), CircleShape)
                     .clickable { onPlayPause() },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
-                    tint = Color.White,
-                    modifier = Modifier.size(36.dp)
+                    contentDescription = "Play/Pause",
+                    tint = Color.Black,
+                    modifier = Modifier.size(38.dp)
                 )
             }
 
-            IconButton(onClick = onNext) {
+            // Next Button
+            IconButton(
+                onClick = onNext,
+                modifier = Modifier
+                    .size(50.dp)
+                    .liquidGlass(
+                        shape = CircleShape,
+                        thickness = GlassThickness.REGULAR,
+                        tintColor = selectedPlinth.accentColor,
+                        tintAlpha = 0.18f
+                    )
+            ) {
                 Icon(
                     imageVector = Icons.Default.SkipNext,
                     contentDescription = "Next",
                     tint = Color.White,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(28.dp)
                 )
             }
 
-            IconButton(onClick = { /* Additional vinyl audio filters */ }) {
+            // Vinyl Warmth Crackle Toggle
+            IconButton(
+                onClick = {
+                    vinylWarmthEnabled = !vinylWarmthEnabled
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                },
+                modifier = Modifier
+                    .size(44.dp)
+                    .liquidGlass(
+                        shape = CircleShape,
+                        thickness = GlassThickness.THIN,
+                        tintColor = if (vinylWarmthEnabled) selectedPlinth.accentColor else palette.secondary,
+                        tintAlpha = if (vinylWarmthEnabled) 0.35f else 0.15f
+                    )
+            ) {
                 Icon(
-                    imageVector = Icons.Default.Tune,
-                    contentDescription = "Tune",
-                    tint = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.size(24.dp)
+                    imageVector = Icons.Default.GraphicEq,
+                    contentDescription = "Warmth",
+                    tint = if (vinylWarmthEnabled) selectedPlinth.accentColor else Color.White.copy(alpha = 0.6f),
+                    modifier = Modifier.size(22.dp)
                 )
             }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-    }
-}
-}
-
-@Composable
-private fun VinylDustParticles(spinAngle: Float) {
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        val center = Offset(size.width / 2f, size.height / 2f)
-        val particleCount = 8
-        val rand = Random(42)
-
-        for (i in 0 until particleCount) {
-            val dist = 40.dp.toPx() + (i * 12.dp.toPx())
-            val angleRad = Math.toRadians((spinAngle * (0.6f + (i * 0.1f)) + (i * 45f)).toDouble())
-            val x = center.x + (dist * cos(angleRad)).toFloat()
-            val y = center.y + (dist * sin(angleRad)).toFloat()
-
-            drawCircle(
-                color = Color(0x35FFFFFF),
-                radius = 1.2.dp.toPx(),
-                center = Offset(x, y)
-            )
         }
     }
 }

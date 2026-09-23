@@ -101,10 +101,17 @@ fun MainScreen(
         }
     }
 
+    val sharedPrefs = remember { context.getSharedPreferences("aura_prefs", android.content.Context.MODE_PRIVATE) }
+    var showTutorial by remember { mutableStateOf(!sharedPrefs.getBoolean("has_completed_tutorial", false)) }
+
     BackHandler(
-        enabled = showVipPaywallForFeature != null || showAchievementsDialog || isNowPlayingExpanded || showLyricsEditor || showEqualizer || showQueue || showSleepTimer || showHearingProfileTest || showDuplicatesReview || editingTrackMetadata != null || showShareCard != null || currentTab != MainTab.HOME
+        enabled = showTutorial || showVipPaywallForFeature != null || showAchievementsDialog || isNowPlayingExpanded || showLyricsEditor || showEqualizer || showQueue || showSleepTimer || showHearingProfileTest || showDuplicatesReview || editingTrackMetadata != null || showShareCard != null || currentTab != MainTab.HOME
     ) {
         when {
+            showTutorial -> {
+                sharedPrefs.edit().putBoolean("has_completed_tutorial", true).apply()
+                showTutorial = false
+            }
             showVipPaywallForFeature != null -> showVipPaywallForFeature = null
             showAchievementsDialog -> showAchievementsDialog = false
             showShareCard != null -> viewModel.dismissShareCard()
@@ -456,12 +463,33 @@ fun MainScreen(
                         onOpenMetadataEditor = { viewModel.editingTrackMetadata.value = it },
                         onOpenHearingCalibration = { viewModel.showHearingProfileTest.value = true },
                         onOpenVipPaywall = { featureId -> showVipPaywallForFeature = featureId ?: "vip_general" },
+                        onSelectNowPlayingStyle = { styleId ->
+                            viewModel.updateSettings(appSettings.copy(selectedNowPlayingStyle = styleId))
+                        },
+                        onUpdateTrackArtwork = { trk, artworkUri ->
+                            viewModel.updateTrackArtwork(trk, artworkUri)
+                        },
                         connectedDevice = connectedDevice,
                         onShareSong = { trk -> viewModel.showShareCard(trk) },
                         onPlaybackSpeedChange = { speed -> viewModel.setPlaybackSpeed(speed) }
                     )
                 }
             }
+        }
+
+        // Interactive Onboarding Tutorial Overlay
+        AnimatedVisibility(
+            visible = showTutorial && !showInitialSplash,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            InteractiveAppTutorial(
+                lang = lang,
+                onFinishTutorial = {
+                    sharedPrefs.edit().putBoolean("has_completed_tutorial", true).apply()
+                    showTutorial = false
+                }
+            )
         }
 
         // Cinematic Splash
@@ -565,8 +593,8 @@ fun MainScreen(
             MetadataEditorDialog(
                 track = trk,
                 lang = appSettings.language,
-                onSave = { title, artist, album, genre, year ->
-                    viewModel.updateTrackMetadata(trk, title, artist, album, genre, year)
+                onSave = { title, artist, album, genre, year, artworkUri ->
+                    viewModel.updateTrackMetadata(trk, title, artist, album, genre, year, artworkUri)
                     viewModel.editingTrackMetadata.value = null
                 },
                 onDismiss = { viewModel.editingTrackMetadata.value = null }
@@ -575,12 +603,11 @@ fun MainScreen(
 
         if (showVipPaywallForFeature != null) {
             VipPaywallSheet(
-                targetFeatureId = showVipPaywallForFeature,
                 palette = palette,
                 lang = lang,
-                isDeveloperMode = appSettings.developerModeEnabled,
+                featureHighlight = showVipPaywallForFeature,
                 onDismiss = { showVipPaywallForFeature = null },
-                onVipGranted = {
+                onVipUnlocked = {
                     showVipPaywallForFeature = null
                     viewModel.refreshUnlockedStyles()
                     viewModel.updateSettings(appSettings.copy())

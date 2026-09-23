@@ -930,21 +930,44 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    // Metadata update
-    fun updateTrackMetadata(track: Track, newTitle: String, newArtist: String, newAlbum: String, newGenre: String, newYear: Int) {
+    // Metadata and Artwork update
+    fun updateTrackMetadata(
+        track: Track,
+        newTitle: String,
+        newArtist: String,
+        newAlbum: String,
+        newGenre: String,
+        newYear: Int,
+        newArtworkUri: String? = track.artworkUri
+    ) {
         viewModelScope.launch {
             val updated = track.copy(
                 title = newTitle,
                 artist = newArtist,
                 album = newAlbum,
                 genre = newGenre,
-                year = newYear
+                year = newYear,
+                artworkUri = newArtworkUri
             )
             repository.updateTrackMetadata(updated)
             if (_playbackState.value.currentTrack?.id == track.id) {
                 _playbackState.update { it.copy(currentTrack = updated) }
+                val palette = ArtworkPaletteExtractor.extract(updated, _appSettings.value, app)
+                _activePalette.value = palette
             }
         }
+    }
+
+    fun updateTrackArtwork(track: Track, newArtworkUri: String?) {
+        updateTrackMetadata(
+            track = track,
+            newTitle = track.title,
+            newArtist = track.artist,
+            newAlbum = track.album,
+            newGenre = track.genre,
+            newYear = track.year,
+            newArtworkUri = newArtworkUri
+        )
     }
 
     // Instant Resume persistence helpers

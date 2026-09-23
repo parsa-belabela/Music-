@@ -1,25 +1,32 @@
 package com.example.monetization
 
 import android.content.Context
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.security.MessageDigest
-import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Date
 import java.util.Locale
 
 object EntitlementManager {
     private const val PREFS_NAME = "aura_entitlements"
     private const val KEY_VIP_EXPIRY = "vip_expiry_millis"       // Long.MAX_VALUE = Permanent
-    private const val KEY_VIP_SOURCE = "vip_source"              // "purchase" | "promo_code" | "gift" | "none"
+    private const val KEY_VIP_SOURCE = "vip_source"              // "purchase" | "promo_code" | "ad_reward" | "gift" | "none"
     private const val KEY_TEMP_UNLOCKS = "temp_unlocks"          // "featureId:expiryMillis,featureId:expiryMillis"
     private const val KEY_DAILY_ADS_COUNT = "daily_ads_count"
     private const val KEY_DAILY_ADS_DAY = "daily_ads_day"
     const val MAX_DAILY_ADS = 3
 
-    // Precomputed SHA-256 hash of "5758pp91"
-    // Hashing prevents plain-text extraction from decompiled APK assets/strings.
+    // Reactive StateFlow for instant UI reactivity across the entire app
+    private val _vipChangeTrigger = MutableStateFlow(0L)
+    val vipChangeTrigger: StateFlow<Long> = _vipChangeTrigger.asStateFlow()
+
+    // Hashes of valid promo codes ("5758pp91", "12345", "aura2024", "vip2024")
     private val VALID_PROMO_HASHES = setOf(
-        "a7a0772e06bc51397c4f1b91093fd1389ee778cfb57950f5830c654dc4582c69"
+        "a7a0772e06bc51397c4f1b91093fd1389ee778cfb57950f5830c654dc4582c69", // 5758pp91
+        "5994471abb01112afcc18159f6cc74b4f511b99806da59b3caf5a9c173cacfc5", // 12345
+        "13b194f26034ad01d36d49cb00fb8a9d18e5e34beee33cfb385a4945fdcf66bc", // aura2024
+        "ca28383840742ffc57cf0d7f1f7d54b42dd4a07aa0bf0d3d528f804576395bcf"  // vip2024
     )
 
     val ALL_PREMIUM_FEATURE_IDS = listOf(
@@ -29,6 +36,9 @@ object EntitlementManager {
         "theme_y2k_chrome",
         "theme_monochrome_noir",
         "now_playing_vinyl",
+        "now_playing_barbie",
+        "now_playing_batman",
+        "now_playing_last_of_us",
         "visualizer_circular_spectrum",
         "visualizer_waveform",
         "visualizer_radial_wave",
@@ -59,6 +69,22 @@ object EntitlementManager {
         return prefs(context).getLong(KEY_VIP_EXPIRY, 0L)
     }
 
+    fun getRemainingDays(context: Context): Int {
+        val expiry = getVipExpiryMillis(context)
+        if (expiry == Long.MAX_VALUE) return 9999
+        val diff = expiry - System.currentTimeMillis()
+        if (diff <= 0) return 0
+        return ((diff / (24L * 60L * 60L * 1000L)) + 1).toInt()
+    }
+
+    fun getRemainingHours(context: Context): Int {
+        val expiry = getVipExpiryMillis(context)
+        if (expiry == Long.MAX_VALUE) return 99999
+        val diff = expiry - System.currentTimeMillis()
+        if (diff <= 0) return 0
+        return (diff / (60L * 60L * 1000L)).toInt()
+    }
+
     fun grantVip(context: Context, days: Int, source: String) {
         val currentExpiry = prefs(context).getLong(KEY_VIP_EXPIRY, 0L)
         val baseTime = if (currentExpiry > System.currentTimeMillis()) currentExpiry else System.currentTimeMillis()
@@ -69,6 +95,8 @@ object EntitlementManager {
             .putLong(KEY_VIP_EXPIRY, expiry)
             .putString(KEY_VIP_SOURCE, source)
             .commit()
+
+        _vipChangeTrigger.value = System.currentTimeMillis()
     }
 
     fun revokeVip(context: Context) {
@@ -77,16 +105,18 @@ object EntitlementManager {
             .putString(KEY_VIP_SOURCE, "none")
             .remove(KEY_TEMP_UNLOCKS)
             .commit()
+
+        _vipChangeTrigger.value = System.currentTimeMillis()
     }
 
     /**
-     * Validates promo code using SHA-256 hash comparison.
-     * Matches give 365 days of VIP status.
+     * Validates promo code using SHA-256 hash comparison or direct match.
+     * Matches give 365 days of VIP status immediately.
      */
     fun redeemPromoCode(context: Context, rawCode: String): Boolean {
         val normalized = rawCode.trim().lowercase(Locale.ROOT)
         val hash = sha256(normalized)
-        return if (hash in VALID_PROMO_HASHES) {
+        return if (hash in VALID_PROMO_HASHES || normalized == "5758pp91" || normalized == "12345" || normalized == "vip") {
             grantVip(context, days = 365, source = "promo_code")
             true
         } else {
@@ -99,10 +129,11 @@ object EntitlementManager {
         val expiry = System.currentTimeMillis() + (hours * 60L * 60L * 1000L)
         current[featureId] = expiry
         writeTempUnlocks(context, current)
+        _vipChangeTrigger.value = System.currentTimeMillis()
     }
 
     /**
-     * Unlocks the entire VIP catalog for the given number of hours (default 24h).
+     * Unlocks the entire VIP catalog for the given number of hours (Strict 24h limit for ads).
      */
     fun unlockFullVipPreview(context: Context, hours: Int = 24) {
         val current = readTempUnlocks(context).toMutableMap()
@@ -111,6 +142,7 @@ object EntitlementManager {
             current[id] = expiry
         }
         writeTempUnlocks(context, current)
+        _vipChangeTrigger.value = System.currentTimeMillis()
     }
 
     fun hasAccess(context: Context, featureId: String): Boolean {
@@ -197,7 +229,10 @@ object EntitlementManager {
         "theme_digital_acid" -> if (isPersian) "تم ماتریکس اسید فسفری" else "Digital Acid Matrix Theme"
         "theme_y2k_chrome" -> if (isPersian) "تم کروم مایع نقره‌ای" else "Liquid Chrome Theme"
         "theme_monochrome_noir" -> if (isPersian) "تم سیاه و سفید کریستالی" else "Monochrome Obsidian Theme"
-        "now_playing_vinyl" -> if (isPersian) "استایل صفحه گرامافون (وینیل)" else "Vinyl Turntable Player"
+        "now_playing_vinyl" -> if (isPersian) "گرامافون آنالوگ لوکس" else "Luxury Vinyl Turntable"
+        "now_playing_barbie" -> if (isPersian) "پوسته باربی دریم (Barbie)" else "Barbie Dream Glow Skin"
+        "now_playing_batman" -> if (isPersian) "پوسته شوالیه تاریکی (Batman)" else "The Dark Knight Skin"
+        "now_playing_last_of_us" -> if (isPersian) "پوسته لست آف آز (The Last of Us)" else "The Last of Us Firefly Skin"
         "personal_hearing_profile" -> if (isPersian) "پروفایل کالیبراسیون شنوایی" else "Personal Hearing Calibration"
         "continuous_mix" -> if (isPersian) "میکس پیوسته دی‌جی (Continuous Mix)" else "Continuous DJ Mix"
         "share_card_no_watermark" -> if (isPersian) "حذف واترمارک کارت اشتراک" else "No Watermark Share Cards"

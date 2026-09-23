@@ -113,12 +113,12 @@ fun HearingProfileTestSheet(
             var audioTrack: AudioTrack? = null
             try {
                 val sampleRate = 44100
-                val durationSeconds = 1.3
+                val durationSeconds = 1.0
                 val numSamples = (durationSeconds * sampleRate).toInt()
                 val buffer = ShortArray(numSamples)
 
                 // Gain multiplier based on boost in dB
-                val linearGain = (10.0.pow(boostDb / 20.0) * 0.28).coerceIn(0.08, 0.85)
+                val linearGain = (10.0.pow(boostDb / 20.0) * 0.35).coerceIn(0.1, 0.90)
 
                 for (i in 0 until numSamples) {
                     val time = i.toDouble() / sampleRate
@@ -126,7 +126,7 @@ fun HearingProfileTestSheet(
                     val envelope = 0.5 * (1.0 - kotlin.math.cos(2.0 * PI * i / numSamples))
                     val sine = sin(2.0 * PI * freqHz * time)
                     // Add gentle musical harmonic for low frequencies
-                    val harmonic = if (freqHz < 100) 0.25 * sin(4.0 * PI * freqHz * time) else 0.0
+                    val harmonic = if (freqHz < 120.0) 0.3 * sin(4.0 * PI * freqHz * time) else 0.0
                     val sample = ((sine + harmonic) * linearGain * envelope * Short.MAX_VALUE).toInt()
                     buffer[i] = sample.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
                 }
@@ -136,6 +136,7 @@ fun HearingProfileTestSheet(
                     AudioFormat.CHANNEL_OUT_MONO,
                     AudioFormat.ENCODING_PCM_16BIT
                 )
+                val bufferSize = maxOf(minBufSize, numSamples * 2)
 
                 audioTrack = AudioTrack.Builder()
                     .setAudioAttributes(
@@ -151,17 +152,17 @@ fun HearingProfileTestSheet(
                             .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                             .build()
                     )
-                    .setBufferSizeInBytes(maxOf(minBufSize, numSamples * 2))
-                    .setTransferMode(AudioTrack.MODE_STATIC)
+                    .setBufferSizeInBytes(bufferSize)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
                     .build()
 
-                audioTrack.write(buffer, 0, numSamples)
                 audioTrack.play()
+                audioTrack.write(buffer, 0, numSamples)
 
-                delay(1350L)
+                delay(1050L)
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    playbackError = if (lang == AppLanguage.PERSIAN) "خطا در پخش صدای تست" else "Error playing test tone"
+                    playbackError = if (lang == AppLanguage.PERSIAN) "در حال اتصال صدای تست..." else "Connecting test tone..."
                 }
             } finally {
                 try {
