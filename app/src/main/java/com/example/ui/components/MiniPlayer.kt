@@ -85,17 +85,6 @@ fun MiniPlayer(
         label = "miniPlayerAccent"
     )
 
-    val infiniteTransition = rememberInfiniteTransition(label = "capsuleBreathing")
-    val pulse by infiniteTransition.animateFloat(
-        initialValue = 0.90f,
-        targetValue = 1.05f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2500, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "capsuleAuraPulse"
-    )
-
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -114,31 +103,6 @@ fun MiniPlayer(
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.Center
         ) {
-            // Subtle ambient aura emitting behind the capsule
-            if (isPlaying) {
-                Canvas(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .padding(horizontal = 6.dp)
-                ) {
-                    val data = analysisDataProvider()
-                    val bass = data.haloExpansion
-                    val kick = data.kickPulse
-                    val auraAlpha = (0.16f + bass * 0.16f + kick * 0.14f) * pulse
-
-                    drawRoundRect(
-                        brush = Brush.horizontalGradient(
-                            listOf(
-                                animatedPrimary.copy(alpha = auraAlpha.coerceIn(0f, 0.45f)),
-                                palette.secondary.copy(alpha = (auraAlpha * 0.6f).coerceIn(0f, 0.35f))
-                            )
-                        ),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(18.dp.toPx()),
-                        size = androidx.compose.ui.geometry.Size(size.width, size.height + 4.dp.toPx())
-                    )
-                }
-            }
-
             // The Floating Liquid Glass Capsule container (~56dp height)
             Box(
                 modifier = Modifier
@@ -164,12 +128,8 @@ fun MiniPlayer(
                         AnimatedContent(
                             targetState = activeTrack,
                             transitionSpec = {
-                                (fadeIn(animationSpec = tween(260, easing = FastOutSlowInEasing)) +
-                                 scaleIn(initialScale = 0.95f, animationSpec = tween(260, easing = FastOutSlowInEasing)))
-                                    .togetherWith(
-                                        fadeOut(animationSpec = tween(200, easing = FastOutSlowInEasing)) +
-                                        scaleOut(targetScale = 1.02f, animationSpec = tween(200, easing = FastOutSlowInEasing))
-                                    )
+                                fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing))
+                                    .togetherWith(fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing)))
                             },
                             modifier = Modifier.weight(1f),
                             label = "miniPlayerContentTransition"

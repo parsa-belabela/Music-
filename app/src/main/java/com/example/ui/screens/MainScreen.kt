@@ -102,16 +102,11 @@ fun MainScreen(
     }
 
     val sharedPrefs = remember { context.getSharedPreferences("aura_prefs", android.content.Context.MODE_PRIVATE) }
-    var showTutorial by remember { mutableStateOf(!sharedPrefs.getBoolean("has_completed_tutorial", false)) }
 
     BackHandler(
-        enabled = showTutorial || showVipPaywallForFeature != null || showAchievementsDialog || isNowPlayingExpanded || showLyricsEditor || showEqualizer || showQueue || showSleepTimer || showHearingProfileTest || showDuplicatesReview || editingTrackMetadata != null || showShareCard != null || currentTab != MainTab.HOME
+        enabled = showVipPaywallForFeature != null || showAchievementsDialog || isNowPlayingExpanded || showLyricsEditor || showEqualizer || showQueue || showSleepTimer || showHearingProfileTest || showDuplicatesReview || editingTrackMetadata != null || showShareCard != null || currentTab != MainTab.HOME
     ) {
         when {
-            showTutorial -> {
-                sharedPrefs.edit().putBoolean("has_completed_tutorial", true).apply()
-                showTutorial = false
-            }
             showVipPaywallForFeature != null -> showVipPaywallForFeature = null
             showAchievementsDialog -> showAchievementsDialog = false
             showShareCard != null -> viewModel.dismissShareCard()
@@ -475,21 +470,6 @@ fun MainScreen(
                     )
                 }
             }
-        }
-
-        // Interactive Onboarding Tutorial Overlay
-        AnimatedVisibility(
-            visible = showTutorial && !showInitialSplash,
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            InteractiveAppTutorial(
-                lang = lang,
-                onFinishTutorial = {
-                    sharedPrefs.edit().putBoolean("has_completed_tutorial", true).apply()
-                    showTutorial = false
-                }
-            )
         }
 
         // Cinematic Splash

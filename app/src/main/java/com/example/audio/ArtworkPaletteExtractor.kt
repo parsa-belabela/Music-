@@ -150,18 +150,17 @@ object ArtworkPaletteExtractor {
             )
 
             if (isMonochrome) {
-                // High-Contrast Rich Obsidian Black & Diamond White Palette
-                val avgLum = if (validPixelCount > 0) sumLum / validPixelCount else 0.5f
-                val primary = if (avgLum > 0.6f) Color(0xFFFFFFFF) else Color(0xFFF8FAFC)
-                val secondary = Color(0xFF090B12) // Rich Velvet Obsidian Black
-                val accent = Color(0xFF282C3D) // Sleek Metallic Gunmetal
-                val deepAtmosphere = Color(0xFF020204) // Deepest rich velvet pitch-black atmosphere
-                val richBlack = Color(0xFF000000) // Absolute Pure Black
+                // High-Contrast Monochrome Palette with Vivid Vibrant Action Accents
+                val primary = Color(0xFFE2E8F0) // Luminous Silver-Platinum
+                val secondary = Color(0xFF0F172A) // Rich Velvet Obsidian
+                val accent = Color(0xFF00E5FF) // Electric Vivid Cyan Accent
+                val deepAtmosphere = Color(0xFF070913) // Deepest velvet atmosphere
+                val richBlack = Color(0xFF020306) // Absolute Pure Black
 
                 return AmbientPalette(
                     primary = primary,
                     secondary = secondary,
-                    haloGlow = Color(0x65FFFFFF),
+                    haloGlow = Color(0x8000E5FF),
                     accent = accent,
                     deepAtmosphere = deepAtmosphere,
                     richBlack = richBlack,

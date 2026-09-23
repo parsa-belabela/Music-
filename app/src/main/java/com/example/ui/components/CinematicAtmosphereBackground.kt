@@ -153,14 +153,14 @@ fun CinematicAtmosphereBackground(
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        animatedPrimary.copy(alpha = ((0.52f + bass * 0.35f + kick * 0.20f) * glowStrength).coerceIn(0f, 0.95f)),
-                        animatedSecondary.copy(alpha = ((0.38f + energy * 0.25f) * glowStrength).coerceIn(0f, 0.85f)),
+                        animatedPrimary.copy(alpha = ((0.68f + bass * 0.38f + kick * 0.25f) * glowStrength).coerceIn(0f, 0.98f)),
+                        animatedSecondary.copy(alpha = ((0.50f + energy * 0.30f) * glowStrength).coerceIn(0f, 0.92f)),
                         Color.Transparent
                     ),
                     center = auraCenter,
-                    radius = baseRadius * 1.6f
+                    radius = baseRadius * 1.75f
                 ),
-                radius = baseRadius * 1.6f,
+                radius = baseRadius * 1.75f,
                 center = auraCenter
             )
 
@@ -168,29 +168,29 @@ fun CinematicAtmosphereBackground(
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        animatedAccent.copy(alpha = ((0.48f + kick * 0.35f) * glowStrength).coerceIn(0f, 0.90f)),
-                        animatedSecondary.copy(alpha = ((0.28f + bass * 0.20f) * glowStrength).coerceIn(0f, 0.75f)),
+                        animatedAccent.copy(alpha = ((0.62f + kick * 0.40f) * glowStrength).coerceIn(0f, 0.95f)),
+                        animatedSecondary.copy(alpha = ((0.40f + bass * 0.28f) * glowStrength).coerceIn(0f, 0.88f)),
                         Color.Transparent
                     ),
                     center = secondaryCenter,
-                    radius = baseRadius * 1.15f
+                    radius = baseRadius * 1.30f
                 ),
-                radius = baseRadius * 1.15f,
+                radius = baseRadius * 1.30f,
                 center = secondaryCenter
             )
 
-            // Dynamic central core glow
+            // Dynamic central core glow directly behind artwork
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        animatedPrimary.copy(alpha = ((0.60f + bass * 0.30f) * glowStrength).coerceIn(0f, 0.95f)),
-                        animatedAccent.copy(alpha = 0.20f * glowStrength),
+                        animatedPrimary.copy(alpha = ((0.75f + bass * 0.35f) * glowStrength).coerceIn(0f, 0.98f)),
+                        animatedAccent.copy(alpha = (0.45f * glowStrength).coerceIn(0f, 0.80f)),
                         Color.Transparent
                     ),
                     center = center,
-                    radius = baseRadius * 0.75f
+                    radius = baseRadius * 0.90f
                 ),
-                radius = baseRadius * 0.75f,
+                radius = baseRadius * 0.90f,
                 center = center
             )
 

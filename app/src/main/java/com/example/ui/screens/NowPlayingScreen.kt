@@ -140,12 +140,12 @@ fun NowPlayingScreen(
             }
             .testTag("now_playing_screen")
     ) {
-        // Living Atmosphere
+        // Living Atmosphere with vivid ambient light emission
         CinematicAtmosphereBackground(
             track = track,
             palette = palette,
             analysisDataProvider = analysisDataProvider,
-            glowStrength = if (isImmersive) appSettings.visualizerGlow * 1.25f else appSettings.visualizerGlow
+            glowStrength = if (isImmersive) appSettings.visualizerGlow * 2.2f else appSettings.visualizerGlow * 1.8f
         )
 
         // Signature Liquid Glass Mode (Matching Reference Screenshot 2)
@@ -340,14 +340,26 @@ fun NowPlayingScreen(
             ) {
                 when (centerView) {
                     NowPlayingCenterView.ARTWORK_AND_HALO -> {
+                        val audioData = analysisDataProvider()
+                        val beatPulse = if (isPlaying) (audioData.kickPulse * 0.026f + audioData.haloExpansion * 0.012f).coerceIn(0f, 0.038f) else 0f
+                        val animatedBeatScale by animateFloatAsState(
+                            targetValue = 1.0f + beatPulse,
+                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioMediumBouncy),
+                            label = "artworkBeatPulse"
+                        )
+
                         Box(
                             modifier = Modifier
-                                .fillMaxHeight(0.92f)
+                                .fillMaxHeight(0.80f)
                                 .aspectRatio(1f)
-                                .shadow(24.dp, RoundedCornerShape(32.dp), spotColor = palette.primary)
-                                .clip(RoundedCornerShape(32.dp))
+                                .graphicsLayer {
+                                    scaleX = animatedBeatScale
+                                    scaleY = animatedBeatScale
+                                }
+                                .shadow(28.dp, RoundedCornerShape(28.dp), spotColor = palette.primary)
+                                .clip(RoundedCornerShape(28.dp))
                                 .background(Color(0xFF141624))
-                                .border(1.5.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(32.dp))
+                                .border(1.5.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(28.dp))
                                 .pointerInput(Unit) {
                                     detectTapGestures(
                                         onDoubleTap = {
