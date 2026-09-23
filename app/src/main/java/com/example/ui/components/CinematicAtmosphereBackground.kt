@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import coil.request.ImageRequest
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
@@ -71,8 +72,8 @@ fun CinematicAtmosphereBackground(
         label = "ambientWave"
     )
 
-    Box(modifier = modifier.fillMaxSize().background(Color(0xFF06060A))) {
-        // Layer 1: Hardware-scaled, soft ambient album art with seamless crossfade
+    Box(modifier = modifier.fillMaxSize().background(Color(0xFF080914))) {
+        // Layer 1: Hardware-scaled, soft ambient album art with vivid blending
         val context = LocalContext.current
         AnimatedContent(
             targetState = track?.artworkUri,
@@ -87,108 +88,140 @@ fun CinematicAtmosphereBackground(
                 coil.compose.AsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(uri)
-                        .size(80, 80)
+                        .size(240, 240)
                         .crossfade(true)
                         .build(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(32.dp),
+                    alpha = 0.52f
                 )
             } else {
-                Box(modifier = Modifier.fillMaxSize())
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    animatedPrimary.copy(alpha = 0.45f),
+                                    animatedDeep.copy(alpha = 0.30f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
             }
         }
 
-        // Layer 2: Atmospheric Dimming & Contrast Preservation Veil
+        // Layer 2: Radiant Atmospheric Depth Gradient
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            animatedDeep.copy(alpha = 0.82f),
-                            Color(0xEE07070D),
-                            Color(0xFA050508)
+                            animatedDeep.copy(alpha = 0.40f),
+                            Color(0x30000000),
+                            animatedPrimary.copy(alpha = 0.25f),
+                            Color(0x80080912)
                         )
                     )
                 )
         )
 
-        // Layer 3: Organic Energy Field & Audio-reactive Aura
+        // Layer 3: Organic Energy Field & Audio-reactive Vivid Aura
         Canvas(modifier = Modifier.fillMaxSize()) {
             val data = analysisDataProvider()
-            val center = Offset(size.width * 0.5f, size.height * 0.42f)
+            val center = Offset(size.width * 0.5f, size.height * 0.40f)
             val maxDimension = min(size.width, size.height)
 
             val bass = data.haloExpansion
             val kick = data.kickPulse
             val energy = data.totalEnergy
 
-            // Dynamic radius driven by real audio energy and subtle cosmic rotation
-            val baseRadius = maxDimension * (0.65f + bass * 0.35f)
+            // Dynamic radius driven by audio energy and smooth rotation
+            val baseRadius = maxDimension * (0.75f + bass * 0.40f)
             val radAngle = Math.toRadians(waveOffset.toDouble())
-            val driftX = (Math.cos(radAngle) * 35.0).toFloat()
-            val driftY = (Math.sin(radAngle) * 25.0).toFloat()
+            val driftX = (Math.cos(radAngle) * 55.0).toFloat()
+            val driftY = (Math.sin(radAngle) * 45.0).toFloat()
             val auraCenter = Offset(center.x + driftX, center.y + driftY)
+            val secondaryCenter = Offset(center.x - driftX * 0.8f, center.y + driftY * 0.9f)
 
-            // Outermost deep ambient aura wash
+            // Primary wide luminous aura wash
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        animatedPrimary.copy(alpha = (0.28f + bass * 0.25f + kick * 0.15f) * glowStrength),
-                        animatedSecondary.copy(alpha = (0.16f + energy * 0.18f) * glowStrength),
+                        animatedPrimary.copy(alpha = ((0.52f + bass * 0.35f + kick * 0.20f) * glowStrength).coerceIn(0f, 0.95f)),
+                        animatedSecondary.copy(alpha = ((0.38f + energy * 0.25f) * glowStrength).coerceIn(0f, 0.85f)),
                         Color.Transparent
                     ),
                     center = auraCenter,
-                    radius = baseRadius * 1.5f
+                    radius = baseRadius * 1.6f
                 ),
-                radius = baseRadius * 1.5f,
+                radius = baseRadius * 1.6f,
                 center = auraCenter
             )
 
-            // Concentric secondary bloom
+            // Secondary vibrant accent bloom
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        animatedSecondary.copy(alpha = (0.22f + kick * 0.28f) * glowStrength),
-                        animatedAccent.copy(alpha = (0.10f + bass * 0.12f) * glowStrength),
+                        animatedAccent.copy(alpha = ((0.48f + kick * 0.35f) * glowStrength).coerceIn(0f, 0.90f)),
+                        animatedSecondary.copy(alpha = ((0.28f + bass * 0.20f) * glowStrength).coerceIn(0f, 0.75f)),
                         Color.Transparent
                     ),
-                    center = auraCenter,
-                    radius = baseRadius * 0.95f
+                    center = secondaryCenter,
+                    radius = baseRadius * 1.15f
                 ),
-                radius = baseRadius * 0.95f,
-                center = auraCenter
+                radius = baseRadius * 1.15f,
+                center = secondaryCenter
+            )
+
+            // Dynamic central core glow
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        animatedPrimary.copy(alpha = ((0.60f + bass * 0.30f) * glowStrength).coerceIn(0f, 0.95f)),
+                        animatedAccent.copy(alpha = 0.20f * glowStrength),
+                        Color.Transparent
+                    ),
+                    center = center,
+                    radius = baseRadius * 0.75f
+                ),
+                radius = baseRadius * 0.75f,
+                center = center
             )
 
             // Transient kick pulse burst
-            if (kick > 0.08f) {
+            if (kick > 0.05f) {
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            animatedAccent.copy(alpha = (kick * 0.45f * glowStrength).coerceIn(0f, 0.65f)),
+                            animatedAccent.copy(alpha = (kick * 0.70f * glowStrength).coerceIn(0f, 0.85f)),
+                            animatedSecondary.copy(alpha = (kick * 0.40f * glowStrength).coerceIn(0f, 0.55f)),
                             Color.Transparent
                         ),
                         center = center,
-                        radius = baseRadius * 0.65f
+                        radius = baseRadius * 0.85f
                     ),
-                    radius = baseRadius * 0.65f,
+                    radius = baseRadius * 0.85f,
                     center = center
                 )
             }
         }
 
-        // Layer 4: Vignette and dark base protector
+        // Layer 4: Minimal subtle edge contrast veil for navigation clarity
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color(0xC0050508)
-                        ),
-                        radius = 1200f
+                    Brush.verticalGradient(
+                        0.0f to Color(0x35000000),
+                        0.25f to Color.Transparent,
+                        0.75f to Color.Transparent,
+                        1.0f to Color(0x6506070E)
                     )
                 )
         )

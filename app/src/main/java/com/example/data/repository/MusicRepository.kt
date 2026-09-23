@@ -354,6 +354,21 @@ class MusicRepository(
         }
     }
 
+    suspend fun addTracksToPlaylist(playlistId: String, trackIds: List<String>) = withContext(Dispatchers.IO) {
+        val existing = musicDao.getPlaylistById(playlistId) ?: return@withContext
+        val newTrackIds = (existing.trackIds + trackIds).distinct()
+        musicDao.insertPlaylist(existing.copy(trackIds = newTrackIds))
+        val baseIndex = System.currentTimeMillis().toInt()
+        trackIds.forEachIndexed { index, trackId ->
+            musicDao.insertPlaylistTrack(PlaylistTrackCrossRef(playlistId, trackId, baseIndex + index))
+        }
+    }
+
+    suspend fun renamePlaylist(playlistId: String, newName: String) = withContext(Dispatchers.IO) {
+        val existing = musicDao.getPlaylistById(playlistId) ?: return@withContext
+        musicDao.insertPlaylist(existing.copy(name = newName))
+    }
+
     suspend fun deletePlaylist(playlistId: String) = withContext(Dispatchers.IO) {
         musicDao.deletePlaylist(playlistId)
     }

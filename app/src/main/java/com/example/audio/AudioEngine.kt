@@ -586,6 +586,9 @@ class AudioEngine(private val context: Context) {
                 } else {
                     mp.seekTo(safePos.toInt())
                 }
+                if (_isPlayWhenReady.value && mp.isPlaying) {
+                    startProgressTracker()
+                }
             } catch (e: Exception) {
                 Log.e(tag, "Error seeking to $safePos", e)
             }
@@ -798,16 +801,19 @@ class AudioEngine(private val context: Context) {
     private fun startProgressTracker() {
         stopProgressTracker()
         progressJob = engineScope.launch {
-            var anchorPos = 0L
+            var anchorPos = _currentPosition.value
             var anchorNano = System.nanoTime()
-            var lastRealSyncMs = 0L
+            var lastRealSyncMs = System.currentTimeMillis()
 
             val mp = mediaPlayer
             if (mp != null && isPlayerPrepared) {
                 try {
-                    anchorPos = mp.currentPosition.toLong()
-                    anchorNano = System.nanoTime()
-                    _currentPosition.value = anchorPos
+                    val pos = mp.currentPosition.toLong()
+                    if (pos >= 0L) {
+                        anchorPos = pos
+                        anchorNano = System.nanoTime()
+                        _currentPosition.value = anchorPos
+                    }
                 } catch (_: Exception) {}
             }
 

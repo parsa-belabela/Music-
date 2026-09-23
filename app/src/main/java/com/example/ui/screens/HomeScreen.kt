@@ -250,18 +250,19 @@ fun HomeScreen(
             }
         }
 
-        // Hero CURRENTLY PLAYING Card
-        item {
-            val heroTrack = playbackState.currentTrack ?: allTracks.firstOrNull()
-            HeroQuickPlayCard(
-                heroTrack = heroTrack,
-                isPlaying = playbackState.status == PlayerStatus.PLAYING,
-                palette = palette,
-                allTracks = allTracks,
-                hasActiveTrack = playbackState.currentTrack != null,
-                onPlayTrack = onPlayTrack,
-                onTogglePlay = onTogglePlay
-            )
+        // Hero CURRENTLY PLAYING Card (only shown when a track is actually active/playing)
+        if (playbackState.currentTrack != null) {
+            item {
+                HeroQuickPlayCard(
+                    heroTrack = playbackState.currentTrack,
+                    isPlaying = playbackState.status == PlayerStatus.PLAYING,
+                    palette = palette,
+                    allTracks = allTracks,
+                    hasActiveTrack = true,
+                    onPlayTrack = onPlayTrack,
+                    onTogglePlay = onTogglePlay
+                )
+            }
         }
 
         // Feature 2: Time-of-Day Contextual Carousel

@@ -140,6 +140,21 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         // Load wrapped periods
         refreshWrappedPeriods()
 
+        // Wire AudioPlaybackService notification & media session handlers
+        AudioPlaybackService.actionHandler = { action ->
+            when (action) {
+                "PLAY", "PLAY_PAUSE" -> togglePlayPause()
+                "PAUSE" -> pause()
+                "NEXT" -> nextTrack()
+                "PREVIOUS" -> previousTrack()
+                "STOP" -> pause()
+                "HEADPHONES_DISCONNECTED" -> pause()
+            }
+        }
+        AudioPlaybackService.seekHandler = { pos ->
+            seekTo(pos)
+        }
+
         // Wire audio engine callbacks
         audioEngine.onTrackCompleted = {
             handleTrackCompleted()
@@ -845,6 +860,18 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun addTrackToPlaylist(playlistId: String, trackId: String) {
         viewModelScope.launch {
             repository.addTrackToPlaylist(playlistId, trackId)
+        }
+    }
+
+    fun addTracksToPlaylist(playlistId: String, trackIds: List<String>) {
+        viewModelScope.launch {
+            repository.addTracksToPlaylist(playlistId, trackIds)
+        }
+    }
+
+    fun renamePlaylist(playlistId: String, newName: String) {
+        viewModelScope.launch {
+            repository.renamePlaylist(playlistId, newName)
         }
     }
 

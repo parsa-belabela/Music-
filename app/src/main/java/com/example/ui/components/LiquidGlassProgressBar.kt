@@ -88,39 +88,33 @@ fun LiquidGlassProgressBar(
                 .onSizeChanged { size ->
                     componentWidthPx = size.width.toFloat().coerceAtLeast(1f)
                 }
-                .pointerInput(safeDuration) {
+                .pointerInput(Unit) {
                     awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        down.consume()
-                        isDragging = true
-                        val width = componentWidthPx.coerceAtLeast(1f)
-                        val initialFraction = (down.position.x / width).coerceIn(0f, 1f)
-                        dragProgress = initialFraction
+                        try {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            down.consume()
+                            isDragging = true
+                            val width = componentWidthPx.coerceAtLeast(1f)
+                            val initialFraction = (down.position.x / width).coerceIn(0f, 1f)
+                            dragProgress = initialFraction
 
-                        var lastThrottledSeekTime = 0L
-
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val pointer = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (!pointer.pressed) {
-                                pointer.consume()
-                                val targetMs = (dragProgress * safeDuration).toLong()
-                                onSeekTo(targetMs)
-                                isDragging = false
-                                break
-                            } else {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val pointer = event.changes.firstOrNull { it.id == down.id }
+                                if (pointer == null || !pointer.pressed) {
+                                    pointer?.consume()
+                                    break
+                                }
                                 pointer.consume()
                                 val newFraction = (pointer.position.x / width).coerceIn(0f, 1f)
                                 dragProgress = newFraction
-
-                                val now = System.currentTimeMillis()
-                                if (now - lastThrottledSeekTime >= 100L) {
-                                    lastThrottledSeekTime = now
-                                    onSeekTo((newFraction * safeDuration).toLong())
-                                }
                             }
+                            val curSafeDuration = durationMs.coerceAtLeast(1L)
+                            val targetMs = (dragProgress * curSafeDuration).toLong()
+                            onSeekTo(targetMs)
+                        } finally {
+                            isDragging = false
                         }
-                        isDragging = false
                     }
                 }
                 .testTag("seek_slider"),

@@ -7,10 +7,20 @@ import android.content.Intent
 class MediaNotificationReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
-        val serviceIntent = Intent(context, AudioPlaybackService::class.java).apply {
-            this.action = action
+        when (action) {
+            ACTION_PLAY_PAUSE -> {
+                AudioPlaybackService.actionHandler?.invoke("PLAY_PAUSE")
+            }
+            ACTION_NEXT -> {
+                AudioPlaybackService.actionHandler?.invoke("NEXT")
+            }
+            ACTION_PREVIOUS -> {
+                AudioPlaybackService.actionHandler?.invoke("PREVIOUS")
+            }
+            ACTION_STOP -> {
+                AudioPlaybackService.actionHandler?.invoke("STOP")
+            }
         }
-        context.startService(serviceIntent)
     }
 
     companion object {

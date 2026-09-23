@@ -15,11 +15,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
+import com.example.data.model.AppLanguage
 import com.example.data.model.AppSettings
 import com.example.data.model.Playlist
 import com.example.data.model.Track
@@ -32,33 +34,66 @@ import com.example.util.Localization
 fun PlaylistDetailSheet(
     playlist: Playlist,
     allTracks: List<Track>,
+    favoriteTracks: List<Track> = emptyList(),
     settings: AppSettings,
     palette: AmbientPalette,
     onDismiss: () -> Unit,
     onPlayTrack: (Track, List<Track>) -> Unit,
     onPlayAll: (List<Track>) -> Unit,
     onShuffleAll: (List<Track>) -> Unit,
+    onAddTracksToPlaylist: (String, List<String>) -> Unit = { _, _ -> },
     onRemoveTrackFromPlaylist: (String, String) -> Unit,
+    onRenamePlaylist: (String, String) -> Unit = { _, _ -> },
     onDeletePlaylist: (String) -> Unit
 ) {
     val lang = settings.language
-    val playlistTracks = remember(playlist.trackIds, allTracks) {
-        allTracks.filter { it.id in playlist.trackIds }
-    }
+    var showTrackPicker by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var renameText by remember { mutableStateOf(playlist.name) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+
+    val playlistTracks = remember(playlist.trackIds, allTracks) {
+        val trackMap = allTracks.associateBy { it.id }
+        playlist.trackIds.mapNotNull { trackMap[it] }
+    }
+
+    val totalDurationFormatted = remember(playlistTracks) {
+        val totalMs = playlistTracks.sumOf { it.durationMs }
+        val totalSec = totalMs / 1000
+        val min = totalSec / 60
+        val sec = totalSec % 60
+        if (min >= 60) {
+            val hrs = min / 60
+            val remMin = min % 60
+            if (lang == AppLanguage.PERSIAN) "$hrs ساعت و $remMin دقیقه" else "${hrs}h ${remMin}m"
+        } else {
+            if (lang == AppLanguage.PERSIAN) "$min دقیقه و $sec ثانیه" else "${min}m ${sec}s"
+        }
+    }
+
+    val displayedTracks = remember(playlistTracks, searchQuery) {
+        if (searchQuery.isBlank()) playlistTracks
+        else {
+            val q = searchQuery.trim().lowercase()
+            playlistTracks.filter {
+                it.title.lowercase().contains(q) || it.artist.lowercase().contains(q)
+            }
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = Color.Transparent,
-        scrimColor = Color(0xFF030308).copy(alpha = 0.82f),
+        scrimColor = Color(0xFF030308).copy(alpha = 0.85f),
         dragHandle = null,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.85f)
-                .padding(horizontal = 12.dp, vertical = 12.dp)
+                .fillMaxHeight(0.90f)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
                 .liquidGlass(
                     shape = RoundedCornerShape(28.dp),
                     thickness = GlassThickness.THICK,
@@ -82,7 +117,7 @@ fun PlaylistDetailSheet(
                         .background(Color.White.copy(alpha = 0.35f))
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // Playlist Header
                 Row(
@@ -91,8 +126,8 @@ fun PlaylistDetailSheet(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(64.dp)
-                            .clip(RoundedCornerShape(16.dp))
+                            .size(68.dp)
+                            .clip(RoundedCornerShape(18.dp))
                             .background(palette.primary.copy(alpha = 0.25f)),
                         contentAlignment = Alignment.Center
                     ) {
@@ -101,16 +136,16 @@ fun PlaylistDetailSheet(
                             TrackArtworkThumbnail(
                                 artworkUri = firstArt,
                                 accentColor = palette.primary,
-                                size = 64.dp,
-                                shape = RoundedCornerShape(16.dp),
-                                iconSize = 32.dp
+                                size = 68.dp,
+                                shape = RoundedCornerShape(18.dp),
+                                iconSize = 34.dp
                             )
                         } else {
                             Icon(
                                 imageVector = Icons.Default.QueueMusic,
                                 contentDescription = null,
-                                tint = palette.primary,
-                                modifier = Modifier.size(32.dp)
+                                tint = palette.accent,
+                                modifier = Modifier.size(34.dp)
                             )
                         }
                     }
@@ -118,18 +153,36 @@ fun PlaylistDetailSheet(
                     Spacer(modifier = Modifier.width(16.dp))
 
                     Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = playlist.name,
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            IconButton(
+                                onClick = {
+                                    renameText = playlist.name
+                                    showRenameDialog = true
+                                },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = "Rename",
+                                    tint = palette.accent,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(3.dp))
                         Text(
-                            text = playlist.name,
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "${playlistTracks.size} ${Localization.getString("tracks", lang)}",
+                            text = "${playlistTracks.size} ${Localization.getString("tracks", lang)} • $totalDurationFormatted",
                             style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA6A6C0))
                         )
                     }
@@ -149,12 +202,12 @@ fun PlaylistDetailSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // Action Buttons (Play All / Shuffle)
+                // Action Buttons: Play All, Shuffle, and + Add Songs
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(
                         onClick = {
@@ -169,8 +222,8 @@ fun PlaylistDetailSheet(
                         colors = ButtonDefaults.buttonColors(containerColor = palette.primary)
                     ) {
                         Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(Localization.getString("play_all", lang), fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(Localization.getString("play_all", lang), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
 
                     OutlinedButton(
@@ -181,17 +234,75 @@ fun PlaylistDetailSheet(
                             }
                         },
                         enabled = playlistTracks.isNotEmpty(),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(0.9f),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                     ) {
-                        Icon(imageVector = Icons.Default.Shuffle, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(Localization.getString("shuffle", lang))
+                        Icon(imageVector = Icons.Default.Shuffle, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(Localization.getString("shuffle", lang), fontSize = 13.sp)
+                    }
+
+                    // Add songs button
+                    Button(
+                        onClick = { showTrackPicker = true },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = palette.accent.copy(alpha = 0.25f)),
+                        modifier = Modifier.testTag("add_tracks_to_playlist_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            tint = palette.accent,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (lang == AppLanguage.PERSIAN) "افزودن" else "Add",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Search inside playlist if has tracks
+                if (playlistTracks.size > 4) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = {
+                            Text(
+                                text = if (lang == AppLanguage.PERSIAN) "جستجو در این پلی‌لیست..." else "Filter songs in playlist...",
+                                color = Color(0xFF8E8EA0),
+                                fontSize = 13.sp
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = palette.accent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedContainerColor = Color(0x18182236),
+                            unfocusedContainerColor = Color(0x10182030),
+                            focusedBorderColor = palette.primary,
+                            unfocusedBorderColor = Color(0x25FFFFFF)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                    )
+                }
 
                 // Track List
                 if (playlistTracks.isEmpty()) {
@@ -201,18 +312,37 @@ fun PlaylistDetailSheet(
                             .weight(1f),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.MusicNote,
                                 contentDescription = null,
-                                tint = Color(0xFF6B7280),
-                                modifier = Modifier.size(48.dp)
+                                tint = palette.accent.copy(alpha = 0.6f),
+                                modifier = Modifier.size(52.dp)
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 text = Localization.getString("empty_playlist", lang),
-                                style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFF9CA3AF))
+                                style = MaterialTheme.typography.bodyLarge.copy(color = Color.White, fontWeight = FontWeight.SemiBold)
                             )
+                            Text(
+                                text = if (lang == AppLanguage.PERSIAN) "روی دکمه زیر ضربه بزنید و آهنگ‌های دلخواهتان را اضافه کنید." else "Tap the button below to add your favorite songs.",
+                                style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8))
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Button(
+                                onClick = { showTrackPicker = true },
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = palette.primary)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (lang == AppLanguage.PERSIAN) "افزودن آهنگ به پلی‌لیست" else "Add Songs to Playlist",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 } else {
@@ -222,12 +352,12 @@ fun PlaylistDetailSheet(
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(playlistTracks) { track ->
+                        items(displayedTracks, key = { it.id }) { track ->
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xFF131322))
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color(0x18FFFFFF))
                                     .clickable {
                                         onPlayTrack(track, playlistTracks)
                                         onDismiss()
@@ -241,9 +371,9 @@ fun PlaylistDetailSheet(
                                     TrackArtworkThumbnail(
                                         artworkUri = track.artworkUri,
                                         accentColor = palette.secondary,
-                                        size = 42.dp,
-                                        shape = RoundedCornerShape(10.dp),
-                                        iconSize = 22.dp
+                                        size = 46.dp,
+                                        shape = RoundedCornerShape(12.dp),
+                                        iconSize = 24.dp
                                     )
 
                                     Spacer(modifier = Modifier.width(12.dp))
@@ -288,6 +418,71 @@ fun PlaylistDetailSheet(
         }
     }
 
+    // Modal Track Picker Sheet
+    if (showTrackPicker) {
+        TrackPickerSheet(
+            allTracks = allTracks,
+            favoriteTracks = favoriteTracks,
+            initialSelectedTrackIds = playlist.trackIds.toSet(),
+            playlistTitle = playlist.name,
+            settings = settings,
+            palette = palette,
+            onDismiss = { showTrackPicker = false },
+            onConfirm = { selectedIds ->
+                onAddTracksToPlaylist(playlist.id, selectedIds)
+                showTrackPicker = false
+            }
+        )
+    }
+
+    // Rename Dialog
+    if (showRenameDialog) {
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = {
+                Text(
+                    text = if (lang == AppLanguage.PERSIAN) "تغییر نام پلی‌لیست" else "Rename Playlist",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = palette.primary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (renameText.isNotBlank()) {
+                            onRenamePlaylist(playlist.id, renameText.trim())
+                            showRenameDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = palette.primary)
+                ) {
+                    Text(if (lang == AppLanguage.PERSIAN) "ذخیره" else "Save", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenameDialog = false }) {
+                    Text(Localization.getString("cancel", lang), color = Color.White)
+                }
+            },
+            containerColor = Color(0xFF18182B),
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
+    // Delete Confirmation Dialog
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
