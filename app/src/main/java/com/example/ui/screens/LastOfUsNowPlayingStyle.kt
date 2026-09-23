@@ -160,13 +160,14 @@ fun LastOfUsNowPlayingStyle(
                 }
             }
 
-            // Weathered Firefly Acoustic Disc
+            // Weathered Firefly Acoustic Glass Artwork Display (No Vinyl/Gramophone)
             Box(
                 modifier = Modifier
-                    .size(270.dp)
+                    .size(280.dp)
                     .align(Alignment.Center)
                     .scale(1.0f + acousticPulse)
             ) {
+                // Bio-luminescent Spore Halo Glow
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
@@ -175,13 +176,13 @@ fun LastOfUsNowPlayingStyle(
                     val center = Offset(size.width / 2f, size.height / 2f)
                     val r = size.minDimension / 2f
 
-                    // Weathered Dark Spruce & Mahogany Vinyl
+                    // Warm Gold & Moss Green Bio-Glow
                     drawCircle(
                         brush = Brush.radialGradient(
                             listOf(
-                                Color(0xFF4A3525),
-                                Color(0xFF241710),
-                                Color(0xFF0F0B08)
+                                fireflyGold.copy(alpha = 0.50f),
+                                Color(0xFF81C784).copy(alpha = 0.28f),
+                                Color.Transparent
                             ),
                             center = center,
                             radius = r
@@ -191,54 +192,31 @@ fun LastOfUsNowPlayingStyle(
                     )
 
                     // Acoustic Rosette Rings
-                    for (i in 1..9) {
-                        val grooveR = r * (0.35f + (i * 0.065f))
+                    for (i in 1..6) {
+                        val ringR = r * (0.45f + (i * 0.085f))
                         drawCircle(
-                            color = fireflyGold.copy(alpha = if (i % 3 == 0) 0.35f else 0.12f),
-                            radius = grooveR,
+                            color = fireflyGold.copy(alpha = if (i == 3 || i == 6) 0.30f else 0.10f),
+                            radius = ringR,
                             center = center,
-                            style = Stroke(width = 1.3.dp.toPx())
+                            style = Stroke(width = if (i == 3) 1.5.dp.toPx() else 1.dp.toPx())
                         )
                     }
-
-                    // Rotating Light Grain Reflection
-                    drawCircle(
-                        brush = Brush.sweepGradient(
-                            listOf(
-                                Color.Transparent,
-                                fireflyGold.copy(alpha = 0.25f),
-                                Color.Transparent,
-                                Color.Transparent,
-                                Color(0xFF81C784).copy(alpha = 0.20f),
-                                Color.Transparent
-                            ),
-                            center = center
-                        ),
-                        radius = r,
-                        center = center
-                    )
-
-                    // Brass Guitar String Rim
-                    drawCircle(
-                        brush = Brush.sweepGradient(
-                            listOf(fireflyGold, rustedSteel, fireflyGold),
-                            center = center
-                        ),
-                        radius = r,
-                        center = center,
-                        style = Stroke(width = 2.5.dp.toPx())
-                    )
                 }
 
-                // Center Firefly Emblem & Album Art
+                // Weathered Mahogany & Rusted Steel Artwork Frame
                 Box(
                     modifier = Modifier
-                        .size(105.dp)
+                        .size(255.dp)
                         .align(Alignment.Center)
-                        .rotate(currentRotation)
-                        .clip(CircleShape)
-                        .background(Color(0xFF1E140C))
-                        .border(3.dp, fireflyGold, CircleShape),
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(Color(0xFF1A120B))
+                        .border(
+                            width = 2.5.dp,
+                            brush = Brush.linearGradient(
+                                listOf(fireflyGold, rustedSteel, Color(0xFF81C784), fireflyGold)
+                            ),
+                            shape = RoundedCornerShape(32.dp)
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     if (track.artworkUri != null) {
@@ -253,17 +231,24 @@ fun LastOfUsNowPlayingStyle(
                             imageVector = Icons.Default.FilterVintage,
                             contentDescription = null,
                             tint = fireflyGold,
-                            modifier = Modifier.size(42.dp)
+                            modifier = Modifier.size(72.dp)
                         )
                     }
 
-                    // Center Acoustic Soundhole
+                    // Weathered Glass & Sunlight Overlay
                     Box(
                         modifier = Modifier
-                            .size(16.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF0A0704))
-                            .border(1.5.dp, fireflyGold, CircleShape)
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.16f),
+                                        Color.Transparent,
+                                        Color.Transparent,
+                                        fireflyGold.copy(alpha = 0.15f)
+                                    )
+                                )
+                            )
                     )
                 }
             }

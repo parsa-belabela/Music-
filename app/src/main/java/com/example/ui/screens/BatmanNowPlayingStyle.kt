@@ -154,13 +154,14 @@ fun BatmanNowPlayingStyle(
                 }
             }
 
-            // Bat-Signal Sonar Disc
+            // Bat-Signal Tactical Glass Artwork Display (No Vinyl/Gramophone)
             Box(
                 modifier = Modifier
-                    .size(270.dp)
+                    .size(280.dp)
                     .align(Alignment.Center)
                     .scale(1.0f + bassExpand)
             ) {
+                // Tactical Bat-Signal Radar Halo Glow
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
@@ -169,13 +170,13 @@ fun BatmanNowPlayingStyle(
                     val center = Offset(size.width / 2f, size.height / 2f)
                     val r = size.minDimension / 2f
 
-                    // Deep Matte Armor Surface
+                    // Deep Midnight Bat Radar Pulse
                     drawCircle(
                         brush = Brush.radialGradient(
                             listOf(
-                                Color(0xFF1B202E),
-                                Color(0xFF0A0C13),
-                                Color(0xFF030406)
+                                batmanYellow.copy(alpha = 0.40f * searchlightPulse),
+                                gothamBlue.copy(alpha = 0.25f),
+                                Color.Transparent
                             ),
                             center = center,
                             radius = r
@@ -185,13 +186,13 @@ fun BatmanNowPlayingStyle(
                     )
 
                     // Tactical Sonar Concentric Grids
-                    for (i in 1..8) {
-                        val ringR = r * (0.35f + (i * 0.075f))
+                    for (i in 1..6) {
+                        val ringR = r * (0.45f + (i * 0.09f))
                         drawCircle(
-                            color = batmanYellow.copy(alpha = if (i == 4 || i == 8) 0.35f else 0.12f),
+                            color = batmanYellow.copy(alpha = if (i == 3 || i == 6) 0.35f else 0.12f),
                             radius = ringR,
                             center = center,
-                            style = Stroke(width = if (i == 4) 1.5.dp.toPx() else 1.dp.toPx())
+                            style = Stroke(width = if (i == 3) 1.5.dp.toPx() else 1.dp.toPx())
                         )
                     }
 
@@ -208,28 +209,22 @@ fun BatmanNowPlayingStyle(
                         radius = r,
                         center = center
                     )
-
-                    // Carbon Fiber Border
-                    drawCircle(
-                        brush = Brush.sweepGradient(
-                            listOf(batmanYellow, batmanTitanium, batmanYellow),
-                            center = center
-                        ),
-                        radius = r,
-                        center = center,
-                        style = Stroke(width = 2.5.dp.toPx())
-                    )
                 }
 
-                // Center Bat Emblem & Cover Art
+                // Gotham Titanium Armored Artwork Frame
                 Box(
                     modifier = Modifier
-                        .size(105.dp)
+                        .size(255.dp)
                         .align(Alignment.Center)
-                        .rotate(currentRotation)
-                        .clip(CircleShape)
-                        .background(Color(0xFF08090E))
-                        .border(3.dp, batmanYellow, CircleShape),
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(Color(0xFF0A0C14))
+                        .border(
+                            width = 2.5.dp,
+                            brush = Brush.linearGradient(
+                                listOf(batmanYellow, batmanTitanium, batmanYellow.copy(alpha = 0.5f), batmanYellow)
+                            ),
+                            shape = RoundedCornerShape(32.dp)
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     if (track.artworkUri != null) {
@@ -240,22 +235,28 @@ fun BatmanNowPlayingStyle(
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
-                        // Tactical Shield Icon
                         Icon(
                             imageVector = Icons.Default.Shield,
                             contentDescription = null,
                             tint = batmanYellow,
-                            modifier = Modifier.size(42.dp)
+                            modifier = Modifier.size(72.dp)
                         )
                     }
 
-                    // Center Tactical Core
+                    // Kevlar HUD Scanline Sheen
                     Box(
                         modifier = Modifier
-                            .size(16.dp)
-                            .clip(CircleShape)
-                            .background(batmanYellow)
-                            .border(1.5.dp, Color.Black, CircleShape)
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.15f),
+                                        Color.Transparent,
+                                        Color.Transparent,
+                                        batmanYellow.copy(alpha = 0.12f)
+                                    )
+                                )
+                            )
                     )
                 }
             }

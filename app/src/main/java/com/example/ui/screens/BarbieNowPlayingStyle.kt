@@ -163,13 +163,14 @@ fun BarbieNowPlayingStyle(
                 }
             }
 
-            // Spinning Barbie Star-Vinyl Disc
+            // Barbie Dream Crystal Artwork Display (No Vinyl/Gramophone)
             Box(
                 modifier = Modifier
-                    .size(270.dp)
+                    .size(280.dp)
                     .align(Alignment.Center)
                     .scale(discScale)
             ) {
+                // Outer Dreamhouse Neon Aura Glow
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
@@ -178,14 +179,13 @@ fun BarbieNowPlayingStyle(
                     val center = Offset(size.width / 2f, size.height / 2f)
                     val r = size.minDimension / 2f
 
-                    // Hot Pink Vinyl Body
+                    // Radiant Pink Halo
                     drawCircle(
                         brush = Brush.radialGradient(
                             listOf(
-                                Color(0xFFFF1493),
-                                Color(0xFFC71585),
-                                Color(0xFF4A0033),
-                                Color(0xFF1A0012)
+                                barbieHotPink.copy(alpha = 0.55f),
+                                barbieSoftPink.copy(alpha = 0.30f),
+                                Color.Transparent
                             ),
                             center = center,
                             radius = r
@@ -194,52 +194,35 @@ fun BarbieNowPlayingStyle(
                         center = center
                     )
 
-                    // Iridescent Shimmer Grooves
-                    for (i in 1..10) {
-                        val grooveR = r * (0.35f + (i * 0.058f))
-                        drawCircle(
-                            color = barbieGold.copy(alpha = if (i % 2 == 0) 0.25f else 0.12f),
-                            radius = grooveR,
-                            center = center,
-                            style = Stroke(width = 1.4.dp.toPx())
-                        )
-                    }
-
-                    // Rotating Golden Barbie Sparkle Rays
+                    // Rotating Golden Sparkle Rays
                     for (i in 0 until 8) {
                         rotate(degrees = i * 45f, pivot = center) {
                             drawLine(
                                 brush = Brush.linearGradient(
-                                    listOf(Color.Transparent, barbieGold.copy(alpha = 0.35f), Color.Transparent)
+                                    listOf(Color.Transparent, barbieGold.copy(alpha = 0.45f), Color.Transparent)
                                 ),
-                                start = Offset(center.x - r * 0.9f, center.y),
-                                end = Offset(center.x + r * 0.9f, center.y),
+                                start = Offset(center.x - r * 0.95f, center.y),
+                                end = Offset(center.x + r * 0.95f, center.y),
                                 strokeWidth = 2.dp.toPx()
                             )
                         }
                     }
-
-                    // Outer Shiny Edge
-                    drawCircle(
-                        brush = Brush.sweepGradient(
-                            listOf(barbieHotPink, barbieGold, barbieSoftPink, barbieHotPink),
-                            center = center
-                        ),
-                        radius = r,
-                        center = center,
-                        style = Stroke(width = 3.dp.toPx())
-                    )
                 }
 
-                // Center Barbie Heart / Album Art
+                // Barbie Crystal Glass Artwork Frame
                 Box(
                     modifier = Modifier
-                        .size(105.dp)
+                        .size(255.dp)
                         .align(Alignment.Center)
-                        .rotate(currentRotation)
-                        .clip(CircleShape)
+                        .clip(RoundedCornerShape(32.dp))
                         .background(Color(0xFF280020))
-                        .border(3.5.dp, barbieGold, CircleShape),
+                        .border(
+                            width = 2.5.dp,
+                            brush = Brush.linearGradient(
+                                listOf(barbieGold, barbieHotPink, barbieSoftPink, barbieGold)
+                            ),
+                            shape = RoundedCornerShape(32.dp)
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     if (track.artworkUri != null) {
@@ -254,17 +237,24 @@ fun BarbieNowPlayingStyle(
                             imageVector = Icons.Default.Favorite,
                             contentDescription = null,
                             tint = barbieHotPink,
-                            modifier = Modifier.size(42.dp)
+                            modifier = Modifier.size(72.dp)
                         )
                     }
 
-                    // Heart Sparkle Center Spindle
+                    // Glossy Specular Glass Sheen Overlay
                     Box(
                         modifier = Modifier
-                            .size(18.dp)
-                            .clip(CircleShape)
-                            .background(barbieGold)
-                            .border(1.5.dp, Color.White, CircleShape)
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.22f),
+                                        Color.White.copy(alpha = 0.05f),
+                                        Color.Transparent,
+                                        barbieHotPink.copy(alpha = 0.15f)
+                                    )
+                                )
+                            )
                     )
                 }
             }

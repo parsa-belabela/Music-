@@ -35,7 +35,6 @@ object EntitlementManager {
         "theme_digital_acid",
         "theme_y2k_chrome",
         "theme_monochrome_noir",
-        "now_playing_vinyl",
         "now_playing_barbie",
         "now_playing_batman",
         "now_playing_last_of_us",

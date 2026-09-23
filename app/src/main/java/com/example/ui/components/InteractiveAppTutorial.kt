@@ -84,8 +84,8 @@ fun InteractiveAppTutorial(
             TutorialStep(
                 titleFa = "پوسته‌های کلکسیونی VIP",
                 titleEn = "VIP Collector Skins",
-                descFa = "از صفحه‌های اختصاصی گرامافون لوکس، باربی دریم (Barbie)، شوالیه تاریکی (Batman) و لست آف آز (The Last of Us) لذت ببرید.",
-                descEn = "Unlock Luxury Vinyl, Barbie Dream, Batman Knight, and The Last of Us animated skins.",
+                descFa = "از محیط‌های لوکس و اختصاصی باربی دریم (Barbie)، شوالیه تاریکی (Batman) و لست آف آز (The Last of Us) با نورپردازی سینمایی لذت ببرید.",
+                descEn = "Unlock luxury Barbie Dream, Batman Dark Knight, and The Last of Us animated visual experiences.",
                 icon = Icons.Default.WorkspacePremium,
                 accentColor = Color(0xFFFF1493)
             )

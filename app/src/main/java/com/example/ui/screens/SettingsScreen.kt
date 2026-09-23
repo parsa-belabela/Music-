@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,7 +17,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -181,7 +184,7 @@ fun SettingsScreen(
                                             if (lang == AppLanguage.PERSIAN) "زمان باقی‌مانده: $rem" else "Expires in $rem"
                                         }
                                     } else {
-                                        if (lang == AppLanguage.PERSIAN) "دسترسی به ۵ تم لوکس، گرامافون و ۷ ویژوالایزر" else "5 luxury themes, vinyl & 7 visualizers"
+                                        if (lang == AppLanguage.PERSIAN) "پوسته‌های کلکسیونی VIP • ۲۴ ساعت رایگان با تماشای تبلیغ" else "VIP collector skins • 24h free with ad"
                                     },
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         color = Color(0xFFC0C0D4),
@@ -248,59 +251,312 @@ fun SettingsScreen(
             }
         }
 
-        // Section: Now Playing Visualizer Styles
+        // Section: Hyped VIP Collector Skins & Cinematic Now Playing Themes
         item {
+            val collectorSkins = remember {
+                listOf(
+                    CollectorSkinOption(
+                        id = "default",
+                        titleFa = "شیشه‌ای استاندارد (Liquid Glass)",
+                        titleEn = "Signature Liquid Glass",
+                        tagFa = "رایگان • پیش‌فرض",
+                        tagEn = "Free • Default",
+                        descFa = "افکت شیشه‌ای مدرن با نور پس‌زمینه پویا هماهنگ با کاور موزیک و کنترل‌های کریستالی",
+                        descEn = "Signature frosted liquid glass with dynamic album art aura and smooth glass controls",
+                        primaryColor = Color(0xFF00E5FF),
+                        secondaryColor = Color(0xFF7C4DFF),
+                        icon = Icons.Default.BlurOn,
+                        entitlementId = null
+                    ),
+                    CollectorSkinOption(
+                        id = "barbie_dream",
+                        titleFa = "باربی دریم (Barbie Dream Glow)",
+                        titleEn = "Barbie Dream Glow",
+                        tagFa = "پوسته VIP صورتی نئونی ✨",
+                        tagEn = "VIP Pink Sparkle ✨",
+                        descFa = "اتمسفر رویایی دریم‌هاوس با هاله صورتی نئونی، اشعه‌های طلایی و ذرات معلق پروانه‌ای",
+                        descEn = "Dreamhouse neon pink radiance with floating golden sparkles, heart aura and glamour glow",
+                        primaryColor = Color(0xFFFF1493),
+                        secondaryColor = Color(0xFFFFD700),
+                        icon = Icons.Default.Favorite,
+                        entitlementId = "now_playing_barbie"
+                    ),
+                    CollectorSkinOption(
+                        id = "batman_knight",
+                        titleFa = "شوالیه تاریکی (The Dark Knight)",
+                        titleEn = "The Dark Knight (Batman)",
+                        tagFa = "پوسته VIP بتمن و گاتهام 🦇",
+                        tagEn = "VIP Gotham Armor 🦇",
+                        descFa = "اتمسفر تاریک تیتانیومی با نورافکن زرد بت‌سیگنال، رادار رفلکتور و افکت سینمایی باران",
+                        descEn = "Titanium armor HUD with Bat-Signal searchlight radar pulse and midnight rain ambiance",
+                        primaryColor = Color(0xFFFFCC00),
+                        secondaryColor = Color(0xFF1E88E5),
+                        icon = Icons.Default.Shield,
+                        entitlementId = "now_playing_batman"
+                    ),
+                    CollectorSkinOption(
+                        id = "last_of_us",
+                        titleFa = "لست آف آز (The Last of Us)",
+                        titleEn = "The Last of Us (Firefly)",
+                        tagFa = "پوسته VIP فایرفلای و بقا 🌿",
+                        tagEn = "VIP Firefly Spores 🌿",
+                        descFa = "قاب چوب ماهوگانی روستیک با ذرات بیولومینسانس درخشان و اتمسفر رازآلود بقا",
+                        descEn = "Weathered rustic mahogany frame with glowing bioluminescent firefly spores and warm acoustics",
+                        primaryColor = Color(0xFFFFD54F),
+                        secondaryColor = Color(0xFF81C784),
+                        icon = Icons.Default.FilterVintage,
+                        entitlementId = "now_playing_last_of_us"
+                    )
+                )
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
-                        thickness = GlassThickness.REGULAR,
+                        shape = RoundedCornerShape(22.dp),
+                        thickness = GlassThickness.THICK,
                         tintColor = palette.primary,
-                        tintAlpha = 0.14f,
-                        borderWidth = 1.dp,
+                        tintAlpha = 0.16f,
+                        borderWidth = 1.2.dp,
                         appTheme = settings.theme
                     )
+                    .padding(18.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Style, contentDescription = null, tint = palette.accent)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(Localization.getString("unlocked_styles", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    // Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(palette.accent.copy(alpha = 0.22f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Palette,
+                                    contentDescription = null,
+                                    tint = palette.accent,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (lang == AppLanguage.PERSIAN) "پوسته‌های سینمایی و کلکسیونی VIP" else "VIP Collector Themes & Skins",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                )
+                                Text(
+                                    text = if (lang == AppLanguage.PERSIAN) "تغییر کامل تم و محیط صفحه پخش موسیقی" else "Transform your Now Playing visual universe",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A5BA), fontSize = 11.sp)
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Brush.horizontalGradient(listOf(Color(0xFFFFD700), Color(0xFFFFA500))))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = if (lang == AppLanguage.PERSIAN) "۴ تم ویژه" else "4 Themes",
+                                color = Color.Black,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = settings.selectedNowPlayingStyle == "default",
-                            onClick = {
-                                onSelectNowPlayingStyle("default")
-                                onUpdateSettings(settings.copy(selectedNowPlayingStyle = "default"))
-                            },
-                            label = { Text(if (lang == AppLanguage.PERSIAN) "طراحی شیشه‌ای Liquid Glass" else "Liquid Glass Standard", fontSize = 12.sp) }
-                        )
+                    // Skin Cards
+                    collectorSkins.forEach { skin ->
+                        val isSelected = settings.selectedNowPlayingStyle == skin.id
+                        val isUnlocked = skin.entitlementId == null ||
+                                isVip ||
+                                unlockedStyles.contains(skin.id) ||
+                                com.example.monetization.EntitlementManager.hasAccess(context, skin.entitlementId)
 
-                        val hasVinylEntitlement = com.example.monetization.EntitlementManager.hasAccess(context, "now_playing_vinyl")
-                        val isVinylUnlocked = unlockedStyles.contains("vinyl_turntable") || hasVinylEntitlement
-                        FilterChip(
-                            selected = settings.selectedNowPlayingStyle == "vinyl_turntable",
-                            onClick = {
-                                if (isVinylUnlocked) {
-                                    onSelectNowPlayingStyle("vinyl_turntable")
-                                    onUpdateSettings(settings.copy(selectedNowPlayingStyle = "vinyl_turntable"))
-                                } else {
-                                    onOpenVipPaywall("now_playing_vinyl")
-                                }
-                            },
-                            label = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (!isVinylUnlocked) {
-                                        Icon(Icons.Default.AutoAwesome, contentDescription = "VIP", modifier = Modifier.size(12.dp), tint = goldAccent)
-                                        Spacer(modifier = Modifier.width(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(
+                                    if (isSelected) {
+                                        Brush.linearGradient(
+                                            listOf(
+                                                skin.primaryColor.copy(alpha = 0.22f),
+                                                skin.secondaryColor.copy(alpha = 0.12f),
+                                                Color(0xFF0F111A)
+                                            )
+                                        )
+                                    } else {
+                                        Brush.linearGradient(
+                                            listOf(
+                                                Color(0xFF141624),
+                                                Color(0xFF0C0E17)
+                                            )
+                                        )
                                     }
-                                    Text(Localization.getString("vinyl_style", lang), fontSize = 12.sp)
+                                )
+                                .border(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    brush = if (isSelected) {
+                                        Brush.sweepGradient(
+                                            listOf(skin.primaryColor, skin.secondaryColor, skin.primaryColor)
+                                        )
+                                    } else {
+                                        Brush.linearGradient(
+                                            listOf(skin.primaryColor.copy(alpha = 0.35f), Color.Transparent)
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(18.dp)
+                                )
+                                .clickable {
+                                    if (isUnlocked) {
+                                        onSelectNowPlayingStyle(skin.id)
+                                        onUpdateSettings(settings.copy(selectedNowPlayingStyle = skin.id))
+                                        Toast.makeText(
+                                            context,
+                                            if (lang == AppLanguage.PERSIAN) "پوسته «${skin.titleFa}» فعال شد ✨" else "Theme \"${skin.titleEn}\" activated ✨",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        onOpenVipPaywall(skin.entitlementId)
+                                    }
                                 }
+                                .padding(14.dp)
+                        ) {
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(CircleShape)
+                                                .background(skin.primaryColor.copy(alpha = 0.25f))
+                                                .border(1.dp, skin.primaryColor.copy(alpha = 0.6f), CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = skin.icon,
+                                                contentDescription = null,
+                                                tint = skin.primaryColor,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = if (lang == AppLanguage.PERSIAN) skin.titleFa else skin.titleEn,
+                                                style = MaterialTheme.typography.titleSmall.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                            )
+                                            Text(
+                                                text = if (lang == AppLanguage.PERSIAN) skin.tagFa else skin.tagEn,
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    color = skin.primaryColor,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            )
+                                        }
+                                    }
+
+                                    // Status Pill
+                                    if (isSelected) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(skin.primaryColor.copy(alpha = 0.25f))
+                                                .border(1.dp, skin.primaryColor, RoundedCornerShape(12.dp))
+                                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    tint = skin.primaryColor,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = if (lang == AppLanguage.PERSIAN) "فعال است" else "Active",
+                                                    color = Color.White,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    } else if (isUnlocked) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(Color.White.copy(alpha = 0.12f))
+                                                .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                                        ) {
+                                            Text(
+                                                text = if (lang == AppLanguage.PERSIAN) "انتخاب تم" else "Select",
+                                                color = Color.White.copy(alpha = 0.9f),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(Color(0x35FFD700))
+                                                .border(1.dp, Color(0xFFFFD700), RoundedCornerShape(12.dp))
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Lock,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFFFFD700),
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = if (lang == AppLanguage.PERSIAN) "VIP / تبلیغ" else "VIP / Ad",
+                                                    color = Color(0xFFFFD700),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Text(
+                                    text = if (lang == AppLanguage.PERSIAN) skin.descFa else skin.descEn,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = Color(0xFFB0B7C6),
+                                        fontSize = 11.sp,
+                                        lineHeight = 16.sp
+                                    )
+                                )
                             }
-                        )
+                        }
                     }
                 }
             }
@@ -968,4 +1224,18 @@ private fun getVisualizerFeatureId(mode: VisualizerMode): String? = when (mode) 
     VisualizerMode.DOTS -> "visualizer_dots"
     VisualizerMode.CINEMATIC_FOG -> "visualizer_cinematic_fog"
 }
+
+private data class CollectorSkinOption(
+    val id: String,
+    val titleFa: String,
+    val titleEn: String,
+    val tagFa: String,
+    val tagEn: String,
+    val descFa: String,
+    val descEn: String,
+    val primaryColor: Color,
+    val secondaryColor: Color,
+    val icon: ImageVector,
+    val entitlementId: String?
+)
 

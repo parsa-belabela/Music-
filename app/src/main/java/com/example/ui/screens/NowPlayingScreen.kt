@@ -135,11 +135,10 @@ fun NowPlayingScreen(
 
     val skinOptions = remember {
         listOf(
-            SkinOption("default", "شیشه‌ای استاندارد", "Liquid Glass Standard", Color(0xFF00E5FF)),
-            SkinOption("vinyl_turntable", "گرامافون وینیل کلاسیک", "Classic Vinyl Turntable", Color(0xFFFFD700)),
+            SkinOption("default", "شیشه‌ای استاندارد (Liquid Glass)", "Liquid Glass Signature", Color(0xFF00E5FF)),
             SkinOption("barbie_dream", "باربی دریم (Barbie)", "Barbie Dream Glow", Color(0xFFFF1493)),
             SkinOption("batman_knight", "شوالیه تاریکی (Batman)", "The Dark Knight", Color(0xFFFFCC00)),
-            SkinOption("last_of_us", "لست آف آز (Firefly)", "The Last of Us", Color(0xFF81C784))
+            SkinOption("last_of_us", "لست آف آز (The Last of Us)", "The Last of Us (Firefly)", Color(0xFF81C784))
         )
     }
 
@@ -170,36 +169,6 @@ fun NowPlayingScreen(
         val selectedStyle = appSettings.selectedNowPlayingStyle
 
         when (selectedStyle) {
-            "vinyl_turntable" -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .navigationBarsPadding()
-                        .padding(top = 8.dp)
-                ) {
-                    CollectorSkinHeader(
-                        title = "VINYL CLASSIC",
-                        palette = palette,
-                        onCollapse = onCollapse,
-                        onShare = { onShareSong(track) },
-                        onOpenSkinPicker = { showSkinPickerSheet = true }
-                    )
-
-                    VinylNowPlayingStyle(
-                        playbackState = playbackState,
-                        palette = palette,
-                        analysisData = analysisDataProvider(),
-                        waveformEnvelope = waveformFloats,
-                        onPlayPause = onTogglePlay,
-                        onNext = onNext,
-                        onPrevious = onPrevious,
-                        onSeek = onSeekTo,
-                        onToggleFavorite = { onToggleFavorite(track) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
             "barbie_dream" -> {
                 Column(
                     modifier = Modifier
