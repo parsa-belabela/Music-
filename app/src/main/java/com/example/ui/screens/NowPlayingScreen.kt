@@ -341,20 +341,23 @@ fun NowPlayingScreen(
                 when (centerView) {
                     NowPlayingCenterView.ARTWORK_AND_HALO -> {
                         val audioData = analysisDataProvider()
-                        val beatPulse = if (isPlaying) (audioData.kickPulse * 0.026f + audioData.haloExpansion * 0.012f).coerceIn(0f, 0.038f) else 0f
-                        val animatedBeatScale by animateFloatAsState(
-                            targetValue = 1.0f + beatPulse,
+                        val beatPulse = if (isPlaying) (audioData.kickPulse * 0.035f + audioData.haloExpansion * 0.018f).coerceIn(0f, 0.05f) else 0f
+                        val animatedBeatPulse by animateFloatAsState(
+                            targetValue = beatPulse,
                             animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioMediumBouncy),
                             label = "artworkBeatPulse"
                         )
+                        val density = androidx.compose.ui.platform.LocalDensity.current
+                        val offsetYPx = remember(animatedBeatPulse, density) { with(density) { (-12.dp * animatedBeatPulse).toPx() } }
 
                         Box(
                             modifier = Modifier
-                                .fillMaxHeight(0.80f)
+                                .fillMaxHeight(0.72f)
                                 .aspectRatio(1f)
                                 .graphicsLayer {
-                                    scaleX = animatedBeatScale
-                                    scaleY = animatedBeatScale
+                                    scaleX = 1.0f + animatedBeatPulse * 0.5f
+                                    scaleY = 1.0f + animatedBeatPulse * 0.5f
+                                    translationY = offsetYPx
                                 }
                                 .shadow(28.dp, RoundedCornerShape(28.dp), spotColor = palette.primary)
                                 .clip(RoundedCornerShape(28.dp))
@@ -523,13 +526,12 @@ fun NowPlayingScreen(
                     .padding(vertical = 4.dp)
             ) {
                 LiquidGlassProgressBar(
-                    progress = (currentPos.toFloat() / dur.toFloat()).coerceIn(0f, 1f),
-                    onSeek = { fraction ->
-                        val targetMs = (fraction * dur).toLong()
-                        onSeekTo(targetMs)
-                    },
-                    waveformEnvelope = waveformFloats,
+                    currentPositionProvider = currentPositionProvider,
+                    durationMs = dur,
                     palette = palette.copy(primary = Color(0xFFFFA500), accent = Color(0xFFFF8C00)),
+                    analysisDataProvider = analysisDataProvider,
+                    onSeekTo = onSeekTo,
+                    waveformEnvelope = waveformFloats,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(38.dp)

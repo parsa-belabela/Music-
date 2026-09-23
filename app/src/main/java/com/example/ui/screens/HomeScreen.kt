@@ -875,30 +875,11 @@ private fun HeroQuickPlayCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Compact Album Art with glowing backlight and beat pulse bounce
+                // Static compact album artwork thumbnail
                 Box(contentAlignment = Alignment.Center) {
-                    if (isPlaying) {
-                        Box(
-                            modifier = Modifier
-                                .size(54.dp)
-                                .scale(beatScale * 1.15f)
-                                .clip(CircleShape)
-                                .background(
-                                    Brush.radialGradient(
-                                        colors = listOf(
-                                            animColor3.copy(alpha = 0.90f),
-                                            animColor1.copy(alpha = 0.60f),
-                                            Color.Transparent
-                                        )
-                                    )
-                                )
-                        )
-                    }
-
                     Box(
                         modifier = Modifier
                             .size(46.dp)
-                            .scale(beatScale)
                             .clip(RoundedCornerShape(12.dp))
                             .background(Color(0x33000000))
                             .border(1.2.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(12.dp)),

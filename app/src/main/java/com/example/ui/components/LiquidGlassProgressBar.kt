@@ -356,7 +356,7 @@ fun LiquidGlassProgressBar(
     palette: AmbientPalette,
     waveformEnvelope: FloatArray? = null,
     modifier: Modifier = Modifier,
-    durationMs: Long = 1000L,
+    durationMs: Long = 180000L,
     currentPositionMs: Long = (progress * durationMs).toLong()
 ) {
     val safeDur = durationMs.coerceAtLeast(1L)
