@@ -52,11 +52,22 @@ fun LiquidGlassProgressBar(
     var dragProgress by remember { mutableFloatStateOf(0f) }
     var componentWidthPx by remember { mutableFloatStateOf(1f) }
 
-    val safeDuration = durationMs.coerceAtLeast(1L)
-    val currentMs = currentPositionProvider()
-    val playbackFraction = (currentMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
+    // Active continuous ticker ensuring 60fps real-time sync with audio engine
+    var internalCurrentMs by remember { mutableLongStateOf(currentPositionProvider()) }
 
-    val displayedProgress = if (isDragging) dragProgress else playbackFraction
+    LaunchedEffect(isDragging) {
+        if (!isDragging) {
+            while (true) {
+                internalCurrentMs = currentPositionProvider()
+                kotlinx.coroutines.delay(20L)
+            }
+        }
+    }
+
+    val safeDuration = durationMs.coerceAtLeast(1L)
+    val effectiveMs = if (isDragging) (dragProgress * safeDuration).toLong() else internalCurrentMs
+    val playbackFraction = (effectiveMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
+    val displayedProgress = playbackFraction
 
     val trackHeight by animateDpAsState(
         targetValue = if (isDragging) 8.dp else 5.dp,
@@ -291,7 +302,7 @@ fun LiquidGlassProgressBar(
             }
         }
 
-        val displayedMs = if (isDragging) (dragProgress * safeDuration).toLong() else currentMs
+        val displayedMs = effectiveMs
         Row(
             modifier = Modifier
                 .fillMaxWidth()

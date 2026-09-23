@@ -61,6 +61,8 @@ fun PlaylistsScreen(
     var showSongPickerForNewPlaylist by remember { mutableStateOf(false) }
     var pendingPlaylistName by remember { mutableStateOf("") }
     var targetPlaylistForAdding by remember { mutableStateOf<Playlist?>(null) }
+    var playlistToRename by remember { mutableStateOf<Playlist?>(null) }
+    var renamePlaylistNewName by remember { mutableStateOf("") }
     var selectedPlaylistId by remember { mutableStateOf<String?>(null) }
     var playlistSearchQuery by remember { mutableStateOf("") }
     val lang = settings.language
@@ -333,51 +335,119 @@ fun PlaylistsScreen(
                                 )
                             }
 
-                            // Quick Play button if has tracks
-                            if (plTracks.isNotEmpty()) {
-                                IconButton(
-                                    onClick = { onPlayTrackList(plTracks) },
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(palette.primary.copy(alpha = 0.35f))
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = "Play",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(6.dp))
-                            }
-
-                            // Quick Add tracks icon
-                            IconButton(
-                                onClick = { targetPlaylistForAdding = pl },
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0x18FFFFFF))
+                            // Actions: Clean, compact, professional
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.PlaylistAdd,
-                                    contentDescription = "Add Tracks",
-                                    tint = palette.accent,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                                if (plTracks.isNotEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .background(palette.primary.copy(alpha = 0.35f))
+                                            .clickable { onPlayTrackList(plTracks) },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = "Play",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
 
-                            Spacer(modifier = Modifier.width(4.dp))
+                                var menuExpanded by remember { mutableStateOf(false) }
+                                Box {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0x14FFFFFF))
+                                            .clickable { menuExpanded = true },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = "Menu",
+                                            tint = Color.White.copy(alpha = 0.85f),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
 
-                            // Delete icon
-                            IconButton(onClick = { onDeletePlaylist(pl.id) }) {
-                                Icon(
-                                    imageVector = Icons.Default.DeleteOutline,
-                                    contentDescription = "Delete",
-                                    tint = Color(0xFFEF4444).copy(alpha = 0.8f),
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                    DropdownMenu(
+                                        expanded = menuExpanded,
+                                        onDismissRequest = { menuExpanded = false },
+                                        modifier = Modifier.background(Color(0xF212131F))
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    if (lang == AppLanguage.PERSIAN) "افزودن آهنگ" else "Add Songs",
+                                                    color = Color.White
+                                                )
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Default.PlaylistAdd,
+                                                    contentDescription = null,
+                                                    tint = palette.accent,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            },
+                                            onClick = {
+                                                menuExpanded = false
+                                                targetPlaylistForAdding = pl
+                                            }
+                                        )
+
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    if (lang == AppLanguage.PERSIAN) "تغییر نام" else "Rename",
+                                                    color = Color.White
+                                                )
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Default.Edit,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            },
+                                            onClick = {
+                                                menuExpanded = false
+                                                renamePlaylistNewName = pl.name
+                                                playlistToRename = pl
+                                            }
+                                        )
+
+                                        HorizontalDivider(color = Color(0x20FFFFFF))
+
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    if (lang == AppLanguage.PERSIAN) "حذف پلی‌لیست" else "Delete Playlist",
+                                                    color = Color(0xFFEF4444)
+                                                )
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Default.DeleteOutline,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFFEF4444),
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            },
+                                            onClick = {
+                                                menuExpanded = false
+                                                onDeletePlaylist(pl.id)
+                                            }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -509,6 +579,57 @@ fun PlaylistsScreen(
             onConfirm = { selectedIds ->
                 onAddTracksToPlaylist(pl.id, selectedIds)
                 targetPlaylistForAdding = null
+            }
+        )
+    }
+
+    // Rename Playlist Dialog
+    playlistToRename?.let { pl ->
+        AlertDialog(
+            onDismissRequest = { playlistToRename = null },
+            containerColor = Color(0xFF161628),
+            shape = RoundedCornerShape(22.dp),
+            title = {
+                Text(
+                    text = if (lang == AppLanguage.PERSIAN) "تغییر نام پلی‌لیست" else "Rename Playlist",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                OutlinedTextField(
+                    value = renamePlaylistNewName,
+                    onValueChange = { renamePlaylistNewName = it },
+                    singleLine = true,
+                    label = { Text(Localization.getString("playlist_name", lang)) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = palette.primary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = renamePlaylistNewName.trim()
+                        if (trimmed.isNotBlank()) {
+                            onRenamePlaylist(pl.id, trimmed)
+                        }
+                        playlistToRename = null
+                    },
+                    enabled = renamePlaylistNewName.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(Localization.getString("save", lang), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { playlistToRename = null }) {
+                    Text(Localization.getString("cancel", lang), color = Color(0xFFA0A0B8))
+                }
             }
         )
     }

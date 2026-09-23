@@ -10,12 +10,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.unit.dp
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
-import com.example.data.model.AppTheme
 import com.example.data.model.VisualizerMode
-import com.example.ui.theme.LocalAppTheme
 import kotlin.math.*
 import kotlin.random.Random
 
@@ -37,9 +34,7 @@ fun AudioVisualizer(
     glow: Float = 0.85f,
     analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() }
 ) {
-    val currentTheme = LocalAppTheme.current
-
-    // Generate persistent particles for Particle Field mode
+    // Generate persistent particles for Particle Field mode (reused across frames)
     val particles = remember {
         List(48) {
             Particle(
@@ -53,10 +48,14 @@ fun AudioVisualizer(
         }
     }
 
+    // Reusable Path instance to eliminate GC allocation pressure in 60/120fps loops
+    val reusablePath = remember { Path() }
+
     Canvas(modifier = modifier.fillMaxSize()) {
         val analysisData = analysisDataProvider()
         val w = size.width
         val h = size.height
+        if (w <= 0f || h <= 0f) return@Canvas
         val center = Offset(w / 2f, h / 2f)
 
         when (mode) {
@@ -124,14 +123,10 @@ fun AudioVisualizer(
                     val barLen = (min(w, h) * 0.2f * bandVal).coerceAtLeast(6f)
                     val angle = i * angleStep
 
-                    val start = Offset(
-                        center.x + baseRadius * cos(angle),
-                        center.y + baseRadius * sin(angle)
-                    )
-                    val end = Offset(
-                        center.x + (baseRadius + barLen) * cos(angle),
-                        center.y + (baseRadius + barLen) * sin(angle)
-                    )
+                    val cosA = cos(angle)
+                    val sinA = sin(angle)
+                    val start = Offset(center.x + baseRadius * cosA, center.y + baseRadius * sinA)
+                    val end = Offset(center.x + (baseRadius + barLen) * cosA, center.y + (baseRadius + barLen) * sinA)
 
                     drawLine(
                         color = if (i % 2 == 0) palette.primary else palette.secondary,
@@ -144,43 +139,44 @@ fun AudioVisualizer(
             }
 
             VisualizerMode.WAVEFORM -> {
-                // Oscilloscope fluid smooth waveform
+                // Oscilloscope fluid smooth waveform using reusable path
                 val wave = analysisData.waveform
-                val path = Path()
-                val stepX = w / (wave.size - 1)
+                reusablePath.reset()
+                val stepX = w / (wave.size - 1).coerceAtLeast(1)
 
                 for (i in wave.indices) {
                     val x = i * stepX
                     val y = h / 2f + (wave[i] * (h * 0.25f) * sensitivity)
-                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    if (i == 0) reusablePath.moveTo(x, y) else reusablePath.lineTo(x, y)
                 }
 
                 drawPath(
-                    path = path,
+                    path = reusablePath,
                     color = palette.secondary.copy(alpha = 0.85f * glow),
                     style = Stroke(width = 4f, cap = StrokeCap.Round, join = StrokeJoin.Round)
                 )
             }
 
             VisualizerMode.RADIAL_WAVE -> {
-                // Circular undulating wave
+                // Circular undulating wave using reusable path
                 val baseRadius = min(w, h) * 0.3f
-                val path = Path()
+                reusablePath.reset()
                 val points = 48
+                val waveSize = analysisData.waveform.size.coerceAtLeast(1)
                 for (i in 0..points) {
                     val angle = (i * 2 * PI / points).toFloat()
-                    val waveIdx = (i % analysisData.waveform.size)
-                    val displacement = analysisData.waveform[waveIdx] * 35f * sensitivity
+                    val waveIdx = (i % waveSize)
+                    val displacement = (analysisData.waveform.getOrElse(waveIdx) { 0f }) * 35f * sensitivity
                     val r = baseRadius + displacement + analysisData.kickPulse * 20f
                     val x = center.x + r * cos(angle)
                     val y = center.y + r * sin(angle)
 
-                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    if (i == 0) reusablePath.moveTo(x, y) else reusablePath.lineTo(x, y)
                 }
-                path.close()
+                reusablePath.close()
 
                 drawPath(
-                    path = path,
+                    path = reusablePath,
                     brush = Brush.radialGradient(
                         colors = listOf(palette.primary.copy(alpha = 0.7f), palette.accent.copy(alpha = 0.3f)),
                         center = center
@@ -207,22 +203,22 @@ fun AudioVisualizer(
             }
 
             VisualizerMode.AURORA -> {
-                // Atmospheric northern lights curtains
+                // Atmospheric northern lights curtains using reusable path
                 val bands = analysisData.fftBands
-                val path = Path()
-                path.moveTo(0f, h)
+                reusablePath.reset()
+                reusablePath.moveTo(0f, h)
                 val segments = 24
                 for (i in 0..segments) {
                     val x = i * (w / segments)
                     val band = bands.getOrElse(i) { 0.2f } * sensitivity
                     val y = (h * 0.5f) - (band * h * 0.3f) + sin(i * 0.6f + analysisData.totalEnergy * 2f) * 20f
-                    path.lineTo(x, y)
+                    reusablePath.lineTo(x, y)
                 }
-                path.lineTo(w, h)
-                path.close()
+                reusablePath.lineTo(w, h)
+                reusablePath.close()
 
                 drawPath(
-                    path = path,
+                    path = reusablePath,
                     brush = Brush.verticalGradient(
                         colors = listOf(
                             palette.accent.copy(alpha = 0.45f * glow),
@@ -234,9 +230,9 @@ fun AudioVisualizer(
             }
 
             VisualizerMode.LIQUID -> {
-                // Organic viscous blob
+                // Organic viscous blob using reusable path
                 val baseRadius = min(w, h) * 0.26f * (1f + analysisData.bass * 0.3f)
-                val path = Path()
+                reusablePath.reset()
                 val points = 16
                 for (i in 0..points) {
                     val angle = (i * 2 * PI / points).toFloat()
@@ -244,12 +240,12 @@ fun AudioVisualizer(
                     val r = baseRadius + wobble + analysisData.kickPulse * 18f
                     val x = center.x + r * cos(angle)
                     val y = center.y + r * sin(angle)
-                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    if (i == 0) reusablePath.moveTo(x, y) else reusablePath.lineTo(x, y)
                 }
-                path.close()
+                reusablePath.close()
 
                 drawPath(
-                    path = path,
+                    path = reusablePath,
                     brush = Brush.radialGradient(
                         colors = listOf(
                             palette.primary.copy(alpha = 0.6f),
@@ -290,8 +286,8 @@ fun AudioVisualizer(
 
                 for (c in 0 until cols) {
                     for (r in 0 until rows) {
-                        val idx = (c * rows + r) % analysisData.fftBands.size
-                        val band = (analysisData.fftBands[idx] * sensitivity).coerceIn(0.1f, 1f)
+                        val idx = (c * rows + r) % analysisData.fftBands.size.coerceAtLeast(1)
+                        val band = (analysisData.fftBands.getOrElse(idx) { 0.1f } * sensitivity).coerceIn(0.1f, 1f)
                         val radius = (min(cellW, cellH) * 0.35f * band).coerceAtLeast(3f)
                         val x = c * cellW + cellW / 2f
                         val y = startY + r * cellH + cellH / 2f

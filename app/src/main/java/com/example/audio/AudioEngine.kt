@@ -824,14 +824,23 @@ class AudioEngine(private val context: Context) {
                         val nowNano = System.nanoTime()
                         val nowMs = System.currentTimeMillis()
 
-                        // Poll real MediaPlayer position every 100ms or on drift
-                        if (nowMs - lastRealSyncMs >= 100L) {
+                        // Poll real MediaPlayer position every 60ms with smooth anti-drift convergence
+                        if (nowMs - lastRealSyncMs >= 60L) {
                             if (currentMp.isPlaying) {
                                 val realPos = currentMp.currentPosition.toLong()
-                                anchorPos = realPos
+                                val currentEstimated = (anchorPos + ((nowNano - anchorNano) / 1_000_000L * currentPlaybackSpeed).toLong())
+                                val drift = realPos - currentEstimated
+
+                                // If drift is large (> 250ms like seek or stall), snap immediately
+                                if (kotlin.math.abs(drift) > 250L) {
+                                    anchorPos = realPos
+                                } else {
+                                    // Softly blend 40% towards real hardware position to eliminate any micro-stutter
+                                    anchorPos = (currentEstimated + (drift * 0.4f).toLong())
+                                }
                                 anchorNano = nowNano
                                 lastRealSyncMs = nowMs
-                                _currentPosition.value = realPos
+                                _currentPosition.value = anchorPos.coerceIn(0L, _duration.value.coerceAtLeast(anchorPos))
                             }
                         } else {
                             // Sub-millisecond smooth interpolation between MediaPlayer polls
@@ -841,7 +850,7 @@ class AudioEngine(private val context: Context) {
                         }
                     } catch (_: Exception) {}
                 }
-                delay(25L)
+                delay(16L)
             }
         }
     }

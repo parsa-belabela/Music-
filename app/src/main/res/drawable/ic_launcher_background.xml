@@ -6,7 +6,7 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Deep Luxury Midnight Slate Base -->
+    <!-- Deep Luxury Obsidian Dark Canvas -->
     <path android:pathData="M0,0h108v108h-108z">
         <aapt:attr name="android:fillColor">
             <gradient
@@ -15,93 +15,58 @@
                 android:endX="108"
                 android:endY="108"
                 android:type="linear">
-                <item android:offset="0.0" android:color="#0B0716" />
-                <item android:offset="0.5" android:color="#07050E" />
-                <item android:offset="1.0" android:color="#040308" />
+                <item android:offset="0.0" android:color="#0D0A1C" />
+                <item android:offset="0.5" android:color="#070611" />
+                <item android:offset="1.0" android:color="#040309" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Vivid Blurred Glow 1: Vibrant Neon Magenta / Electric Violet Orb (Top-Left) -->
+    <!-- Vibrant Blurred Glow 1: Ultra Neon Violet/Magenta Flare (Top-Left) -->
     <path
-        android:pathData="M24,24m-38,0a38,38 0 1,1 76,0a38,38 0 1,1 -76,0">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:centerX="24"
-                android:centerY="24"
-                android:gradientRadius="42"
-                android:type="radial">
-                <item android:offset="0.0" android:color="#FFD946EF" />
-                <item android:offset="0.3" android:color="#CC9333EA" />
-                <item android:offset="0.65" android:color="#604F46E5" />
-                <item android:offset="1.0" android:color="#00000000" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Vivid Blurred Glow 2: Intense Electric Cyan / Aqua Glow (Bottom-Right) -->
-    <path
-        android:pathData="M84,84m-42,0a42,42 0 1,1 84,0a42,42 0 1,1 -84,0">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:centerX="84"
-                android:centerY="84"
-                android:gradientRadius="45"
-                android:type="radial">
-                <item android:offset="0.0" android:color="#FF00F2FE" />
-                <item android:offset="0.35" android:color="#CC06B6D4" />
-                <item android:offset="0.7" android:color="#503B82F6" />
-                <item android:offset="1.0" android:color="#00000000" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Vivid Blurred Glow 3: Hot Coral Pink / Radiant Amber Flare (Top-Right) -->
-    <path
-        android:pathData="M80,26m-30,0a30,30 0 1,1 60,0a30,30 0 1,1 -60,0">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:centerX="80"
-                android:centerY="26"
-                android:gradientRadius="35"
-                android:type="radial">
-                <item android:offset="0.0" android:color="#FFF43F5E" />
-                <item android:offset="0.4" android:color="#AAF97316" />
-                <item android:offset="0.8" android:color="#30E11D48" />
-                <item android:offset="1.0" android:color="#00000000" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Vivid Blurred Glow 4: Deep Indigo / Ultramarine Glow (Bottom-Left) -->
-    <path
-        android:pathData="M26,82m-32,0a32,32 0 1,1 64,0a32,32 0 1,1 -64,0">
+        android:pathData="M26,26m-36,0a36,36 0 1,1 72,0a36,36 0 1,1 -72,0">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:centerX="26"
-                android:centerY="82"
-                android:gradientRadius="36"
+                android:centerY="26"
+                android:gradientRadius="44"
                 android:type="radial">
-                <item android:offset="0.0" android:color="#DD6366F1" />
-                <item android:offset="0.45" android:color="#803B82F6" />
-                <item android:offset="0.85" android:color="#251E1B4B" />
+                <item android:offset="0.0" android:color="#FFE879F9" />
+                <item android:offset="0.3" android:color="#CCD946EF" />
+                <item android:offset="0.6" android:color="#708B5CF6" />
                 <item android:offset="1.0" android:color="#00000000" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Center Ambient Aurora Light Fusion -->
+    <!-- Vibrant Blurred Glow 2: Intense Electric Cyan / Aqua Glow (Bottom-Right) -->
     <path
-        android:pathData="M54,54m-36,0a36,36 0 1,1 72,0a36,36 0 1,1 -72,0">
+        android:pathData="M82,82m-40,0a40,40 0 1,1 80,0a40,40 0 1,1 -80,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="82"
+                android:centerY="82"
+                android:gradientRadius="46"
+                android:type="radial">
+                <item android:offset="0.0" android:color="#FF22D3EE" />
+                <item android:offset="0.35" android:color="#CC06B6D4" />
+                <item android:offset="0.7" android:color="#603B82F6" />
+                <item android:offset="1.0" android:color="#00000000" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Vivid Blurred Glow 3: Electric Indigo Fusion Bloom (Center Ambient) -->
+    <path
+        android:pathData="M54,54m-34,0a34,34 0 1,1 68,0a34,34 0 1,1 -68,0">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:centerX="54"
                 android:centerY="54"
-                android:gradientRadius="40"
+                android:gradientRadius="38"
                 android:type="radial">
-                <item android:offset="0.0" android:color="#70FFFFFF" />
-                <item android:offset="0.25" android:color="#55E879F9" />
-                <item android:offset="0.55" android:color="#3538BDF8" />
+                <item android:offset="0.0" android:color="#906366F1" />
+                <item android:offset="0.5" android:color="#404F46E5" />
                 <item android:offset="1.0" android:color="#00000000" />
             </gradient>
         </aapt:attr>

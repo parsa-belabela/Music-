@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Pure Monochrome Silhouette for Material You Adaptive Theming -->
+    <!-- Glass Droplet Outline -->
+    <path
+        android:pathData="M54,23 C68,23 79,27 82,41 C85,55 79,73 66,81 C58,86 50,86 42,81 C29,73 23,55 26,41 C29,27 40,23 54,23 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.0" />
+
+    <!-- Center Harmonic Wave Loop -->
+    <path
+        android:pathData="M34,58 C38,44 46,38 54,54 C62,70 70,64 74,50"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Center Light Focus Dot -->
+    <path
+        android:pathData="M54,54m-2.5,0a2.5,2.5 0 1,1 5,0a2.5,2.5 0 1,1 -5,0"
+        android:fillColor="#FFFFFF" />
+</vector>
