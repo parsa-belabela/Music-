@@ -26,14 +26,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
@@ -203,41 +199,10 @@ fun LyricsView(
 
     val effectiveFontSize = if (isCinematicFullscreen) baseFontSize + 4f else baseFontSize
 
-    // Pure alpha mask fading brush (zero hardcoded colors, transparent blend)
-    val fadeMaskBrush = remember {
-        Brush.verticalGradient(
-            0.00f to Color.Transparent,
-            0.08f to Color.Black,
-            0.88f to Color.Black,
-            1.00f to Color.Transparent
-        )
-    }
-
     Box(modifier = modifier.fillMaxSize()) {
-        // Dedicated subtle atmospheric backdrop behind lyrics
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            palette.deepAtmosphere.copy(alpha = 0.25f),
-                            Color(0x20000000),
-                            palette.primary.copy(alpha = 0.15f)
-                        )
-                    )
-                )
-        )
-
         LazyColumn(
             state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                .drawWithContent {
-                    drawContent()
-                    drawRect(brush = fadeMaskBrush, blendMode = BlendMode.DstIn)
-                },
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 top = if (isCinematicFullscreen) 60.dp else 90.dp,
                 bottom = if (isCinematicFullscreen) 80.dp else 130.dp,

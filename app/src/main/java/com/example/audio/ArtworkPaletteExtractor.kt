@@ -120,6 +120,51 @@ object ArtworkPaletteExtractor {
             val bucketBestColor = HashMap<Int, Color>()
             val bucketBestScore = HashMap<Int, Float>()
 
+            // First pass: analyze monochrome / grayscale characteristics
+            var lowSatPixelCount = 0
+            var validPixelCount = 0
+            var sumSat = 0f
+            var sumLum = 0f
+
+            for (pixel in pixels) {
+                val alpha = (pixel ushr 24) and 0xff
+                if (alpha < 128) continue
+
+                android.graphics.Color.colorToHSV(pixel, hsv)
+                val sat = hsv[1]
+                val value = hsv[2]
+                validPixelCount++
+                sumSat += sat
+                sumLum += value
+                if (sat < 0.16f) {
+                    lowSatPixelCount++
+                }
+            }
+
+            // If >= 70% of pixels have saturation < 0.16 or mean saturation is < 0.13, this is a Black & White / Grayscale album cover!
+            val isMonochrome = validPixelCount > 0 && (
+                (lowSatPixelCount.toFloat() / validPixelCount >= 0.70f) ||
+                (sumSat / validPixelCount < 0.13f)
+            )
+
+            if (isMonochrome) {
+                // High-Contrast Obsidian & Diamond White Liquid Glass Palette
+                val avgLum = if (validPixelCount > 0) sumLum / validPixelCount else 0.5f
+                val primary = if (avgLum > 0.6f) Color(0xFFFFFFFF) else Color(0xFFF1F5F9)
+                val secondary = Color(0xFF94A3B8)
+                val accent = Color(0xFFFFFFFF)
+                val deepAtmosphere = Color(0xFF050507)
+
+                return AmbientPalette(
+                    primary = primary,
+                    secondary = secondary,
+                    haloGlow = Color(0x80FFFFFF),
+                    accent = accent,
+                    deepAtmosphere = deepAtmosphere,
+                    isLightLuminance = false
+                )
+            }
+
             for (pixel in pixels) {
                 val alpha = (pixel ushr 24) and 0xff
                 if (alpha < 128) continue
@@ -269,6 +314,14 @@ object ArtworkPaletteExtractor {
                 haloGlow = Color(0x9939FF14),
                 accent = Color(0xFF00FF66), // Laser Phosphor
                 deepAtmosphere = Color(0xFF000000)
+            )
+            AppTheme.MONOCHROME_NOIR -> AmbientPalette(
+                primary = Color(0xFFF8FAFC), // Crisp Diamond White
+                secondary = Color(0xFF94A3B8), // Frosted Platinum Titanium
+                haloGlow = Color(0x80FFFFFF),
+                accent = Color(0xFFFFFFFF), // Pure Brilliant White Specular
+                deepAtmosphere = Color(0xFF060608), // Obsidian Pitch Black
+                isLightLuminance = false
             )
         }
     }

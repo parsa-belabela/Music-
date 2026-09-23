@@ -17,11 +17,14 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -250,17 +253,25 @@ fun HomeScreen(
             }
         }
 
-        // Hero CURRENTLY PLAYING Card (only shown when a track is actually active/playing)
-        if (playbackState.currentTrack != null) {
+        // Hero CURRENTLY PLAYING Card (always visible on screen from start)
+        val heroTrack = playbackState.currentTrack ?: allTracks.firstOrNull()
+        if (heroTrack != null) {
             item {
                 HeroQuickPlayCard(
-                    heroTrack = playbackState.currentTrack,
+                    heroTrack = heroTrack,
                     isPlaying = playbackState.status == PlayerStatus.PLAYING,
                     palette = palette,
                     allTracks = allTracks,
-                    hasActiveTrack = true,
+                    hasActiveTrack = playbackState.currentTrack != null,
+                    appSettings = appSettings,
                     onPlayTrack = onPlayTrack,
-                    onTogglePlay = onTogglePlay
+                    onTogglePlay = {
+                        if (playbackState.currentTrack != null) {
+                            onTogglePlay()
+                        } else {
+                            onPlayTrack(heroTrack, allTracks)
+                        }
+                    }
                 )
             }
         }
@@ -650,24 +661,29 @@ private fun HeroQuickPlayCard(
     palette: AmbientPalette,
     allTracks: List<Track>,
     hasActiveTrack: Boolean,
+    appSettings: AppSettings,
     onPlayTrack: (Track, List<Track>) -> Unit,
     onTogglePlay: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val cardShape = RoundedCornerShape(24.dp)
-    val rotationDuration = if (isPlaying) 3200 else 16000
 
-    val infiniteTransition = rememberInfiniteTransition(label = "heroLightBeam")
-    val rotationAngle by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = rotationDuration, easing = LinearEasing),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Restart
-        ),
-        label = "lightBeamAngle"
-    )
+    // Colors only animate when song is playing; in normal/idle state they are stationary
+    val rotationAngle by if (isPlaying) {
+        val infiniteTransition = rememberInfiniteTransition(label = "heroLightBeam")
+        infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 4000, easing = LinearEasing),
+                repeatMode = androidx.compose.animation.core.RepeatMode.Restart
+            ),
+            label = "lightBeamAngle"
+        )
+    } else {
+        remember { mutableFloatStateOf(0f) }
+    }
 
     Box(
         modifier = modifier
@@ -766,15 +782,31 @@ private fun HeroQuickPlayCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val dotScale by if (isPlaying) {
+                        val infiniteTransition = rememberInfiniteTransition(label = "heroDotPulse")
+                        infiniteTransition.animateFloat(
+                            initialValue = 0.85f,
+                            targetValue = 1.25f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+                                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+                            ),
+                            label = "dotPulse"
+                        )
+                    } else {
+                        remember { mutableFloatStateOf(1.0f) }
+                    }
+
                     Box(
                         modifier = Modifier
                             .size(10.dp)
+                            .scale(dotScale)
                             .clip(CircleShape)
-                            .background(palette.secondary)
+                            .background(if (isPlaying) palette.accent else palette.secondary)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isPlaying) "CURRENTLY PLAYING" else "QUICK PLAY",
+                        text = if (appSettings.language == AppLanguage.PERSIAN) "در حال پخش" else "CURRENTLY PLAYING",
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = palette.secondary,
                             fontWeight = FontWeight.Bold,

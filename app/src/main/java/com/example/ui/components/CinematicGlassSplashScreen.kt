@@ -83,6 +83,7 @@ fun CinematicGlassSplashScreen(
         AppTheme.SUNSET_RAVE -> listOf(Color(0xFFFF6D00), Color(0xFFFF007F), Color(0xFFFFD600))
         AppTheme.DIGITAL_ACID -> listOf(Color(0xFF39FF14), Color(0xFF00FF66), Color(0xFF059669))
         AppTheme.Y2K_CHROME -> listOf(Color(0xFFE2E8F0), Color(0xFF38BDF8), Color(0xFF818CF8))
+        AppTheme.MONOCHROME_NOIR -> listOf(Color(0xFFFFFFFF), Color(0xFF94A3B8), Color(0xFF1E293B))
     }
 
     Box(

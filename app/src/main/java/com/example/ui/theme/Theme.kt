@@ -23,6 +23,7 @@ fun createAuraColorScheme(appTheme: AppTheme, accentColor: Color = RadiantPurple
         AppTheme.VELVET_NOIR -> Color(0xFF0B020E)
         AppTheme.SUNSET_RAVE -> Color(0xFF130314)
         AppTheme.DIGITAL_ACID -> Color(0xFF000000)
+        AppTheme.MONOCHROME_NOIR -> Color(0xFF050508)
     },
     onBackground = TextPrimary,
     surface = when (appTheme) {
@@ -32,6 +33,7 @@ fun createAuraColorScheme(appTheme: AppTheme, accentColor: Color = RadiantPurple
         AppTheme.VELVET_NOIR -> Color(0xFF15041A)
         AppTheme.SUNSET_RAVE -> Color(0xFF1C061E)
         AppTheme.DIGITAL_ACID -> Color(0xFF050B05)
+        AppTheme.MONOCHROME_NOIR -> Color(0x1AFFFFFF)
     },
     onSurface = TextPrimary,
     surfaceVariant = SurfaceVariantDark,

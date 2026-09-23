@@ -74,6 +74,7 @@ fun ModernAuroraMotionBackground(
         AppTheme.VELVET_NOIR -> Color(0xFF0B020E)
         AppTheme.SUNSET_RAVE -> Color(0xFF130314)
         AppTheme.DIGITAL_ACID -> Color(0xFF000000)
+        AppTheme.MONOCHROME_NOIR -> Color(0xFF050508)
     }
 
     Box(

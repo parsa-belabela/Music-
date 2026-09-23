@@ -194,6 +194,27 @@ object LiquidGlassDesign {
                     shadowColor = Color.Black.copy(alpha = 0.6f)
                 )
             }
+
+            AppTheme.MONOCHROME_NOIR -> when (thickness) {
+                GlassThickness.THIN -> LiquidGlassSpec(
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x18FFFFFF), Color(0x06000000))),
+                    borderGradient = Brush.verticalGradient(listOf(Color(0x50FFFFFF), Color(0x15FFFFFF))),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent
+                )
+                GlassThickness.REGULAR -> LiquidGlassSpec(
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF0121214), Color(0xEB0A0A0C), Color(0xEE060608))),
+                    borderGradient = Brush.linearGradient(listOf(Color(0x80FFFFFF), Color(0x3094A3B8), Color(0x15FFFFFF))),
+                    shadowElevation = 8.dp,
+                    shadowColor = Color.Black.copy(alpha = 0.50f)
+                )
+                GlassThickness.THICK -> LiquidGlassSpec(
+                    surfaceGradient = Brush.verticalGradient(listOf(Color(0xF50D0D10), Color(0xEE050507))),
+                    borderGradient = Brush.linearGradient(listOf(Color(0x60FFFFFF), Color(0x2094A3B8))),
+                    shadowElevation = 16.dp,
+                    shadowColor = Color.Black.copy(alpha = 0.65f)
+                )
+            }
         }
     }
 }
@@ -318,6 +339,17 @@ fun Modifier.liquidGlass(
                             start = Offset(0f, 0f),
                             end = Offset(size.width, 0f),
                             strokeWidth = 1.8f
+                        )
+                    }
+                }
+                AppTheme.MONOCHROME_NOIR -> {
+                    // Pure crystal diamond top edge reflection
+                    if (size.width > 30f) {
+                        drawLine(
+                            color = Color(0x90FFFFFF),
+                            start = Offset(0f, 0f),
+                            end = Offset(size.width, 0f),
+                            strokeWidth = 1.5f
                         )
                     }
                 }

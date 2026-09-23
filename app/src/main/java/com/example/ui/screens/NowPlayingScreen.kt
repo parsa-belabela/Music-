@@ -626,27 +626,15 @@ fun NowPlayingScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Spacer(modifier = Modifier.height(2.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = track.artist,
-                                    style = MaterialTheme.typography.bodyLarge.copy(
-                                        color = Color(0xFFA5ABC0),
-                                        fontWeight = FontWeight.Medium
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                if (audioProfile != null && (audioProfile.estimatedTempoBpm ?: 0) > 0) {
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "${audioProfile.estimatedTempoBpm} BPM",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            color = palette.accent,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    )
-                                }
-                            }
+                            Text(
+                                text = track.artist,
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    color = Color(0xFFA5ABC0),
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
 
                         IconButton(

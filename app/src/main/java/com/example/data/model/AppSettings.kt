@@ -11,7 +11,8 @@ enum class AppTheme(val id: String, val titleEn: String, val titleFa: String, va
     VELVET_NOIR("velvet_noir", "Royal Obsidian", "ولوت نوآر سلطنتی", "Deep obsidian plum, brushed 24k gold & royal amethyst", "ابسیدین شرابی عمیق، طلای ۲۴ عیار و آمتیست سلطنتی"),
     SUNSET_RAVE("sunset_rave", "Sunset Rave", "غروب نئونی تابناک", "Solar amber, dusk violet & radiant pink heat", "نارنجی خورشیدی، بنفش غروب و صورتی درخشان نئونی"),
     DIGITAL_ACID("digital_acid", "Toxic Acid Matrix", "ماتریکس اسید فسفری", "OLED pure black & radioactive neon acid lime", "سیاه مطلق اولد و سبز فسفری نئونی پرتوزا"),
-    Y2K_CHROME("chrome", "Liquid Chrome Y2K", "کروم مایع نقره‌ای", "Liquid mercury, titanium silver sheen & futuristic reflections", "فلز مایع و جیوه نقره‌ای، صیقل تیتانیومی و انعکاس‌های متالیک")
+    Y2K_CHROME("chrome", "Liquid Chrome Y2K", "کروم مایع نقره‌ای", "Liquid mercury, titanium silver sheen & futuristic reflections", "فلز مایع و جیوه نقره‌ای، صیقل تیتانیومی و انعکاس‌های متالیک"),
+    MONOCHROME_NOIR("monochrome_noir", "Monochrome Obsidian", "سیاه و سفید کریستالی", "High-contrast pure obsidian black, brilliant liquid white & smoked glass", "کنتراست بالای سیاه مطلق، درخشش سفید کریستالی و شیشه دودی مایع")
 }
 
 enum class VisualizerQuality(val titleEn: String, val titleFa: String, val fps: Int) {
