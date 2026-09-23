@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +23,8 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -163,40 +166,30 @@ fun HomeScreen(
             }
         }
 
-        // Section 1.1: Elevated Ambient Top Now Playing Card (Always visible as seen in Image 1)
-        val heroTrack = playbackState.currentTrack
-            ?: allTracks.firstOrNull()
-            ?: Track(
-                id = "hero_default_ski",
-                title = "SKI",
-                artist = "Future",
-                album = "High Off Life",
-                durationMs = 214000L,
-                uri = "",
-                genre = "Electronic",
-                artworkUri = null
-            )
-
-        item {
-            HeroQuickPlayCard(
-                heroTrack = heroTrack,
-                playbackState = playbackState,
-                palette = palette,
-                allTracks = allTracks,
-                hasActiveTrack = playbackState.currentTrack != null,
-                appSettings = appSettings,
-                currentPositionProvider = currentPositionProvider,
-                onSeekTo = onSeekTo,
-                onPlayTrack = onPlayTrack,
-                onTogglePlay = {
-                    if (playbackState.currentTrack != null) {
-                        onTogglePlay()
-                    } else {
-                        onPlayTrack(heroTrack, if (allTracks.isNotEmpty()) allTracks else listOf(heroTrack))
-                    }
-                },
-                onExpandNowPlaying = onExpandNowPlaying
-            )
+        // Section 1.1: Elevated Ambient Top Now Playing Card (Shows dynamic playing/featured track)
+        val heroTrack = playbackState.currentTrack ?: allTracks.firstOrNull()
+        if (heroTrack != null) {
+            item {
+                HeroQuickPlayCard(
+                    heroTrack = heroTrack,
+                    playbackState = playbackState,
+                    palette = palette,
+                    allTracks = allTracks,
+                    hasActiveTrack = playbackState.currentTrack != null,
+                    appSettings = appSettings,
+                    currentPositionProvider = currentPositionProvider,
+                    onSeekTo = onSeekTo,
+                    onPlayTrack = onPlayTrack,
+                    onTogglePlay = {
+                        if (playbackState.currentTrack != null) {
+                            onTogglePlay()
+                        } else {
+                            onPlayTrack(heroTrack, if (allTracks.isNotEmpty()) allTracks else listOf(heroTrack))
+                        }
+                    },
+                    onExpandNowPlaying = onExpandNowPlaying
+                )
+            }
         }
 
         // Instant Resume Notification Pill
@@ -322,42 +315,43 @@ fun HomeScreen(
                         }
                     }
                     Spacer(modifier = Modifier.height(10.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         items(timeSlotTracks) { track ->
                             Box(
                                 modifier = Modifier
-                                    .width(140.dp)
+                                    .width(148.dp)
                                     .liquidGlass(
-                                        shape = RoundedCornerShape(18.dp),
+                                        shape = RoundedCornerShape(20.dp),
                                         thickness = GlassThickness.REGULAR,
-                                        tintColor = palette.primary,
-                                        tintAlpha = 0.16f,
+                                        tintColor = Color(0xFF161A2E),
+                                        tintAlpha = 0.65f,
                                         borderWidth = 1.dp
                                     )
                                     .clickable { onPlayTrack(track, timeSlotTracks) }
-                                    .padding(10.dp)
+                                    .padding(12.dp)
                             ) {
                                 Column {
                                     TrackArtworkThumbnail(
                                         artworkUri = track.artworkUri,
                                         accentColor = palette.primary,
-                                        size = 120.dp,
-                                        shape = RoundedCornerShape(12.dp),
-                                        iconSize = 36.dp
+                                        size = 124.dp,
+                                        shape = RoundedCornerShape(14.dp),
+                                        iconSize = 38.dp
                                     )
-                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Spacer(modifier = Modifier.height(10.dp))
                                     Text(
                                         text = track.title,
                                         style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontWeight = FontWeight.SemiBold,
+                                            fontWeight = FontWeight.Bold,
                                             color = Color.White
                                         ),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = track.artist,
-                                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B0), fontSize = 11.sp),
+                                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA6A8BA), fontSize = 12.sp),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -513,16 +507,16 @@ fun HomeScreen(
                     }
                 }
                 Spacer(modifier = Modifier.height(6.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     items(recentlyPlayed) { track ->
                         Box(
                             modifier = Modifier
-                                .width(145.dp)
+                                .width(148.dp)
                                 .liquidGlass(
-                                    shape = RoundedCornerShape(18.dp),
+                                    shape = RoundedCornerShape(20.dp),
                                     thickness = GlassThickness.REGULAR,
-                                    tintColor = palette.primary,
-                                    tintAlpha = 0.16f,
+                                    tintColor = Color(0xFF161A2E),
+                                    tintAlpha = 0.65f,
                                     borderWidth = 1.dp
                                 )
                                 .clickable { onPlayTrack(track, allTracks) }
@@ -532,23 +526,24 @@ fun HomeScreen(
                                 TrackArtworkThumbnail(
                                     artworkUri = track.artworkUri,
                                     accentColor = palette.primary,
-                                    size = 121.dp,
-                                    shape = RoundedCornerShape(12.dp),
-                                    iconSize = 40.dp
+                                    size = 124.dp,
+                                    shape = RoundedCornerShape(14.dp),
+                                    iconSize = 38.dp
                                 )
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Text(
                                     text = track.title,
                                     style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.SemiBold,
+                                        fontWeight = FontWeight.Bold,
                                         color = Color.White
                                     ),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = track.artist,
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B0), fontSize = 12.sp),
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA6A8BA), fontSize = 12.sp),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -689,146 +684,111 @@ private fun HeroQuickPlayCard(
     modifier: Modifier = Modifier
 ) {
     val isPlaying = playbackState.status == PlayerStatus.PLAYING
-    val context = LocalContext.current
-    val cardShape = RoundedCornerShape(24.dp)
+    val isFa = appSettings.language == AppLanguage.PERSIAN
+    val cardShape = RoundedCornerShape(26.dp)
 
-    // Smooth 400ms crossfade on halo glow color
-    val animatedHaloColor by androidx.compose.animation.animateColorAsState(
+    // Smooth color animation when artwork/palette changes
+    val animColor1 by androidx.compose.animation.animateColorAsState(
         targetValue = palette.primary,
-        animationSpec = tween(400),
-        label = "heroHaloColor"
+        animationSpec = tween(500, easing = FastOutSlowInEasing),
+        label = "heroColor1"
     )
-    val animatedAccentColor by androidx.compose.animation.animateColorAsState(
+    val animColor2 by androidx.compose.animation.animateColorAsState(
+        targetValue = palette.secondary,
+        animationSpec = tween(500, easing = FastOutSlowInEasing),
+        label = "heroColor2"
+    )
+    val animColor3 by androidx.compose.animation.animateColorAsState(
         targetValue = palette.accent,
-        animationSpec = tween(400),
-        label = "heroAccentColor"
+        animationSpec = tween(500, easing = FastOutSlowInEasing),
+        label = "heroColor3"
     )
 
-    // Colors only animate when song is playing; in normal/idle state they are stationary
-    val rotationAngle by if (isPlaying) {
-        val infiniteTransition = rememberInfiniteTransition(label = "heroLightBeam")
-        infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 4000, easing = LinearEasing),
-                repeatMode = androidx.compose.animation.core.RepeatMode.Restart
-            ),
-            label = "lightBeamAngle"
-        )
-    } else {
-        remember { mutableFloatStateOf(0f) }
-    }
+    // Continuous 360 degree ambient light beam rotation
+    val infiniteTransition = rememberInfiniteTransition(label = "heroRotationBeam")
+    val rotationAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = if (isPlaying) 6000 else 14000, easing = LinearEasing),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Restart
+        ),
+        label = "lightBeamAngle"
+    )
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .wrapContentHeight()
+            .shadow(
+                elevation = 24.dp,
+                shape = cardShape,
+                spotColor = animColor1.copy(alpha = 0.65f),
+                ambientColor = animColor2.copy(alpha = 0.5f)
+            )
             .clip(cardShape)
             .clickable {
                 if (hasActiveTrack) {
                     onExpandNowPlaying()
-                } else {
-                    heroTrack?.let { onPlayTrack(it, allTracks) }
+                } else if (heroTrack != null) {
+                    onPlayTrack(heroTrack, if (allTracks.isNotEmpty()) allTracks else listOf(heroTrack))
                 }
             }
             .testTag("hero_quick_play_card")
     ) {
-        if (heroTrack?.artworkUri != null) {
-            Image(
-                painter = rememberAsyncImagePainter(
-                    ImageRequest.Builder(context)
-                        .data(heroTrack.artworkUri)
-                        .crossfade(true)
-                        .build()
-                ),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .blur(16.dp)
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.linearGradient(
-                            listOf(animatedHaloColor.copy(alpha = 0.45f), Color(0xFF0D0F1B))
+        // Rotating 3-Color Dynamic Sweep Gradient Canvas
+        Canvas(modifier = Modifier.matchParentSize()) {
+            rotate(rotationAngle) {
+                drawCircle(
+                    brush = Brush.sweepGradient(
+                        colors = listOf(
+                            animColor1,
+                            animColor2,
+                            animColor3,
+                            animColor1.copy(alpha = 0.85f),
+                            animColor2,
+                            animColor3.copy(alpha = 0.9f),
+                            animColor1
                         )
-                    )
-            )
+                    ),
+                    radius = size.maxDimension * 1.05f
+                )
+            }
         }
 
+        // Soft internal ambient overlay for depth and contrast
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .matchParentSize()
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            Color(0x880A0C16),
-                            Color(0xDC080A12)
+                            Color.Black.copy(alpha = 0.08f),
+                            Color.Black.copy(alpha = 0.28f)
                         )
                     )
                 )
-        )
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .drawWithContent {
-                    drawContent()
-                    rotate(rotationAngle) {
-                        drawCircle(
-                            brush = Brush.sweepGradient(
-                                colors = if (palette.isMonochrome) listOf(
-                                    palette.richBlack,
-                                    Color.White.copy(alpha = 0.85f),
-                                    Color(0xFF141724),
-                                    Color.White.copy(alpha = 0.45f),
-                                    palette.richBlack,
-                                    Color.White.copy(alpha = 0.90f),
-                                    palette.richBlack
-                                ) else listOf(
-                                    animatedAccentColor,
-                                    palette.secondary,
-                                    animatedHaloColor,
-                                    animatedAccentColor.copy(alpha = 0.8f),
-                                    palette.secondary.copy(alpha = 0.9f),
-                                    animatedHaloColor.copy(alpha = 0.75f),
-                                    animatedAccentColor
-                                )
-                            ),
-                            radius = size.maxDimension * 0.85f,
-                            blendMode = if (palette.isMonochrome) BlendMode.SrcOver else BlendMode.Screen
-                        )
-                    }
-                }
                 .border(
-                    width = 1.2.dp,
+                    width = 1.3.dp,
                     brush = Brush.linearGradient(
-                        if (palette.isMonochrome) listOf(
-                            Color.White.copy(alpha = 0.75f),
-                            Color(0xFF1E2232),
-                            Color.White.copy(alpha = 0.25f),
-                            Color(0xFF07080E)
-                        ) else listOf(
-                            animatedAccentColor.copy(alpha = 0.75f),
-                            palette.secondary.copy(alpha = 0.40f),
-                            Color.White.copy(alpha = 0.25f)
+                        listOf(
+                            Color.White.copy(alpha = 0.45f),
+                            animColor3.copy(alpha = 0.35f),
+                            Color.White.copy(alpha = 0.15f)
                         )
                     ),
                     shape = cardShape
                 )
         )
 
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
+        // Card Content (Extra tall & elongated glowing frame with delicate compact internal elements)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 230.dp)
+                .padding(horizontal = 24.dp, vertical = 34.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Top Status Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -836,73 +796,105 @@ private fun HeroQuickPlayCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val dotScale by if (isPlaying) {
-                        val infiniteTransition = rememberInfiniteTransition(label = "heroDotPulse")
-                        infiniteTransition.animateFloat(
-                            initialValue = 0.85f,
-                            targetValue = 1.25f,
+                        val dotTransition = rememberInfiniteTransition(label = "heroDotPulse")
+                        dotTransition.animateFloat(
+                            initialValue = 0.8f,
+                            targetValue = 1.3f,
                             animationSpec = infiniteRepeatable(
-                                animation = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+                                animation = tween(durationMillis = 600, easing = FastOutSlowInEasing),
                                 repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
                             ),
-                            label = "dotPulse"
+                            label = "dotScale"
                         )
                     } else {
-                        remember { mutableFloatStateOf(1.0f) }
+                        remember { mutableFloatStateOf(1f) }
                     }
 
                     Box(
                         modifier = Modifier
-                            .size(10.dp)
+                            .size(8.dp)
                             .scale(dotScale)
                             .clip(CircleShape)
-                            .background(if (isPlaying) palette.accent else palette.secondary)
+                            .background(Color.White)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (appSettings.language == AppLanguage.PERSIAN) "در حال پخش" else "CURRENTLY PLAYING",
+                        text = if (isFa) "در حال پخش" else "CURRENTLY PLAYING",
                         style = MaterialTheme.typography.labelSmall.copy(
-                            color = palette.secondary,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.2.sp
+                            color = Color.White.copy(alpha = 0.95f),
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 1.2.sp,
+                            fontSize = 10.5.sp
                         )
                     )
                 }
 
                 Text(
-                    text = heroTrack?.genre ?: "Audio",
-                    style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFFA0A0C0))
+                    text = heroTrack?.genre?.ifEmpty { null } ?: (if (isFa) "الکترونیک" else "Electronic"),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 10.5.sp
+                    )
                 )
             }
 
+            Spacer(modifier = Modifier.height(28.dp))
+
+            // Main Track Info Row (Compact artwork, small title & artist, compact play button)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                if (heroTrack != null) {
-                    TrackArtworkThumbnail(
-                        artworkUri = heroTrack.artworkUri,
-                        accentColor = palette.secondary,
-                        size = 56.dp,
-                        shape = RoundedCornerShape(14.dp),
-                        iconSize = 28.dp
-                    )
-                    Spacer(modifier = Modifier.width(14.dp))
+                // Smaller Compact Album Art
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(Color(0x33000000))
+                        .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(13.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!heroTrack?.artworkUri.isNullOrEmpty()) {
+                        coil.compose.AsyncImage(
+                            model = heroTrack?.artworkUri,
+                            contentDescription = heroTrack?.title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.9f),
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
                 }
 
+                Spacer(modifier = Modifier.width(14.dp))
+
+                // Smaller Title and Artist typography
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = heroTrack?.title ?: (if (appSettings.language == AppLanguage.PERSIAN) "انتخاب آهنگ" else "Select a Track"),
-                        style = MaterialTheme.typography.titleLarge.copy(
+                        text = heroTrack?.title ?: "",
+                        style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = Color.White,
+                            fontSize = 16.5.sp
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = heroTrack?.artist ?: (if (appSettings.language == AppLanguage.PERSIAN) "موسیقی آفلاین با کیفیت بالا" else "Local-First Hi-Fi Audio"),
-                        style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFFA0A0B8)),
+                        text = heroTrack?.artist ?: "",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontWeight = FontWeight.Normal,
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 12.sp
+                        ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -910,133 +902,40 @@ private fun HeroQuickPlayCard(
 
                 Spacer(modifier = Modifier.width(12.dp))
 
+                // Compact refined play button
                 Box(
                     modifier = Modifier
-                        .size(54.dp)
+                        .size(50.dp)
+                        .shadow(12.dp, CircleShape, spotColor = animColor1)
                         .clip(CircleShape)
-                        .background(palette.primary)
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    Color.White.copy(alpha = 0.95f),
+                                    Color.White.copy(alpha = 0.85f)
+                                )
+                            )
+                        )
                         .clickable {
-                            if (hasActiveTrack) onTogglePlay()
-                            else heroTrack?.let { onPlayTrack(it, allTracks) }
-                        },
+                            if (hasActiveTrack) {
+                                onTogglePlay()
+                            } else if (heroTrack != null) {
+                                onPlayTrack(heroTrack, if (allTracks.isNotEmpty()) allTracks else listOf(heroTrack))
+                            }
+                        }
+                        .testTag("hero_play_button"),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = "Play",
-                        tint = Color.White,
-                        modifier = Modifier.size(30.dp)
+                        contentDescription = if (isPlaying) "Pause" else "Play",
+                        tint = animColor1,
+                        modifier = Modifier.size(28.dp)
                     )
-                }
-            }
-
-            if (hasActiveTrack && playbackState.durationMs > 0L) {
-                Spacer(modifier = Modifier.height(14.dp))
-
-                var isHeroDragging by remember { mutableStateOf(false) }
-                var heroDragProgress by remember { mutableFloatStateOf(0f) }
-                var heroBarWidthPx by remember { mutableFloatStateOf(1f) }
-                var heroCurrentMs by remember { mutableLongStateOf(currentPositionProvider()) }
-                var heroIgnoreSyncUntil by remember { mutableLongStateOf(0L) }
-
-                LaunchedEffect(isHeroDragging) {
-                    if (!isHeroDragging) {
-                        while (true) {
-                            if (System.currentTimeMillis() > heroIgnoreSyncUntil) {
-                                heroCurrentMs = currentPositionProvider()
-                            }
-                            kotlinx.coroutines.delay(20L)
-                        }
-                    }
-                }
-
-                val safeDur = playbackState.durationMs.coerceAtLeast(1L)
-                val effectiveHeroMs = if (isHeroDragging) (heroDragProgress * safeDur).toLong() else heroCurrentMs
-                val heroProgressFraction = (effectiveHeroMs.toFloat() / safeDur.toFloat()).coerceIn(0f, 1f)
-
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(24.dp)
-                            .onSizeChanged { heroBarWidthPx = it.width.toFloat().coerceAtLeast(1f) }
-                            .pointerInput(playbackState.durationMs) {
-                                awaitEachGesture {
-                                    try {
-                                        val down = awaitFirstDown(requireUnconsumed = false)
-                                        down.consume()
-                                        isHeroDragging = true
-                                        val w = heroBarWidthPx.coerceAtLeast(1f)
-                                        heroDragProgress = (down.position.x / w).coerceIn(0f, 1f)
-
-                                        while (true) {
-                                            val event = awaitPointerEvent()
-                                            val pointer = event.changes.firstOrNull { it.id == down.id }
-                                            if (pointer == null || !pointer.pressed) {
-                                                pointer?.consume()
-                                                break
-                                            }
-                                            pointer.consume()
-                                            heroDragProgress = (pointer.position.x / w).coerceIn(0f, 1f)
-                                        }
-                                        val target = (heroDragProgress * safeDur).toLong()
-                                        heroCurrentMs = target
-                                        heroIgnoreSyncUntil = System.currentTimeMillis() + 450L
-                                        onSeekTo(target)
-                                    } finally {
-                                        isHeroDragging = false
-                                    }
-                                }
-                            }
-                            .testTag("hero_seek_bar"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(if (isHeroDragging) 6.dp else 4.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(Color(0x33FFFFFF))
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth(fraction = heroProgressFraction)
-                                    .fillMaxHeight()
-                                    .background(
-                                        Brush.horizontalGradient(
-                                            listOf(palette.primary, palette.accent)
-                                        )
-                                    )
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = formatHeroDuration(effectiveHeroMs),
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = Color(0xFFC4C4D4),
-                                fontSize = 11.sp
-                            )
-                        )
-                        Text(
-                            text = formatHeroDuration(playbackState.durationMs),
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = Color(0xFF9090A8),
-                                fontSize = 11.sp
-                            )
-                        )
-                    }
                 }
             }
         }
     }
-}
 }
 
 private fun formatHeroDuration(ms: Long): String {

@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.widget.Toast
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,18 +20,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.audio.AmbientPalette
 import com.example.data.model.*
-import com.example.ui.components.FeaturesGuideDialog
-import com.example.ui.components.FeedbackDialog
+import com.example.data.repository.UserBadge
+import com.example.data.repository.UserProfileData
+import com.example.data.repository.UserProfileManager
+import com.example.data.repository.UserQuest
+import com.example.ui.components.*
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
 import com.example.util.Localization
@@ -62,14 +65,22 @@ fun SettingsScreen(
     var showBackupDialog by remember { mutableStateOf(false) }
     var showFeedbackDialog by remember { mutableStateOf(false) }
     var showFeaturesGuideDialog by remember { mutableStateOf(false) }
+    var showSupportDialog by remember { mutableStateOf(false) }
+    var showEditProfileDialog by remember { mutableStateOf(false) }
+    var showAvatarPickerDialog by remember { mutableStateOf(false) }
     var backupJsonText by remember { mutableStateOf("") }
     var isExportMode by remember { mutableStateOf(true) }
 
     var devTapCount by remember { mutableStateOf(0) }
 
     val lang = settings.language
-    val isVip = remember(settings) { com.example.monetization.EntitlementManager.isVip(context) }
-    val goldAccent = Color(0xFFFFD700)
+    val isFa = lang == AppLanguage.PERSIAN
+
+    // User Profile Data
+    LaunchedEffect(Unit) {
+        UserProfileManager.init(context)
+    }
+    val userProfile by UserProfileManager.profileFlow.collectAsState()
 
     if (showFeaturesGuideDialog) {
         FeaturesGuideDialog(
@@ -87,6 +98,18 @@ fun SettingsScreen(
         )
     }
 
+    if (showSupportDialog) {
+        SupportDonationDialog(
+            palette = palette,
+            language = lang,
+            onDismiss = { showSupportDialog = false },
+            onSupportSuccess = {
+                showSupportDialog = false
+                UserProfileManager.refreshProfile(context)
+            }
+        )
+    }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -94,7 +117,7 @@ fun SettingsScreen(
         contentPadding = PaddingValues(top = 16.dp, bottom = maxOf(bottomPadding + 20.dp, 120.dp)),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Header
+        // Top Header
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -122,463 +145,57 @@ fun SettingsScreen(
             }
         }
 
-        // Section: VIP Status & Achievements Showcase Banner
+        // 1. GORGEOUS USER PROFILE SECTION
         item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(22.dp),
-                        thickness = GlassThickness.THICK,
-                        tintColor = if (isVip) goldAccent else palette.primary,
-                        tintAlpha = if (isVip) 0.26f else 0.18f,
-                        borderWidth = 1.2.dp,
-                        appTheme = settings.theme
-                    )
-                    .padding(18.dp)
-            ) {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(goldAccent.copy(alpha = 0.22f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = "VIP",
-                                    tint = goldAccent,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                            Column {
-                                Text(
-                                    text = if (isVip) {
-                                        if (lang == AppLanguage.PERSIAN) "عضویت طلایی Aura VIP فعال است ✨" else "Aura Golden VIP Active ✨"
-                                    } else {
-                                        if (lang == AppLanguage.PERSIAN) "ارتقا به نسخه VIP آئورا" else "Upgrade to Aura VIP"
-                                    },
-                                    style = MaterialTheme.typography.titleMedium.copy(
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp
-                                    )
-                                )
-                                Text(
-                                    text = if (isVip) {
-                                        val exp = com.example.monetization.EntitlementManager.getVipExpiryMillis(context)
-                                        if (exp == Long.MAX_VALUE) {
-                                            if (lang == AppLanguage.PERSIAN) "اشتراک دائمی بدون محدودیت" else "Permanent VIP Access"
-                                        } else {
-                                            val rem = com.example.monetization.EntitlementManager.formatRemainingTime(exp - System.currentTimeMillis(), lang == AppLanguage.PERSIAN)
-                                            if (lang == AppLanguage.PERSIAN) "زمان باقی‌مانده: $rem" else "Expires in $rem"
-                                        }
-                                    } else {
-                                        if (lang == AppLanguage.PERSIAN) "پوسته‌های کلکسیونی VIP • ۲۴ ساعت رایگان با تماشای تبلیغ" else "VIP collector skins • 24h free with ad"
-                                    },
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        color = Color(0xFFC0C0D4),
-                                        fontSize = 11.sp
-                                    )
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = { onOpenVipPaywall(null) },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isVip) palette.primary.copy(alpha = 0.6f) else goldAccent,
-                                contentColor = if (isVip) Color.White else Color.Black
-                            ),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isVip) Icons.Default.Settings else Icons.Default.WorkspacePremium,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isVip) {
-                                    if (lang == AppLanguage.PERSIAN) "مدیریت اشتراک / کد" else "Manage VIP / Code"
-                                } else {
-                                    if (lang == AppLanguage.PERSIAN) "ارتقا یا تست ۲۴ساعته" else "Upgrade / 24h Free"
-                                },
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                        }
-
-                        OutlinedButton(
-                            onClick = onOpenAchievements,
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.EmojiEvents,
-                                contentDescription = null,
-                                tint = goldAccent,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (lang == AppLanguage.PERSIAN) "دستاوردها 🏆" else "Milestones 🏆",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                        }
-                    }
-                }
-            }
+            UserProfileCard(
+                profile = userProfile,
+                palette = palette,
+                isFa = isFa,
+                onEditName = { showEditProfileDialog = true },
+                onEditAvatar = { showAvatarPickerDialog = true },
+                onOpenSupport = { showSupportDialog = true }
+            )
         }
 
-        // Section: Hyped VIP Collector Skins & Cinematic Now Playing Themes
+        // 2. HONOR BADGES & ACHIEVEMENTS SHELF
         item {
-            val collectorSkins = remember {
-                listOf(
-                    CollectorSkinOption(
-                        id = "default",
-                        titleFa = "شیشه‌ای استاندارد (Liquid Glass)",
-                        titleEn = "Signature Liquid Glass",
-                        tagFa = "رایگان • پیش‌فرض",
-                        tagEn = "Free • Default",
-                        descFa = "افکت شیشه‌ای مدرن با نور پس‌زمینه پویا هماهنگ با کاور موزیک و کنترل‌های کریستالی",
-                        descEn = "Signature frosted liquid glass with dynamic album art aura and smooth glass controls",
-                        primaryColor = Color(0xFF00E5FF),
-                        secondaryColor = Color(0xFF7C4DFF),
-                        icon = Icons.Default.BlurOn,
-                        entitlementId = null
-                    ),
-                    CollectorSkinOption(
-                        id = "electric_turntable",
-                        titleFa = "گرامافون سایبرپانک (Electric Cyber Turntable)",
-                        titleEn = "Electric Cyber Turntable",
-                        tagFa = "پوسته VIP گرامافون نئونی 💽",
-                        tagEn = "VIP Neon Turntable 💽",
-                        descFa = "گرامافون سه‌بعدی چرخان با افکت آب‌وهوا و شیارهای نئونی نورانی",
-                        descEn = "3D spinning turntable vinyl with live weather HUD and glowing neon audio trails",
-                        primaryColor = Color(0xFF00E5FF),
-                        secondaryColor = Color(0xFF7C4DFF),
-                        icon = Icons.Default.Radio,
-                        entitlementId = "now_playing_electric"
-                    ),
-                    CollectorSkinOption(
-                        id = "barbie_dream",
-                        titleFa = "باربی دریم (Barbie Dream Glow)",
-                        titleEn = "Barbie Dream Glow",
-                        tagFa = "پوسته VIP صورتی نئونی ✨",
-                        tagEn = "VIP Pink Sparkle ✨",
-                        descFa = "اتمسفر رویایی دریم‌هاوس با هاله صورتی نئونی، اشعه‌های طلایی و ذرات معلق پروانه‌ای",
-                        descEn = "Dreamhouse neon pink radiance with floating golden sparkles, heart aura and glamour glow",
-                        primaryColor = Color(0xFFFF1493),
-                        secondaryColor = Color(0xFFFFD700),
-                        icon = Icons.Default.Favorite,
-                        entitlementId = "now_playing_barbie"
-                    ),
-                    CollectorSkinOption(
-                        id = "batman_knight",
-                        titleFa = "شوالیه تاریکی (The Dark Knight)",
-                        titleEn = "The Dark Knight (Batman)",
-                        tagFa = "پوسته VIP بتمن و گاتهام 🦇",
-                        tagEn = "VIP Gotham Armor 🦇",
-                        descFa = "اتمسفر تاریک تیتانیومی با نورافکن زرد بت‌سیگنال، رادار رفلکتور و افکت سینمایی باران",
-                        descEn = "Titanium armor HUD with Bat-Signal searchlight radar pulse and midnight rain ambiance",
-                        primaryColor = Color(0xFFFFCC00),
-                        secondaryColor = Color(0xFF1E88E5),
-                        icon = Icons.Default.Shield,
-                        entitlementId = "now_playing_batman"
-                    ),
-                    CollectorSkinOption(
-                        id = "last_of_us",
-                        titleFa = "لست آف آز (The Last of Us)",
-                        titleEn = "The Last of Us (Firefly)",
-                        tagFa = "پوسته VIP فایرفلای و بقا 🌿",
-                        tagEn = "VIP Firefly Spores 🌿",
-                        descFa = "قاب چوب ماهوگانی روستیک با ذرات بیولومینسانس درخشان و اتمسفر رازآلود بقا",
-                        descEn = "Weathered rustic mahogany frame with glowing bioluminescent firefly spores and warm acoustics",
-                        primaryColor = Color(0xFFFFD54F),
-                        secondaryColor = Color(0xFF81C784),
-                        icon = Icons.Default.FilterVintage,
-                        entitlementId = "now_playing_last_of_us"
-                    )
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(22.dp),
-                        thickness = GlassThickness.THICK,
-                        tintColor = palette.primary,
-                        tintAlpha = 0.16f,
-                        borderWidth = 1.2.dp,
-                        appTheme = settings.theme
-                    )
-                    .padding(18.dp)
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    // Header
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(palette.accent.copy(alpha = 0.22f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Palette,
-                                    contentDescription = null,
-                                    tint = palette.accent,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = if (lang == AppLanguage.PERSIAN) "پوسته‌های سینمایی و کلکسیونی VIP" else "VIP Collector Themes & Skins",
-                                    style = MaterialTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                )
-                                Text(
-                                    text = if (lang == AppLanguage.PERSIAN) "تغییر کامل تم و محیط صفحه پخش موسیقی" else "Transform your Now Playing visual universe",
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A5BA), fontSize = 11.sp)
-                                )
-                            }
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Brush.horizontalGradient(listOf(Color(0xFFFFD700), Color(0xFFFFA500))))
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                        ) {
-                            Text(
-                                text = if (lang == AppLanguage.PERSIAN) "۴ تم ویژه" else "4 Themes",
-                                color = Color.Black,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                        }
-                    }
-
-                    // Skin Cards
-                    collectorSkins.forEach { skin ->
-                        val isSelected = settings.selectedNowPlayingStyle == skin.id
-                        val isUnlocked = skin.entitlementId == null ||
-                                isVip ||
-                                unlockedStyles.contains(skin.id) ||
-                                com.example.monetization.EntitlementManager.hasAccess(context, skin.entitlementId)
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(18.dp))
-                                .background(
-                                    if (isSelected) {
-                                        Brush.linearGradient(
-                                            listOf(
-                                                skin.primaryColor.copy(alpha = 0.22f),
-                                                skin.secondaryColor.copy(alpha = 0.12f),
-                                                Color(0xFF0F111A)
-                                            )
-                                        )
-                                    } else {
-                                        Brush.linearGradient(
-                                            listOf(
-                                                Color(0xFF141624),
-                                                Color(0xFF0C0E17)
-                                            )
-                                        )
-                                    }
-                                )
-                                .border(
-                                    width = if (isSelected) 2.dp else 1.dp,
-                                    brush = if (isSelected) {
-                                        Brush.sweepGradient(
-                                            listOf(skin.primaryColor, skin.secondaryColor, skin.primaryColor)
-                                        )
-                                    } else {
-                                        Brush.linearGradient(
-                                            listOf(skin.primaryColor.copy(alpha = 0.35f), Color.Transparent)
-                                        )
-                                    },
-                                    shape = RoundedCornerShape(18.dp)
-                                )
-                                .clickable {
-                                    if (isUnlocked) {
-                                        onSelectNowPlayingStyle(skin.id)
-                                        onUpdateSettings(settings.copy(selectedNowPlayingStyle = skin.id))
-                                        Toast.makeText(
-                                            context,
-                                            if (lang == AppLanguage.PERSIAN) "پوسته «${skin.titleFa}» فعال شد ✨" else "Theme \"${skin.titleEn}\" activated ✨",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    } else {
-                                        onOpenVipPaywall(skin.entitlementId)
-                                    }
-                                }
-                                .padding(14.dp)
-                        ) {
-                            Column {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(36.dp)
-                                                .clip(CircleShape)
-                                                .background(skin.primaryColor.copy(alpha = 0.25f))
-                                                .border(1.dp, skin.primaryColor.copy(alpha = 0.6f), CircleShape),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = skin.icon,
-                                                contentDescription = null,
-                                                tint = skin.primaryColor,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Column {
-                                            Text(
-                                                text = if (lang == AppLanguage.PERSIAN) skin.titleFa else skin.titleEn,
-                                                style = MaterialTheme.typography.titleSmall.copy(
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = Color.White
-                                                )
-                                            )
-                                            Text(
-                                                text = if (lang == AppLanguage.PERSIAN) skin.tagFa else skin.tagEn,
-                                                style = MaterialTheme.typography.labelSmall.copy(
-                                                    color = skin.primaryColor,
-                                                    fontWeight = FontWeight.SemiBold
-                                                )
-                                            )
-                                        }
-                                    }
-
-                                    // Status Pill
-                                    if (isSelected) {
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .background(skin.primaryColor.copy(alpha = 0.25f))
-                                                .border(1.dp, skin.primaryColor, RoundedCornerShape(12.dp))
-                                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Check,
-                                                    contentDescription = null,
-                                                    tint = skin.primaryColor,
-                                                    modifier = Modifier.size(12.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                    text = if (lang == AppLanguage.PERSIAN) "فعال است" else "Active",
-                                                    color = Color.White,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-                                    } else if (isUnlocked) {
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .background(Color.White.copy(alpha = 0.12f))
-                                                .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
-                                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                                        ) {
-                                            Text(
-                                                text = if (lang == AppLanguage.PERSIAN) "انتخاب تم" else "Select",
-                                                color = Color.White.copy(alpha = 0.9f),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
-                                    } else {
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .background(Color(0x35FFD700))
-                                                .border(1.dp, Color(0xFFFFD700), RoundedCornerShape(12.dp))
-                                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Lock,
-                                                    contentDescription = null,
-                                                    tint = Color(0xFFFFD700),
-                                                    modifier = Modifier.size(12.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                    text = if (lang == AppLanguage.PERSIAN) "VIP / تبلیغ" else "VIP / Ad",
-                                                    color = Color(0xFFFFD700),
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Text(
-                                    text = if (lang == AppLanguage.PERSIAN) skin.descFa else skin.descEn,
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        color = Color(0xFFB0B7C6),
-                                        fontSize = 11.sp,
-                                        lineHeight = 16.sp
-                                    )
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            BadgesAndHonorsSection(
+                badges = userProfile?.badges ?: emptyList(),
+                palette = palette,
+                isFa = isFa,
+                onOpenSupport = { showSupportDialog = true }
+            )
         }
 
-        // Section: Audio Hardware, DSP & Continuous Mix
+        // 3. WEEKLY MISSIONS & QUESTS
         item {
-            val hasContinuousAccess = com.example.monetization.EntitlementManager.hasAccess(context, "continuous_mix")
-            val hasHearingAccess = com.example.monetization.EntitlementManager.hasAccess(context, "personal_hearing_profile")
+            QuestsMissionsSection(
+                quests = userProfile?.quests ?: emptyList(),
+                palette = palette,
+                isFa = isFa,
+                onOpenSupport = { showSupportDialog = true }
+            )
+        }
+
+        // 4. SPOTIFY-LIKE MUSIC FLASHBACK MEMORY CARD
+        item {
+            MusicFlashbackCard(
+                currentTrack = null,
+                palette = palette,
+                language = lang,
+                onShareInsight = { text ->
+                    val sendIntent = android.content.Intent().apply {
+                        action = android.content.Intent.ACTION_SEND
+                        putExtra(android.content.Intent.EXTRA_TEXT, text)
+                        type = "text/plain"
+                    }
+                    context.startActivity(android.content.Intent.createChooser(sendIntent, "اشتراک خاطره موسیقی"))
+                }
+            )
+        }
+
+        // 5. Section: Audio Hardware, DSP & Equalizer
+        item {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -596,60 +213,6 @@ fun SettingsScreen(
                         Icon(imageVector = Icons.Default.Equalizer, contentDescription = null, tint = palette.accent)
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(Localization.getString("audio_hardware", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
-                    }
-
-                    // Continuous Mix
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(Localization.getString("continuous_mix", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.SemiBold))
-                                if (!hasContinuousAccess) {
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Icon(Icons.Default.AutoAwesome, contentDescription = "VIP", tint = goldAccent, modifier = Modifier.size(13.dp))
-                                }
-                            }
-                            Text(Localization.getString("continuous_mix_desc", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)))
-                        }
-                        Switch(
-                            checked = settings.continuousMixEnabled,
-                            onCheckedChange = { isChecked ->
-                                if (isChecked) {
-                                    if (hasContinuousAccess) {
-                                        onUpdateSettings(settings.copy(continuousMixEnabled = true))
-                                    } else {
-                                        onOpenVipPaywall("continuous_mix")
-                                    }
-                                } else {
-                                    onUpdateSettings(settings.copy(continuousMixEnabled = false))
-                                }
-                            }
-                        )
-                    }
-
-                    // Hearing Calibration Profile Button
-                    Button(
-                        onClick = {
-                            if (hasHearingAccess) {
-                                onOpenHearingProfileTest()
-                            } else {
-                                onOpenVipPaywall("personal_hearing_profile")
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = palette.accent.copy(alpha = 0.35f)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Hearing, contentDescription = null, modifier = Modifier.size(18.dp), tint = palette.accent)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(Localization.getString("hearing_profile", lang), color = Color.White)
-                        if (!hasHearingAccess) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Icon(Icons.Default.AutoAwesome, contentDescription = "VIP", tint = goldAccent, modifier = Modifier.size(14.dp))
-                        }
                     }
 
                     // Open Standard Equalizer Button
@@ -691,48 +254,24 @@ fun SettingsScreen(
                             onCheckedChange = { onUpdateSettings(settings.copy(gaplessEnabled = it)) }
                         )
                     }
-                }
-            }
-        }
 
-        // Section: Focus & Study Mode
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
-                        thickness = GlassThickness.REGULAR,
-                        tintColor = palette.accent,
-                        tintAlpha = 0.14f,
-                        borderWidth = 1.dp,
-                        appTheme = settings.theme
-                    )
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // Haptic Feedback
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Icon(imageVector = Icons.Default.SelfImprovement, contentDescription = null, tint = palette.accent)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(Localization.getString("focus_mode", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
-                                Text(Localization.getString("focus_mode_desc", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)))
-                            }
-                        }
+                        Text(if (isFa) "لرزش و فیدبک لمسی (Haptics)" else "Haptic Feedback", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
                         Switch(
-                            checked = settings.focusModeEnabled,
-                            onCheckedChange = { onUpdateSettings(settings.copy(focusModeEnabled = it)) }
+                            checked = settings.hapticFeedbackEnabled,
+                            onCheckedChange = { onUpdateSettings(settings.copy(hapticFeedbackEnabled = it)) }
                         )
                     }
                 }
             }
         }
 
-        // Section: Visualizer & Ambient Halo
+        // 6. Section: Visualizer & Ambient Halo
         item {
             Box(
                 modifier = Modifier
@@ -759,26 +298,10 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(6.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(VisualizerPreset.DEFAULT_PRESETS) { preset ->
-                            val vFeature = getVisualizerFeatureId(preset.mode)
-                            val isLocked = vFeature != null && !com.example.monetization.EntitlementManager.hasAccess(context, vFeature)
                             FilterChip(
                                 selected = settings.visualizerMode == preset.mode,
-                                onClick = {
-                                    if (isLocked) {
-                                        onOpenVipPaywall(vFeature)
-                                    } else {
-                                        onSetPreset(preset)
-                                    }
-                                },
-                                label = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(preset.name, fontSize = 11.sp)
-                                        if (isLocked) {
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Icon(Icons.Default.AutoAwesome, contentDescription = "VIP", modifier = Modifier.size(11.dp), tint = goldAccent)
-                                        }
-                                    }
-                                }
+                                onClick = { onSetPreset(preset) },
+                                label = { Text(preset.name, fontSize = 11.sp) }
                             )
                         }
                     }
@@ -801,7 +324,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section: Language Selection
+        // 7. Section: Language Selection
         item {
             Box(
                 modifier = Modifier
@@ -829,9 +352,7 @@ fun SettingsScreen(
                         AppLanguage.values().forEach { l ->
                             FilterChip(
                                 selected = settings.language == l,
-                                onClick = {
-                                    onUpdateSettings(settings.copy(language = l))
-                                },
+                                onClick = { onUpdateSettings(settings.copy(language = l)) },
                                 label = {
                                     Text(
                                         text = if (l == AppLanguage.PERSIAN) "فارسی (پیش‌فرض)" else "English",
@@ -849,101 +370,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section: Themes & Aesthetics
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
-                        thickness = GlassThickness.REGULAR,
-                        tintColor = palette.primary,
-                        tintAlpha = 0.12f,
-                        borderWidth = 1.dp,
-                        appTheme = settings.theme
-                    )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Palette, contentDescription = null, tint = palette.accent)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(Localization.getString("theme_appearance", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(AppTheme.values().toList()) { t ->
-                            val tFeature = getThemeFeatureId(t)
-                            val isLocked = tFeature != null && !com.example.monetization.EntitlementManager.hasAccess(context, tFeature)
-                            FilterChip(
-                                selected = settings.theme == t,
-                                onClick = {
-                                    if (isLocked) {
-                                        onOpenVipPaywall(tFeature)
-                                    } else {
-                                        if (settings.theme != t) {
-                                            val signatureAccent = when (t) {
-                                                AppTheme.PURE_LIQUID_GLASS -> 0xFF00E5FF
-                                                AppTheme.CYBER_NIGHTS -> 0xFF00F0FF
-                                                AppTheme.Y2K_CHROME -> 0xFF38BDF8
-                                                AppTheme.VELVET_NOIR -> 0xFFFFD700
-                                                AppTheme.SUNSET_RAVE -> 0xFFFF5E00
-                                                AppTheme.DIGITAL_ACID -> 0xFF39FF14
-                                                AppTheme.MONOCHROME_NOIR -> 0xFFFFFFFF
-                                            }
-                                            onUpdateSettings(settings.copy(theme = t, customAccentColor = signatureAccent))
-                                        }
-                                    }
-                                },
-                                label = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(if (lang == AppLanguage.PERSIAN) t.titleFa else t.titleEn, fontSize = 12.sp)
-                                        if (isLocked) {
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Icon(Icons.Default.AutoAwesome, contentDescription = "VIP", modifier = Modifier.size(11.dp), tint = goldAccent)
-                                        }
-                                    }
-                                }
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Text(Localization.getString("accent_palette", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)))
-                    Spacer(modifier = Modifier.height(8.dp))
-                    val accentColors = listOf(
-                        0xFF8B5CF6 to "Radiant Violet",
-                        0xFF06B6D4 to "Cyan Glow",
-                        0xFFF43F5E to "Neon Rose",
-                        0xFF10B981 to "Emerald",
-                        0xFFF59E0B to "Amber Gold",
-                        0xFF38BDF8 to "Electric Blue"
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        accentColors.forEach { (colorVal, _) ->
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(colorVal))
-                                    .clickable {
-                                        onUpdateSettings(settings.copy(customAccentColor = colorVal))
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (settings.customAccentColor == colorVal) {
-                                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Section: Storage, Library & Duplicate Optimizer
+        // 8. Section: Storage & Backup
         item {
             Box(
                 modifier = Modifier
@@ -964,18 +391,6 @@ fun SettingsScreen(
                         Text(Localization.getString("storage_cache", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
                     }
 
-                    // Duplicate Audio Optimizer
-                    Button(
-                        onClick = onOpenDuplicatesReview,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B).copy(alpha = 0.35f)),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.CleaningServices, contentDescription = null, tint = Color(0xFFFBBF24))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(Localization.getString("duplicates_manager", lang), color = Color.White)
-                    }
-
                     Button(
                         onClick = onRescanLibrary,
                         colors = ButtonDefaults.buttonColors(containerColor = palette.primary.copy(alpha = 0.25f)),
@@ -990,7 +405,7 @@ fun SettingsScreen(
                     OutlinedButton(
                         onClick = {
                             onClearPlaybackHistory()
-                            Toast.makeText(context, if (lang == AppLanguage.PERSIAN) "تاریخچه پخش پاکسازی شد" else "Playback history cleared", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, if (isFa) "تاریخچه پخش پاکسازی شد" else "Playback history cleared", Toast.LENGTH_SHORT).show()
                         },
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -1036,7 +451,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section: Dedicated Feedback & Support
+        // 9. Section: Dedicated Feedback & Support
         item {
             Box(
                 modifier = Modifier
@@ -1078,7 +493,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section: About & Warm Note
+        // 10. Footer / About Note
         item {
             Column(
                 modifier = Modifier
@@ -1088,13 +503,13 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = if (lang == AppLanguage.PERSIAN) "امیدوارم با لذت بیشتری بتونید آهنگ گوش کنید 💙" else "Hope you enjoy your music with even greater pleasure 💙",
+                    text = if (isFa) "امیدوارم با لذت بیشتری بتونید آهنگ گوش کنید 💙" else "Hope you enjoy your music with even greater pleasure 💙",
                     style = MaterialTheme.typography.bodyMedium.copy(
                         color = Color(0xFFC7D7FE),
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = 0.4.sp
                     ),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    textAlign = TextAlign.Center
                 )
                 Text(
                     text = "Aura Music Player v1.0.0",
@@ -1110,7 +525,7 @@ fun SettingsScreen(
                                 val remaining = 7 - devTapCount
                                 Toast.makeText(
                                     context,
-                                    if (lang == AppLanguage.PERSIAN) "$remaining ضربه تا فعال‌سازی حالت توسعه‌دهنده" else "You are $remaining steps away from Developer Mode",
+                                    if (isFa) "$remaining ضربه تا فعال‌سازی حالت توسعه‌دهنده" else "You are $remaining steps away from Developer Mode",
                                     Toast.LENGTH_SHORT
                                 ).show()
                             } else if (devTapCount >= 7) {
@@ -1119,9 +534,9 @@ fun SettingsScreen(
                                 Toast.makeText(
                                     context,
                                     if (newDevState) {
-                                        if (lang == AppLanguage.PERSIAN) "🚀 ابزار تله‌متری و دولوپر فعال شد!" else "🚀 Developer HUD Activated!"
+                                        if (isFa) "🚀 ابزار تله‌متری و دولوپر فعال شد!" else "🚀 Developer HUD Activated!"
                                     } else {
-                                        if (lang == AppLanguage.PERSIAN) "حالت توسعه‌دهنده غیرفعال شد" else "Developer Mode Disabled"
+                                        if (isFa) "حالت توسعه‌دهنده غیرفعال شد" else "Developer Mode Disabled"
                                     },
                                     Toast.LENGTH_SHORT
                                 ).show()
@@ -1131,7 +546,7 @@ fun SettingsScreen(
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 )
                 Text(
-                    text = if (lang == AppLanguage.PERSIAN)
+                    text = if (isFa)
                         "صدای شفاف استودیویی • پردازش بلادرنگ ۱۲۰ فریم • شیشه مایع آئورا"
                     else "High-Fidelity Audio • 120 FPS Real-Time DSP • Dynamic Aurora",
                     style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF707086))
@@ -1140,15 +555,132 @@ fun SettingsScreen(
         }
     }
 
+    // Edit Name Dialog
+    if (showEditProfileDialog) {
+        var tempName by remember { mutableStateOf(userProfile?.name ?: "") }
+        AlertDialog(
+            onDismissRequest = { showEditProfileDialog = false },
+            title = { Text(if (isFa) "ویرایش نام پروفایل" else "Edit Profile Name") },
+            text = {
+                OutlinedTextField(
+                    value = tempName,
+                    onValueChange = { tempName = it },
+                    singleLine = true,
+                    label = { Text(if (isFa) "نام نمایشی شما" else "Your Display Name") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (tempName.trim().isNotEmpty()) {
+                            UserProfileManager.setUserName(context, tempName)
+                        }
+                        showEditProfileDialog = false
+                    }
+                ) {
+                    Text(if (isFa) "ذخیره" else "Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditProfileDialog = false }) {
+                    Text(if (isFa) "انصراف" else "Cancel")
+                }
+            }
+        )
+    }
+
+    // Emoji Avatar Picker Dialog
+    if (showAvatarPickerDialog) {
+        val emojis = listOf("🎧", "🎵", "✨", "👑", "🎸", "🌌", "❤️", "🦋", "🦁", "💎", "🌙", "🔥", "⚡", "🍀", "🌸")
+        AlertDialog(
+            onDismissRequest = { showAvatarPickerDialog = false },
+            title = { Text(if (isFa) "انتخاب آواتار کاربری" else "Select Profile Avatar") },
+            text = {
+                Column {
+                    Text(
+                        text = if (isFa) "آواتار دلخواه خود را برای نمایش در بالای پروفایل انتخاب کنید:" else "Choose your favorite avatar emoji:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFA0A5BA)
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        emojis.take(5).forEach { emoji ->
+                            Text(
+                                text = emoji,
+                                fontSize = 28.sp,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        UserProfileManager.setAvatarEmoji(context, emoji)
+                                        showAvatarPickerDialog = false
+                                    }
+                                    .padding(6.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        emojis.drop(5).take(5).forEach { emoji ->
+                            Text(
+                                text = emoji,
+                                fontSize = 28.sp,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        UserProfileManager.setAvatarEmoji(context, emoji)
+                                        showAvatarPickerDialog = false
+                                    }
+                                    .padding(6.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        emojis.drop(10).forEach { emoji ->
+                            Text(
+                                text = emoji,
+                                fontSize = 28.sp,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        UserProfileManager.setAvatarEmoji(context, emoji)
+                                        showAvatarPickerDialog = false
+                                    }
+                                    .padding(6.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showAvatarPickerDialog = false }) {
+                    Text(if (isFa) "بستن" else "Close")
+                }
+            }
+        )
+    }
+
+    // Backup Dialog
     if (showBackupDialog) {
         AlertDialog(
             onDismissRequest = { showBackupDialog = false },
             title = {
                 Text(
                     if (isExportMode) {
-                        if (lang == AppLanguage.PERSIAN) "خروجی فایل پشتیبان JSON" else "Export Backup JSON"
+                        if (isFa) "خروجی فایل پشتیبان JSON" else "Export Backup JSON"
                     } else {
-                        if (lang == AppLanguage.PERSIAN) "بازیابی از فایل پشتیبان JSON" else "Import Backup JSON"
+                        if (isFa) "بازیابی از فایل پشتیبان JSON" else "Import Backup JSON"
                     }
                 )
             },
@@ -1156,11 +688,11 @@ fun SettingsScreen(
                 Column {
                     Text(
                         text = if (isExportMode) {
-                            if (lang == AppLanguage.PERSIAN)
+                            if (isFa)
                                 "این متن JSON را کپی کنید تا از لیست‌های پخش، علاقه‌مندی‌ها و تنظیمات پشتیبان داشته باشید:"
                             else "Copy this JSON to backup your playlists, favorites and settings:"
                         } else {
-                            if (lang == AppLanguage.PERSIAN)
+                            if (isFa)
                                 "متن JSON پشتیبان را در کادر زیر جای‌گذاری کنید:"
                             else "Paste your backup JSON below:"
                         },
@@ -1185,9 +717,9 @@ fun SettingsScreen(
                                 Toast.makeText(
                                     context,
                                     if (success) {
-                                        if (lang == AppLanguage.PERSIAN) "اطلاعات با موفقیت بازیابی شد!" else "Restored successfully!"
+                                        if (isFa) "اطلاعات با موفقیت بازیابی شد!" else "Restored successfully!"
                                     } else {
-                                        if (lang == AppLanguage.PERSIAN) "فرمت فایل پشتیبان نامعتبر است" else "Invalid backup JSON"
+                                        if (isFa) "فرمت فایل پشتیبان نامعتبر است" else "Invalid backup JSON"
                                     },
                                     Toast.LENGTH_SHORT
                                 ).show()
@@ -1200,55 +732,438 @@ fun SettingsScreen(
                 ) {
                     Text(
                         if (isExportMode) {
-                            if (lang == AppLanguage.PERSIAN) "بستن" else "Close"
+                            if (isFa) "بستن" else "Close"
                         } else {
-                            if (lang == AppLanguage.PERSIAN) "بازیابی" else "Restore"
+                            if (isFa) "بازیابی" else "Restore"
                         }
                     )
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showBackupDialog = false }) {
-                    Text(if (lang == AppLanguage.PERSIAN) "انصراف" else "Cancel")
+                    Text(if (isFa) "انصراف" else "Cancel")
                 }
             }
         )
     }
 }
 
-private fun getThemeFeatureId(theme: AppTheme): String? = when (theme) {
-    AppTheme.PURE_LIQUID_GLASS, AppTheme.CYBER_NIGHTS -> null
-    AppTheme.VELVET_NOIR -> "theme_velvet_noir"
-    AppTheme.SUNSET_RAVE -> "theme_sunset_rave"
-    AppTheme.DIGITAL_ACID -> "theme_digital_acid"
-    AppTheme.Y2K_CHROME -> "theme_y2k_chrome"
-    AppTheme.MONOCHROME_NOIR -> "theme_monochrome_noir"
+@Composable
+private fun UserProfileCard(
+    profile: UserProfileData?,
+    palette: AmbientPalette,
+    isFa: Boolean,
+    onEditName: () -> Unit,
+    onEditAvatar: () -> Unit,
+    onOpenSupport: () -> Unit
+) {
+    val p = profile ?: return
+    val goldColor = Color(0xFFFFD700)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .liquidGlass(
+                shape = RoundedCornerShape(26.dp),
+                thickness = GlassThickness.THICK,
+                tintColor = if (p.isSupporter) goldColor else palette.primary,
+                tintAlpha = if (p.isSupporter) 0.22f else 0.16f,
+                borderWidth = 1.5.dp
+            )
+            .padding(18.dp)
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    // Avatar with edit badge
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.radialGradient(
+                                    listOf(
+                                        if (p.isSupporter) goldColor.copy(alpha = 0.4f) else palette.primary.copy(alpha = 0.35f),
+                                        Color(0xFF141727)
+                                    )
+                                )
+                            )
+                            .border(
+                                width = 2.dp,
+                                color = if (p.isSupporter) goldColor else palette.accent,
+                                shape = CircleShape
+                            )
+                            .clickable { onEditAvatar() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(text = p.avatarEmoji, fontSize = 28.sp)
+                    }
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { onEditName() }
+                        ) {
+                            Text(
+                                text = p.name,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White,
+                                    fontSize = 16.sp
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit Name",
+                                tint = Color.White.copy(alpha = 0.6f),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(3.dp))
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(
+                                        if (p.isSupporter) goldColor.copy(alpha = 0.25f) else palette.primary.copy(alpha = 0.2f)
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = p.supporterTitle,
+                                    color = if (p.isSupporter) goldColor else palette.accent,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            Text(
+                                text = if (isFa) "همراه از ${p.joinDays} روز پیش" else "Member for ${p.joinDays}d",
+                                color = Color(0xFFA0A5BA),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Quick Stats Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0x22000000))
+                    .padding(vertical = 10.dp, horizontal = 12.dp),
+                horizontalArrangement = Arrangement.SpaceAround
+            ) {
+                StatItem(
+                    label = if (isFa) "قطعات پخش‌شده" else "Tracks Played",
+                    value = "${p.totalTracksPlayed} 🎵",
+                    color = palette.accent
+                )
+                Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.White.copy(alpha = 0.1f)))
+                StatItem(
+                    label = if (isFa) "ساعت در موسیقی" else "Listening Hours",
+                    value = "${String.format("%.1f", p.totalListeningHours)} ⏳",
+                    color = Color(0xFF64B5F6)
+                )
+                Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.White.copy(alpha = 0.1f)))
+                StatItem(
+                    label = if (isFa) "نشان‌های کسب‌شده" else "Badges",
+                    value = "${p.badges.count { it.isUnlocked }} / ${p.badges.size} 🏆",
+                    color = goldColor
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Primary Heartwarming Support Button
+            Button(
+                onClick = onOpenSupport,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (p.isSupporter) goldColor.copy(alpha = 0.35f) else Color(0xFFFF4081).copy(alpha = 0.85f),
+                    contentColor = Color.White
+                ),
+                contentPadding = PaddingValues(vertical = 10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Favorite,
+                    contentDescription = null,
+                    tint = if (p.isSupporter) goldColor else Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (p.isSupporter) {
+                        if (isFa) "شما حامی مهربون برنامه هستید ❤️ (افزایش حمایت)" else "You are a Kind Supporter ❤️ (Donate More)"
+                    } else {
+                        if (isFa) "حمایت از سازنده و برنامه ❤️ (رایگان با دیدن تبلیغ یا دونیت)" else "Support the Developer ❤️ (Free Ad or Donation)"
+                    },
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
+                )
+            }
+        }
+    }
 }
 
-private fun getVisualizerFeatureId(mode: VisualizerMode): String? = when (mode) {
-    VisualizerMode.AMBIENT_HALO, VisualizerMode.BASS_GLOW, VisualizerMode.SPECTRUM -> null
-    VisualizerMode.CIRCULAR_SPECTRUM -> "visualizer_circular_spectrum"
-    VisualizerMode.WAVEFORM -> "visualizer_waveform"
-    VisualizerMode.RADIAL_WAVE -> "visualizer_radial_wave"
-    VisualizerMode.PULSE_RING -> "visualizer_pulse_ring"
-    VisualizerMode.AURORA -> "visualizer_aurora"
-    VisualizerMode.LIQUID -> "visualizer_liquid"
-    VisualizerMode.PARTICLE_FIELD -> "visualizer_particle_field"
-    VisualizerMode.DOTS -> "visualizer_dots"
-    VisualizerMode.CINEMATIC_FOG -> "visualizer_cinematic_fog"
+@Composable
+private fun StatItem(label: String, value: String, color: Color) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(text = value, color = color, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
+        Text(text = label, color = Color(0xFFA0A5BA), fontSize = 10.sp)
+    }
 }
 
-private data class CollectorSkinOption(
-    val id: String,
-    val titleFa: String,
-    val titleEn: String,
-    val tagFa: String,
-    val tagEn: String,
-    val descFa: String,
-    val descEn: String,
-    val primaryColor: Color,
-    val secondaryColor: Color,
-    val icon: ImageVector,
-    val entitlementId: String?
-)
+@Composable
+private fun BadgesAndHonorsSection(
+    badges: List<UserBadge>,
+    palette: AmbientPalette,
+    isFa: Boolean,
+    onOpenSupport: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .liquidGlass(
+                shape = RoundedCornerShape(22.dp),
+                thickness = GlassThickness.REGULAR,
+                tintColor = palette.primary,
+                tintAlpha = 0.14f,
+                borderWidth = 1.dp
+            )
+            .padding(16.dp)
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.EmojiEvents,
+                        contentDescription = null,
+                        tint = Color(0xFFFFD700),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isFa) "نشان‌ها و دستاوردهای افتخاری" else "Honor Badges & Achievements",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontSize = 14.sp
+                        )
+                    )
+                }
 
+                Text(
+                    text = if (isFa) "برای شما" else "For You",
+                    color = palette.accent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            badges.forEach { badge ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (badge.isUnlocked) Color(0x2BFFFFFF) else Color(0x11FFFFFF))
+                        .border(
+                            width = 1.dp,
+                            color = if (badge.isUnlocked) {
+                                if (badge.isKindBadge) Color(0xFFFF4081).copy(alpha = 0.6f) else Color(0xFFFFD700).copy(alpha = 0.5f)
+                            } else Color.White.copy(alpha = 0.06f),
+                            shape = RoundedCornerShape(14.dp)
+                        )
+                        .clickable {
+                            if (!badge.isUnlocked && badge.isKindBadge) {
+                                onOpenSupport()
+                            }
+                        }
+                        .padding(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(text = badge.emoji, fontSize = 22.sp)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (isFa) badge.titleFa else badge.titleEn,
+                                    color = if (badge.isUnlocked) Color.White else Color(0xFFA0A5BA),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    text = if (isFa) badge.descFa else badge.descEn,
+                                    color = if (badge.isUnlocked) Color(0xFFC0C5D8) else Color(0xFF707588),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        if (badge.isUnlocked) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Unlocked",
+                                tint = if (badge.isKindBadge) Color(0xFFFF4081) else Color(0xFFFFD700),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = "Locked",
+                                tint = Color.White.copy(alpha = 0.3f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuestsMissionsSection(
+    quests: List<UserQuest>,
+    palette: AmbientPalette,
+    isFa: Boolean,
+    onOpenSupport: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .liquidGlass(
+                shape = RoundedCornerShape(22.dp),
+                thickness = GlassThickness.REGULAR,
+                tintColor = palette.primary,
+                tintAlpha = 0.14f,
+                borderWidth = 1.dp
+            )
+            .padding(16.dp)
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.TaskAlt,
+                        contentDescription = null,
+                        tint = palette.accent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isFa) "ماموریت‌ها و چالش‌های هفتگی" else "Weekly Quests & Missions",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontSize = 14.sp
+                        )
+                    )
+                }
+
+                Text(
+                    text = if (isFa) "پیشرفت شما" else "Your Progress",
+                    color = palette.accent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            quests.forEach { quest ->
+                val progress = (quest.current.toFloat() / quest.target.toFloat()).coerceIn(0f, 1f)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0x22000000))
+                        .padding(12.dp)
+                ) {
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = quest.emoji, fontSize = 18.sp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = if (isFa) quest.titleFa else quest.titleEn,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                    Text(
+                                        text = quest.descFa,
+                                        color = Color(0xFFA0A5BA),
+                                        fontSize = 10.sp
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = "${quest.current} / ${quest.target}",
+                                color = if (quest.isCompleted) Color(0xFF81C784) else palette.accent,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp)),
+                            color = if (quest.isCompleted) Color(0xFF81C784) else palette.primary,
+                            trackColor = Color.White.copy(alpha = 0.1f)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

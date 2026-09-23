@@ -602,13 +602,13 @@ fun MainScreen(
         }
 
         if (showVipPaywallForFeature != null) {
-            VipPaywallSheet(
+            SupportDonationDialog(
                 palette = palette,
-                lang = lang,
-                featureHighlight = showVipPaywallForFeature,
+                language = lang,
                 onDismiss = { showVipPaywallForFeature = null },
-                onVipUnlocked = {
+                onSupportSuccess = {
                     showVipPaywallForFeature = null
+                    com.example.data.repository.UserProfileManager.refreshProfile(context)
                     viewModel.refreshUnlockedStyles()
                     viewModel.updateSettings(appSettings.copy())
                 }
