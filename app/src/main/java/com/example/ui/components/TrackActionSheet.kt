@@ -108,7 +108,10 @@ fun TrackActionSheet(
                             accentColor = palette.primary,
                             size = 56.dp,
                             shape = RoundedCornerShape(14.dp),
-                            iconSize = 28.dp
+                            iconSize = 28.dp,
+                            title = track.title,
+                            artist = track.artist,
+                            trackId = track.id
                         )
 
                         Spacer(modifier = Modifier.width(14.dp))

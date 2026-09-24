@@ -154,11 +154,11 @@ fun MiniPlayer(
                                             modifier = Modifier.fillMaxSize()
                                         )
                                     } else {
-                                        Icon(
-                                            imageVector = Icons.Default.MusicNote,
-                                            contentDescription = "Music",
-                                            tint = animatedPrimary,
-                                            modifier = Modifier.size(22.dp)
+                                        MusicArtworkPlaceholder(
+                                            title = currentTrack.title,
+                                            artist = currentTrack.artist,
+                                            trackId = currentTrack.id,
+                                            modifier = Modifier.fillMaxSize()
                                         )
                                     }
                                 }

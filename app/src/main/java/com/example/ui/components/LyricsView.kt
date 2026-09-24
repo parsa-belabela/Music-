@@ -43,6 +43,8 @@ import com.example.data.model.LyricsDisplayMode
 import com.example.data.model.LyricsLine
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlin.math.abs
 
 @Composable
@@ -99,31 +101,59 @@ fun LyricsView(
     val haptic = LocalHapticFeedback.current
     var isCinematicFullscreen by remember { mutableStateOf(false) }
 
-    // Live continuous clock ticker for 60fps sub-millisecond sweep
+    // Live continuous clock ticker for 60fps sub-millisecond sweep and sync
     var liveClockMs by remember { mutableLongStateOf(currentPositionProvider()) }
-    LaunchedEffect(lyrics.isNotEmpty()) {
-        while (true) {
+    LaunchedEffect(activeTrackId, lyrics.isNotEmpty()) {
+        while (isActive) {
             liveClockMs = currentPositionProvider()
-            kotlinx.coroutines.delay(20L)
+            kotlinx.coroutines.delay(16L)
         }
     }
 
+    // Reset scroll to top whenever the active track changes
+    LaunchedEffect(activeTrackId) {
+        if (lyrics.isNotEmpty()) {
+            try {
+                listState.scrollToItem(0)
+            } catch (_: Exception) {}
+        }
+    }
+
+    // Calculate currently active lyric line index (-1 if before the first line)
     val activeIndex = remember(lyrics, liveClockMs) {
         if (lyrics.isEmpty()) -1
         else {
             val idx = lyrics.indexOfLast { it.timestampMs <= liveClockMs }
-            if (idx == -1) 0 else idx
+            idx
         }
     }
 
-    // Smooth spring auto-scroll with fallback for rapid skipping
+    // User touch interaction tracking: do not fight user when they scroll manually
+    var isUserInteracting by remember { mutableStateOf(false) }
+    var lastUserInteractionTime by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) {
+            isUserInteracting = true
+            lastUserInteractionTime = System.currentTimeMillis()
+        }
+    }
+
+    // Smooth auto-scroll following the singer
     LaunchedEffect(activeIndex) {
-        if (activeIndex in lyrics.indices && !listState.isScrollInProgress) {
-            val targetScroll = (activeIndex - 1).coerceAtLeast(0)
-            listState.animateScrollToItem(
-                index = targetScroll,
-                scrollOffset = -100
-            )
+        if (activeIndex in lyrics.indices) {
+            val now = System.currentTimeMillis()
+            if (isUserInteracting && (now - lastUserInteractionTime < 3000L)) {
+                return@LaunchedEffect
+            }
+            isUserInteracting = false
+
+            try {
+                listState.animateScrollToItem(
+                    index = activeIndex,
+                    scrollOffset = 0
+                )
+            } catch (_: Exception) {}
         }
     }
 

@@ -273,7 +273,7 @@ fun SettingsScreen(
             }
         }
 
-        // 6. Section: Visualizer & Ambient Halo
+        // 6. Section: Dynamic Atmosphere & Adaptive Colors
         item {
             Box(
                 modifier = Modifier
@@ -289,23 +289,12 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.GraphicEq, contentDescription = null, tint = palette.accent)
+                        Icon(imageVector = Icons.Default.Palette, contentDescription = null, tint = palette.accent)
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text(Localization.getString("visualizer_dsp", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Text(Localization.getString("visualizer_presets", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)))
-                    Spacer(modifier = Modifier.height(6.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(VisualizerPreset.DEFAULT_PRESETS) { preset ->
-                            FilterChip(
-                                selected = settings.visualizerMode == preset.mode,
-                                onClick = { onSetPreset(preset) },
-                                label = { Text(preset.name, fontSize = 11.sp) }
-                            )
-                        }
+                        Text(
+                            text = if (isFa) "رنگ‌آمیزی پویا و هاله نوری" else "Dynamic Atmosphere & Lighting",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White)
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -316,7 +305,17 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(Localization.getString("auto_color", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text(
+                                text = if (isFa) "استخراج خودکار تم از کاور آهنگ" else "Dynamic Palette from Artwork",
+                                style = MaterialTheme.typography.bodyMedium.copy(color = Color.White)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (isFa) "ایجاد رنگ زنده برای کاورها و نورپردازی محیطی" else "Generate vibrant colors for covers and ambient glow",
+                                style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8))
+                            )
+                        }
                         Switch(
                             checked = settings.autoColorFromArtwork,
                             onCheckedChange = { onUpdateSettings(settings.copy(autoColorFromArtwork = it)) }

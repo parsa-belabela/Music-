@@ -373,7 +373,10 @@ fun PlaylistDetailSheet(
                                         accentColor = palette.secondary,
                                         size = 46.dp,
                                         shape = RoundedCornerShape(12.dp),
-                                        iconSize = 24.dp
+                                        iconSize = 24.dp,
+                                        title = track.title,
+                                        artist = track.artist,
+                                        trackId = track.id
                                     )
 
                                     Spacer(modifier = Modifier.width(12.dp))

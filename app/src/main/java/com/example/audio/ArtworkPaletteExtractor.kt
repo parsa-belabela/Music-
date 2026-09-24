@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.toArgb
 import com.example.data.model.AppSettings
 import com.example.data.model.AppTheme
 import com.example.data.model.Track
+import com.example.ui.components.GenerativeArtworkTheme
 import java.io.File
 import java.io.InputStream
 import kotlin.math.abs
@@ -59,7 +60,17 @@ object ArtworkPaletteExtractor {
         val palette = if (bitmap != null) {
             extractDominantPaletteFromBitmap(bitmap, appSettings.theme)
         } else {
-            getDefaultPalette(appSettings.theme)
+            val gen = GenerativeArtworkTheme.getThemeForTrack(track.title, track.artist, track.id)
+            AmbientPalette(
+                primary = gen.primary,
+                secondary = gen.secondary,
+                haloGlow = gen.primary.copy(alpha = 0.70f),
+                accent = gen.tertiary,
+                deepAtmosphere = gen.deep,
+                richBlack = Color(0xFF090A14),
+                isLightLuminance = false,
+                isMonochrome = false
+            )
         }
 
         paletteCache.put(cacheKey, palette)
@@ -150,17 +161,17 @@ object ArtworkPaletteExtractor {
             )
 
             if (isMonochrome) {
-                // High-Contrast Monochrome Palette with Vivid Vibrant Action Accents
-                val primary = Color(0xFFE2E8F0) // Luminous Silver-Platinum
-                val secondary = Color(0xFF0F172A) // Rich Velvet Obsidian
-                val accent = Color(0xFF00E5FF) // Electric Vivid Cyan Accent
-                val deepAtmosphere = Color(0xFF070913) // Deepest velvet atmosphere
+                // High-Contrast Monochrome Palette with Pure Luminous Silver/White (NO spurious blue/cyan)
+                val primary = Color(0xFFF1F5F9) // Luminous Silver-Platinum
+                val secondary = Color(0xFF94A3B8) // Muted Slate Chrome
+                val accent = Color(0xFFFFFFFF) // Pure Crisp Diamond White
+                val deepAtmosphere = Color(0xFF070911) // Deepest velvet atmosphere
                 val richBlack = Color(0xFF020306) // Absolute Pure Black
 
                 return AmbientPalette(
                     primary = primary,
                     secondary = secondary,
-                    haloGlow = Color(0x8000E5FF),
+                    haloGlow = Color(0x60FFFFFF),
                     accent = accent,
                     deepAtmosphere = deepAtmosphere,
                     richBlack = richBlack,
@@ -315,11 +326,13 @@ object ArtworkPaletteExtractor {
             )
             AppTheme.PURE_LIQUID_GLASS -> AmbientPalette(
                 primary = raw.primary,
-                secondary = blendColors(raw.secondary, Color(0xFF8B5CF6), 0.30f),
+                secondary = blendColors(raw.secondary, raw.primary, 0.30f),
                 haloGlow = raw.primary.copy(alpha = 0.65f),
-                accent = Color(0xFF00E5FF),
-                deepAtmosphere = Color(0xFF060812),
-                richBlack = Color(0xFF04050A)
+                accent = if (raw.isMonochrome) Color(0xFFFFFFFF) else raw.primary,
+                deepAtmosphere = raw.deepAtmosphere,
+                richBlack = Color(0xFF04050A),
+                isLightLuminance = raw.isLightLuminance,
+                isMonochrome = raw.isMonochrome
             )
         }
     }

@@ -228,11 +228,12 @@ fun ShareSongDialog(
                                     modifier = Modifier.fillMaxSize()
                                 )
                             } else {
-                                Icon(
-                                    imageVector = Icons.Default.MusicNote,
-                                    contentDescription = null,
-                                    tint = palette.accent,
-                                    modifier = Modifier.size(54.dp)
+                                MusicArtworkPlaceholder(
+                                    title = track.title,
+                                    artist = track.artist,
+                                    trackId = track.id,
+                                    palette = palette,
+                                    modifier = Modifier.fillMaxSize()
                                 )
                             }
                         }

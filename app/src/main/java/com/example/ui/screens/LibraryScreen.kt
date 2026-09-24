@@ -74,7 +74,7 @@ fun LibraryScreen(
     bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
     modifier: Modifier = Modifier
 ) {
-    var selectedSort by remember { mutableStateOf(SortOption.TITLE) }
+    var selectedSort by remember { mutableStateOf(SortOption.DATE_ADDED) }
     var showSortMenu by remember { mutableStateOf(false) }
     var filterQuery by remember { mutableStateOf("") }
     var selectedTrackMenu by remember { mutableStateOf<Track?>(null) }
@@ -265,7 +265,10 @@ fun LibraryScreen(
                                     accentColor = if (isCurrent) palette.accent else palette.primary,
                                     size = 46.dp,
                                     shape = RoundedCornerShape(10.dp),
-                                    iconSize = 24.dp
+                                    iconSize = 24.dp,
+                                    title = track.title,
+                                    artist = track.artist,
+                                    trackId = track.id
                                 )
                                 if (isCurrent) {
                                     Box(

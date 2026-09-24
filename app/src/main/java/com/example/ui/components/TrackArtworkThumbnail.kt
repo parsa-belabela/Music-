@@ -30,7 +30,10 @@ fun TrackArtworkThumbnail(
     modifier: Modifier = Modifier,
     size: Dp = 46.dp,
     shape: Shape = RoundedCornerShape(10.dp),
-    iconSize: Dp = (size.value * 0.5f).dp
+    iconSize: Dp = (size.value * 0.5f).dp,
+    title: String? = null,
+    artist: String? = null,
+    trackId: String? = null
 ) {
     Box(
         modifier = modifier
@@ -42,24 +45,17 @@ fun TrackArtworkThumbnail(
         if (!artworkUri.isNullOrEmpty()) {
             AsyncImage(
                 model = artworkUri,
-                contentDescription = "Artwork",
+                contentDescription = title ?: "Artwork",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(accentColor.copy(alpha = 0.18f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MusicNote,
-                    contentDescription = null,
-                    tint = accentColor,
-                    modifier = Modifier.size(iconSize)
-                )
-            }
+            MusicArtworkPlaceholder(
+                title = title,
+                artist = artist,
+                trackId = trackId,
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }

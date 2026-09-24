@@ -50,7 +50,6 @@ import com.example.util.Localization
 
 enum class NowPlayingCenterView {
     ARTWORK_AND_HALO,
-    VISUALIZER_FULL,
     LYRICS
 }
 
@@ -335,16 +334,6 @@ fun NowPlayingScreen(
                         )
 
                         SegmentPillItem(
-                            title = if (appSettings.language == AppLanguage.PERSIAN) "هاله صوتی" else "Ambient Halo",
-                            isSelected = centerView == NowPlayingCenterView.VISUALIZER_FULL,
-                            activeColor = Color(0xFFFFA500),
-                            onClick = {
-                                triggerHaptic()
-                                centerView = NowPlayingCenterView.VISUALIZER_FULL
-                            }
-                        )
-
-                        SegmentPillItem(
                             title = if (appSettings.language == AppLanguage.PERSIAN) "متن آهنگ" else "Lyrics",
                             isSelected = centerView == NowPlayingCenterView.LYRICS,
                             activeColor = Color(0xFFFFA500),
@@ -357,7 +346,7 @@ fun NowPlayingScreen(
                 }
             }
 
-            // 3. Center Component (Artwork / Visualizer / Lyrics)
+            // 3. Center Component (Artwork / Lyrics)
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -415,47 +404,14 @@ fun NowPlayingScreen(
                                     contentScale = ContentScale.Crop
                                 )
                             } else {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            Brush.radialGradient(
-                                                listOf(palette.primary.copy(alpha = 0.5f), Color(0xFF141624))
-                                            )
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.MusicNote,
-                                        contentDescription = null,
-                                        tint = Color.White.copy(alpha = 0.7f),
-                                        modifier = Modifier.size(90.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    NowPlayingCenterView.VISUALIZER_FULL -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .liquidGlass(
-                                    shape = RoundedCornerShape(32.dp),
-                                    thickness = GlassThickness.REGULAR,
-                                    tintColor = palette.primary,
-                                    tintAlpha = 0.15f
+                                MusicArtworkPlaceholder(
+                                    title = track.title,
+                                    artist = track.artist,
+                                    trackId = track.id,
+                                    palette = palette,
+                                    modifier = Modifier.fillMaxSize()
                                 )
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            AudioVisualizer(
-                                mode = appSettings.visualizerMode,
-                                palette = palette,
-                                glow = appSettings.visualizerGlow,
-                                analysisDataProvider = analysisDataProvider,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                            }
                         }
                     }
 
@@ -473,11 +429,14 @@ fun NowPlayingScreen(
                         ) {
                             LyricsView(
                                 lyrics = currentLyrics,
-                                currentPositionMs = currentPositionProvider(),
+                                currentPositionProvider = currentPositionProvider,
                                 displayMode = appSettings.lyricsDisplayMode,
                                 palette = palette,
                                 onSeekTo = onSeekTo,
                                 onOpenEditor = onOpenLyricsEditor,
+                                enableWordHighlight = appSettings.lyricsKaraokeWordHighlight,
+                                baseFontSize = appSettings.lyricsFontSize,
+                                activeTrackId = track.id,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
@@ -720,7 +679,11 @@ fun NowPlayingScreen(
                         .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
                         .clickable {
                             triggerHaptic()
-                            centerView = NowPlayingCenterView.LYRICS
+                            centerView = if (centerView == NowPlayingCenterView.LYRICS) {
+                                NowPlayingCenterView.ARTWORK_AND_HALO
+                            } else {
+                                NowPlayingCenterView.LYRICS
+                            }
                         }
                         .padding(horizontal = 14.dp, vertical = 8.dp)
                 ) {

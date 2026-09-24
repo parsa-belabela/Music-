@@ -103,15 +103,31 @@ fun CinematicAtmosphereBackground(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
-                            Brush.radialGradient(
+                            Brush.verticalGradient(
                                 colors = listOf(
-                                    animatedPrimary.copy(alpha = 0.30f),
-                                    animatedDeep.copy(alpha = 0.20f),
-                                    Color.Transparent
+                                    animatedPrimary.copy(alpha = 0.45f),
+                                    animatedSecondary.copy(alpha = 0.30f),
+                                    animatedDeep.copy(alpha = 0.65f),
+                                    Color(0xFF080914)
                                 )
                             )
                         )
-                )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.radialGradient(
+                                    colors = listOf(
+                                        animatedPrimary.copy(alpha = 0.40f),
+                                        animatedAccent.copy(alpha = 0.20f),
+                                        Color.Transparent
+                                    ),
+                                    radius = 800f
+                                )
+                            )
+                    )
+                }
             }
         }
 

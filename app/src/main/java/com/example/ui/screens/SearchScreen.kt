@@ -361,7 +361,10 @@ fun SearchScreen(
                                     artworkUri = track.artworkUri,
                                     accentColor = palette.accent,
                                     size = 48.dp,
-                                    shape = RoundedCornerShape(12.dp)
+                                    shape = RoundedCornerShape(12.dp),
+                                    title = track.title,
+                                    artist = track.artist,
+                                    trackId = track.id
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {

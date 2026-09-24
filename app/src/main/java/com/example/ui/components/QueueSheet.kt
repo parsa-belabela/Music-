@@ -126,7 +126,10 @@ fun QueueSheet(
                                     accentColor = if (isCurrent) palette.accent else palette.primary,
                                     size = 38.dp,
                                     shape = RoundedCornerShape(8.dp),
-                                    iconSize = 18.dp
+                                    iconSize = 18.dp,
+                                    title = track.title,
+                                    artist = track.artist,
+                                    trackId = track.id
                                 )
 
                                 Spacer(modifier = Modifier.width(10.dp))

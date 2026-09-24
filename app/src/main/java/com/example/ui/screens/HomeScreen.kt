@@ -47,6 +47,7 @@ import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import com.example.audio.AmbientPalette
 import com.example.data.model.*
+import com.example.ui.components.MusicArtworkPlaceholder
 import com.example.ui.components.TrackArtworkThumbnail
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
@@ -499,7 +500,10 @@ fun HomeScreen(
                                     accentColor = palette.primary,
                                     size = 124.dp,
                                     shape = RoundedCornerShape(14.dp),
-                                    iconSize = 38.dp
+                                    iconSize = 38.dp,
+                                    title = track.title,
+                                    artist = track.artist,
+                                    trackId = track.id
                                 )
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Text(
@@ -573,7 +577,10 @@ fun HomeScreen(
                                     accentColor = palette.accent,
                                     size = 48.dp,
                                     shape = RoundedCornerShape(12.dp),
-                                    iconSize = 24.dp
+                                    iconSize = 24.dp,
+                                    title = track.title,
+                                    artist = track.artist,
+                                    trackId = track.id
                                 )
                                 Spacer(modifier = Modifier.width(14.dp))
                                 Column(modifier = Modifier.weight(1f)) {
@@ -666,21 +673,18 @@ private fun HeroQuickPlayCard(
     val isFa = appSettings.language == AppLanguage.PERSIAN
     val cardShape = RoundedCornerShape(26.dp)
 
+    // The single primary dominant alive color extracted directly from the album cover artwork
+    val dominantCoverColor = if (palette.isMonochrome) {
+        Color(0xFFE2E8F0) // Pure luminous silver-white for black & white covers (NO spurious blue/cyan)
+    } else {
+        palette.primary
+    }
+
     // Smooth color animation when artwork/palette changes
-    val animColor1 by androidx.compose.animation.animateColorAsState(
-        targetValue = palette.primary,
+    val animDominantColor by androidx.compose.animation.animateColorAsState(
+        targetValue = dominantCoverColor,
         animationSpec = tween(400, easing = FastOutSlowInEasing),
-        label = "heroColor1"
-    )
-    val animColor2 by androidx.compose.animation.animateColorAsState(
-        targetValue = palette.secondary,
-        animationSpec = tween(400, easing = FastOutSlowInEasing),
-        label = "heroColor2"
-    )
-    val animColor3 by androidx.compose.animation.animateColorAsState(
-        targetValue = palette.accent,
-        animationSpec = tween(400, easing = FastOutSlowInEasing),
-        label = "heroColor3"
+        label = "heroDominantColor"
     )
 
     // Dynamic rotation: spins fast and smooth when playing (3200ms), stops completely when paused
@@ -718,8 +722,8 @@ private fun HeroQuickPlayCard(
             .shadow(
                 elevation = 28.dp,
                 shape = cardShape,
-                spotColor = animColor1.copy(alpha = 0.85f),
-                ambientColor = animColor2.copy(alpha = 0.65f)
+                spotColor = animDominantColor.copy(alpha = 0.85f),
+                ambientColor = animDominantColor.copy(alpha = 0.40f)
             )
             .clip(cardShape)
             .clickable {
@@ -738,16 +742,18 @@ private fun HeroQuickPlayCard(
                 .background(Color(0xFF090B14))
         )
 
-        // Layer 2: Rotating 3-Color Dynamic Sweep Gradient Canvas with optimized cached brush
-        val sweepColors = remember(animColor1, animColor2, animColor3) {
+        // Layer 2: Rotating Single-Color Dynamic Sweep Gradient Beam
+        // Beautiful contrast: intense glowing head (پررنگ) transitioning to faint/transparent tail (کمرنگ)
+        val sweepColors = remember(animDominantColor) {
             listOf(
-                animColor1.copy(alpha = 0.95f),
-                animColor2.copy(alpha = 0.90f),
-                animColor3.copy(alpha = 0.95f),
-                animColor1.copy(alpha = 0.85f),
-                animColor2.copy(alpha = 0.92f),
-                animColor3.copy(alpha = 0.88f),
-                animColor1.copy(alpha = 0.95f)
+                animDominantColor.copy(alpha = 0.98f), // Apex / head: bright, punchy, alive
+                animDominantColor.copy(alpha = 0.70f), // Leading wing
+                animDominantColor.copy(alpha = 0.28f), // Soft falloff
+                animDominantColor.copy(alpha = 0.04f), // Distant tail (کمرنگ)
+                Color.Transparent,                    // Clear void
+                animDominantColor.copy(alpha = 0.06f), // Ambient return
+                animDominantColor.copy(alpha = 0.45f), // Ramping back up
+                animDominantColor.copy(alpha = 0.98f)  // Seamless closing loop
             )
         }
         Canvas(modifier = Modifier.matchParentSize()) {
@@ -780,7 +786,7 @@ private fun HeroQuickPlayCard(
                 )
         )
 
-        // Layer 4: Glassmorphic frost overlay with elegant double-border glow
+        // Layer 4: Glassmorphic frost overlay with elegant single-cover-color border glow
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -797,11 +803,11 @@ private fun HeroQuickPlayCard(
                     width = 1.4.dp,
                     brush = Brush.sweepGradient(
                         listOf(
-                            Color.White.copy(alpha = 0.70f),
-                            animColor3.copy(alpha = 0.60f),
-                            Color.White.copy(alpha = 0.25f),
-                            animColor1.copy(alpha = 0.70f),
-                            Color.White.copy(alpha = 0.70f)
+                            animDominantColor.copy(alpha = 0.85f),
+                            Color.White.copy(alpha = 0.40f),
+                            animDominantColor.copy(alpha = 0.18f),
+                            Color.White.copy(alpha = 0.10f),
+                            animDominantColor.copy(alpha = 0.85f)
                         )
                     ),
                     shape = cardShape
@@ -893,11 +899,12 @@ private fun HeroQuickPlayCard(
                                 contentScale = ContentScale.Crop
                             )
                         } else {
-                            Icon(
-                                imageVector = Icons.Default.MusicNote,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.9f),
-                                modifier = Modifier.size(24.dp)
+                            MusicArtworkPlaceholder(
+                                title = heroTrack?.title,
+                                artist = heroTrack?.artist,
+                                trackId = heroTrack?.id,
+                                palette = palette,
+                                modifier = Modifier.fillMaxSize()
                             )
                         }
                     }
@@ -936,7 +943,7 @@ private fun HeroQuickPlayCard(
                 Box(
                     modifier = Modifier
                         .size(52.dp)
-                        .shadow(14.dp, CircleShape, spotColor = animColor1)
+                        .shadow(14.dp, CircleShape, spotColor = animDominantColor)
                         .clip(CircleShape)
                         .background(
                             Brush.linearGradient(
@@ -959,7 +966,7 @@ private fun HeroQuickPlayCard(
                     Icon(
                         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = animColor1,
+                        tint = animDominantColor,
                         modifier = Modifier.size(30.dp)
                     )
                 }
