@@ -52,6 +52,9 @@ interface MusicDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertNewTracks(tracks: List<Track>): List<Long>
 
+    @Query("UPDATE tracks SET dateAdded = :dateAdded WHERE id = :trackId")
+    suspend fun updateTrackDateAdded(trackId: String, dateAdded: Long)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTrack(track: Track)
 

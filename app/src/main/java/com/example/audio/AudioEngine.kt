@@ -15,6 +15,7 @@ import android.net.Uri
 import android.os.Build
 import android.util.Log
 import com.example.data.model.PlayerStatus
+import com.example.data.model.RepeatMode
 import com.example.data.model.Track
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -190,6 +191,16 @@ class AudioEngine(private val context: Context) {
     var onTrackCompleted: (() -> Unit)? = null
     var onError: ((String) -> Unit)? = null
 
+    var repeatMode: RepeatMode = RepeatMode.OFF
+        private set
+
+    fun setRepeatMode(mode: RepeatMode) {
+        repeatMode = mode
+        try {
+            mediaPlayer?.isLooping = (mode == RepeatMode.ONE)
+        } catch (_: Exception) {}
+    }
+
     var crossfadeSeconds: Int = 1
     var gaplessEnabled: Boolean = true
     var pauseOnInterruption: Boolean = true
@@ -330,8 +341,20 @@ class AudioEngine(private val context: Context) {
                     }
                 }
 
+                preloaded.isLooping = (repeatMode == RepeatMode.ONE)
+
                 preloaded.setOnCompletionListener {
                     if (transitionId.get() != currentTransitionId) return@setOnCompletionListener
+                    if (repeatMode == RepeatMode.ONE) {
+                        try {
+                            preloaded.seekTo(0)
+                            preloaded.start()
+                            _status.value = PlayerStatus.PLAYING
+                            _isPlayWhenReady.value = true
+                            startProgressTracker()
+                        } catch (_: Exception) {}
+                        return@setOnCompletionListener
+                    }
                     _status.value = PlayerStatus.PAUSED
                     _isPlayWhenReady.value = false
                     stopProgressTracker()
@@ -425,6 +448,8 @@ class AudioEngine(private val context: Context) {
                     preparedMp.seekTo(startPositionMs.toInt())
                 }
 
+                preparedMp.isLooping = (repeatMode == RepeatMode.ONE)
+
                 if (_isPlayWhenReady.value) {
                     performSoftFadeIn(preparedMp, currentTransitionId)
                 } else {
@@ -435,6 +460,16 @@ class AudioEngine(private val context: Context) {
 
             mp.setOnCompletionListener {
                 if (transitionId.get() != currentTransitionId) return@setOnCompletionListener
+                if (repeatMode == RepeatMode.ONE) {
+                    try {
+                        mp.seekTo(0)
+                        mp.start()
+                        _status.value = PlayerStatus.PLAYING
+                        _isPlayWhenReady.value = true
+                        startProgressTracker()
+                    } catch (_: Exception) {}
+                    return@setOnCompletionListener
+                }
                 _status.value = PlayerStatus.PAUSED
                 _isPlayWhenReady.value = false
                 stopProgressTracker()

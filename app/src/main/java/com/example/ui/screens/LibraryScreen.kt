@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
@@ -19,6 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,10 +90,10 @@ fun LibraryScreen(
             }
         }
         when (selectedSort) {
-            SortOption.TITLE -> filtered.sortedBy { it.title }
-            SortOption.ARTIST -> filtered.sortedBy { it.artist }
-            SortOption.DURATION -> filtered.sortedByDescending { it.durationMs }
-            SortOption.DATE_ADDED -> filtered.sortedByDescending { it.dateAdded }
+            SortOption.TITLE -> filtered.sortedWith(compareBy<Track> { it.title.lowercase() }.thenBy { it.id })
+            SortOption.ARTIST -> filtered.sortedWith(compareBy<Track> { it.artist.lowercase() }.thenBy { it.id })
+            SortOption.DURATION -> filtered.sortedWith(compareByDescending<Track> { it.durationMs }.thenBy { it.id })
+            SortOption.DATE_ADDED -> filtered.sortedWith(compareByDescending<Track> { it.dateAdded }.thenByDescending { it.id })
         }
     }
 
@@ -128,15 +132,41 @@ fun LibraryScreen(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                // Sort Menu
+                // Sort Menu with GPU-accelerated micro-animation
                 Box {
                     IconButton(onClick = { showSortMenu = true }) {
                         Icon(imageVector = Icons.Default.Sort, contentDescription = "Sort", tint = Color.White)
                     }
+
+                    val menuAlpha by animateFloatAsState(
+                        targetValue = if (showSortMenu) 1f else 0f,
+                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+                        label = "sort_menu_alpha"
+                    )
+                    val menuScale by animateFloatAsState(
+                        targetValue = if (showSortMenu) 1f else 0.92f,
+                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+                        label = "sort_menu_scale"
+                    )
+
                     DropdownMenu(
                         expanded = showSortMenu,
                         onDismissRequest = { showSortMenu = false },
-                        modifier = Modifier.background(Color(0xFF161628))
+                        modifier = Modifier
+                            .graphicsLayer {
+                                alpha = menuAlpha
+                                scaleX = menuScale
+                                scaleY = menuScale
+                                transformOrigin = TransformOrigin(0.9f, 0f)
+                            }
+                            .liquidGlass(
+                                shape = RoundedCornerShape(16.dp),
+                                thickness = GlassThickness.REGULAR,
+                                tintColor = palette.deepAtmosphere,
+                                tintAlpha = 0.92f,
+                                borderWidth = 1.dp,
+                                appTheme = settings.theme
+                            )
                     ) {
                         SortOption.values().forEach { option ->
                             DropdownMenuItem(

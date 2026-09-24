@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -235,10 +236,36 @@ fun NowPlayingScreen(
                                 modifier = Modifier.size(22.dp)
                             )
                         }
+
+                        val moreMenuAlpha by animateFloatAsState(
+                            targetValue = if (showMoreMenu) 1f else 0f,
+                            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+                            label = "np_more_menu_alpha"
+                        )
+                        val moreMenuScale by animateFloatAsState(
+                            targetValue = if (showMoreMenu) 1f else 0.92f,
+                            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+                            label = "np_more_menu_scale"
+                        )
+
                         DropdownMenu(
                             expanded = showMoreMenu,
                             onDismissRequest = { showMoreMenu = false },
-                            modifier = Modifier.background(Color(0xF212131F))
+                            modifier = Modifier
+                                .graphicsLayer {
+                                    alpha = moreMenuAlpha
+                                    scaleX = moreMenuScale
+                                    scaleY = moreMenuScale
+                                    transformOrigin = TransformOrigin(0.9f, 0f)
+                                }
+                                .liquidGlass(
+                                    shape = RoundedCornerShape(18.dp),
+                                    thickness = GlassThickness.REGULAR,
+                                    tintColor = palette.deepAtmosphere,
+                                    tintAlpha = 0.92f,
+                                    borderWidth = 1.dp,
+                                    appTheme = appSettings.theme
+                                )
                         ) {
                             DropdownMenuItem(
                                 text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "تغییر کاور آهنگ" else "Change Song Artwork", color = Color.White) },

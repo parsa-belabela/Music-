@@ -208,7 +208,10 @@ class MusicRepository(
             MediaStore.Audio.Media.ALBUM,
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.YEAR,
-            MediaStore.Audio.Media.ALBUM_ID
+            MediaStore.Audio.Media.ALBUM_ID,
+            MediaStore.Audio.Media.DATE_ADDED,
+            MediaStore.Audio.Media.DATE_MODIFIED,
+            MediaStore.Audio.Media.DATA
         )
 
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
@@ -219,7 +222,7 @@ class MusicRepository(
                 projection,
                 selection,
                 null,
-                "${MediaStore.Audio.Media.TITLE} ASC"
+                "${MediaStore.Audio.Media.DATE_ADDED} DESC"
             )?.use { cursor ->
                 val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                 val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
@@ -228,6 +231,9 @@ class MusicRepository(
                 val durCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
                 val yearCol = cursor.getColumnIndex(MediaStore.Audio.Media.YEAR)
                 val albumIdCol = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ID)
+                val dateAddedCol = cursor.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED)
+                val dateModCol = cursor.getColumnIndex(MediaStore.Audio.Media.DATE_MODIFIED)
+                val dataCol = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
 
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(idCol)
@@ -237,6 +243,20 @@ class MusicRepository(
                     val duration = cursor.getLong(durCol)
                     val year = if (yearCol != -1) cursor.getInt(yearCol) else 2024
                     val albumId = if (albumIdCol != -1) cursor.getLong(albumIdCol) else -1L
+
+                    val dateAddedSec = if (dateAddedCol != -1) cursor.getLong(dateAddedCol) else 0L
+                    val dateModSec = if (dateModCol != -1) cursor.getLong(dateModCol) else 0L
+                    val filePath = if (dataCol != -1) cursor.getString(dataCol) else null
+
+                    val dateAddedMs = when {
+                        dateAddedSec > 0L -> dateAddedSec * 1000L
+                        dateModSec > 0L -> dateModSec * 1000L
+                        !filePath.isNullOrBlank() -> {
+                            val f = java.io.File(filePath)
+                            if (f.exists() && f.lastModified() > 0L) f.lastModified() else System.currentTimeMillis()
+                        }
+                        else -> System.currentTimeMillis()
+                    }
 
                     val contentUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id).toString()
                     val artworkUri = if (albumId > 0) {
@@ -254,6 +274,7 @@ class MusicRepository(
                                 uri = contentUri,
                                 artworkUri = artworkUri,
                                 year = if (year > 0) year else 2024,
+                                dateAdded = dateAddedMs,
                                 isDemo = false
                             )
                         )
@@ -263,6 +284,10 @@ class MusicRepository(
 
             if (tracksFound.isNotEmpty()) {
                 musicDao.insertNewTracks(tracksFound)
+                // Guarantee existing tracks also receive accurate dateAdded timestamps
+                for (trk in tracksFound) {
+                    musicDao.updateTrackDateAdded(trk.id, trk.dateAdded)
+                }
             }
         } catch (e: Exception) {
             Log.e(tag, "Failed to scan MediaStore: ${e.message}")

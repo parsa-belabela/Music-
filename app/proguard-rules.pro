@@ -21,6 +21,11 @@
 -dontwarn kotlinx.coroutines.**
 -keep class androidx.lifecycle.** { *; }
 
+# Audio Engine & Background Services
+-keep class com.example.audio.** { *; }
+-keep class com.example.service.** { *; }
+-keep class com.example.ui.viewmodel.** { *; }
+
 # Keep line numbers for stack traces
 -keepattributes SourceFile,LineNumberTable
 -keepattributes *Annotation*

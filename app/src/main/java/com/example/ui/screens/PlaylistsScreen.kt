@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -18,6 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -376,10 +381,35 @@ fun PlaylistsScreen(
                                         )
                                     }
 
+                                    val plMenuAlpha by animateFloatAsState(
+                                        targetValue = if (menuExpanded) 1f else 0f,
+                                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+                                        label = "pl_menu_alpha"
+                                    )
+                                    val plMenuScale by animateFloatAsState(
+                                        targetValue = if (menuExpanded) 1f else 0.92f,
+                                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+                                        label = "pl_menu_scale"
+                                    )
+
                                     DropdownMenu(
                                         expanded = menuExpanded,
                                         onDismissRequest = { menuExpanded = false },
-                                        modifier = Modifier.background(Color(0xF212131F))
+                                        modifier = Modifier
+                                            .graphicsLayer {
+                                                alpha = plMenuAlpha
+                                                scaleX = plMenuScale
+                                                scaleY = plMenuScale
+                                                transformOrigin = TransformOrigin(0.9f, 0f)
+                                            }
+                                            .liquidGlass(
+                                                shape = RoundedCornerShape(16.dp),
+                                                thickness = GlassThickness.REGULAR,
+                                                tintColor = palette.deepAtmosphere,
+                                                tintAlpha = 0.92f,
+                                                borderWidth = 1.dp,
+                                                appTheme = settings.theme
+                                            )
                                     ) {
                                         DropdownMenuItem(
                                             text = {
