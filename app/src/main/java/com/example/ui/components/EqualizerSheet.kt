@@ -169,11 +169,13 @@ fun EqualizerSheet(
         sheetState = sheetState,
         containerColor = Color(0xFF0E0E1A),
         scrimColor = Color(0xFF030308).copy(alpha = 0.85f),
-        dragHandle = { BottomSheetDefaults.DragHandle(color = Color(0x66FFFFFF)) },
-        modifier = Modifier.fillMaxHeight(0.92f)
+        dragHandle = { BottomSheetDefaults.DragHandle(color = Color(0x66FFFFFF)) }
     ) {
         Column(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.92f)
+                .navigationBarsPadding()
         ) {
             // Fixed Non-Scrollable Header
             Row(

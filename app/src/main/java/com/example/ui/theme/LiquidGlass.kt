@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
@@ -51,31 +52,45 @@ object LiquidGlassDesign {
         return when (theme) {
             AppTheme.PURE_LIQUID_GLASS -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.linearGradient(
-                        listOf(Color(0x0EFFFFFF), Color(0x05FFFFFF), Color(0x0400E5FF))
-                    ),
-                    borderGradient = Brush.linearGradient(
-                        listOf(Color(0x30FFFFFF), Color(0x1800E5FF), Color(0x0EFFFFFF))
-                    ),
-                    shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent,
-                    specularReflectionAlpha = 0.2f
-                )
-                GlassThickness.REGULAR -> LiquidGlassSpec(
                     surfaceGradient = Brush.verticalGradient(
-                        listOf(Color(0xF0121728), Color(0xEA0B101E), Color(0xEE10182A))
+                        listOf(
+                            Color(0x28FFFFFF),
+                            Color(0x10FFFFFF),
+                            Color(0x1C0C1222),
+                            Color(0x28060912)
+                        )
                     ),
                     borderGradient = Brush.linearGradient(
                         listOf(
                             Color(0x80FFFFFF),
+                            Color(0x3500E5FF),
+                            Color(0x208B5CF6),
+                            Color(0x18FFFFFF)
+                        )
+                    ),
+                    shadowElevation = 0.dp,
+                    shadowColor = Color.Transparent,
+                    specularReflectionAlpha = 0.45f
+                )
+                GlassThickness.REGULAR -> LiquidGlassSpec(
+                    surfaceGradient = Brush.verticalGradient(
+                        listOf(
+                            Color(0xD8141A2C),
+                            Color(0xC80C1220),
+                            Color(0xD010182A)
+                        )
+                    ),
+                    borderGradient = Brush.linearGradient(
+                        listOf(
+                            Color(0x85FFFFFF),
                             Color(0x4000E5FF),
                             Color(0x258B5CF6),
-                            Color(0x15FFFFFF)
+                            Color(0x1EFFFFFF)
                         )
                     ),
                     shadowElevation = 8.dp,
                     shadowColor = Color.Black.copy(alpha = 0.45f),
-                    specularReflectionAlpha = 0.5f
+                    specularReflectionAlpha = 0.6f
                 )
                 GlassThickness.THICK -> LiquidGlassSpec(
                     surfaceGradient = Brush.verticalGradient(
@@ -92,10 +107,15 @@ object LiquidGlassDesign {
 
             AppTheme.CYBER_NIGHTS -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x1000F0FF), Color(0x050F172A))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x3500F0FF), Color(0x15FF007F))),
+                    surfaceGradient = Brush.verticalGradient(
+                        listOf(Color(0x2200F0FF), Color(0x0E0F172A), Color(0x1A050D1C))
+                    ),
+                    borderGradient = Brush.verticalGradient(
+                        listOf(Color(0x6000F0FF), Color(0x25FF007F), Color(0x1500F0FF))
+                    ),
                     shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent
+                    shadowColor = Color.Transparent,
+                    specularReflectionAlpha = 0.4f
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
                     surfaceGradient = Brush.verticalGradient(listOf(Color(0xF0081224), Color(0xEA050D1C), Color(0xEE030814))),
@@ -113,10 +133,15 @@ object LiquidGlassDesign {
 
             AppTheme.Y2K_CHROME -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.linearGradient(listOf(Color(0x10E2E8F0), Color(0x0594A3B8))),
-                    borderGradient = Brush.linearGradient(listOf(Color(0x40FFFFFF), Color(0x2038BDF8), Color(0x1264748B))),
+                    surfaceGradient = Brush.linearGradient(
+                        listOf(Color(0x26FFFFFF), Color(0x10E2E8F0), Color(0x180D111A))
+                    ),
+                    borderGradient = Brush.linearGradient(
+                        listOf(Color(0x70FFFFFF), Color(0x3038BDF8), Color(0x1A64748B))
+                    ),
                     shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent
+                    shadowColor = Color.Transparent,
+                    specularReflectionAlpha = 0.5f
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
                     surfaceGradient = Brush.verticalGradient(listOf(Color(0xF0181F2C), Color(0xEA121724), Color(0xEE0D111A))),
@@ -134,10 +159,15 @@ object LiquidGlassDesign {
 
             AppTheme.VELVET_NOIR -> when (thickness) {
                 GlassThickness.THIN -> LiquidGlassSpec(
-                    surfaceGradient = Brush.verticalGradient(listOf(Color(0x10FFD700), Color(0x053B0746))),
-                    borderGradient = Brush.verticalGradient(listOf(Color(0x3AFFD700), Color(0x18A855F7))),
+                    surfaceGradient = Brush.verticalGradient(
+                        listOf(Color(0x22FFD700), Color(0x0E3B0746), Color(0x18120216))
+                    ),
+                    borderGradient = Brush.verticalGradient(
+                        listOf(Color(0x65FFD700), Color(0x25A855F7), Color(0x14FFD700))
+                    ),
                     shadowElevation = 0.dp,
-                    shadowColor = Color.Transparent
+                    shadowColor = Color.Transparent,
+                    specularReflectionAlpha = 0.45f
                 )
                 GlassThickness.REGULAR -> LiquidGlassSpec(
                     surfaceGradient = Brush.verticalGradient(listOf(Color(0xF01E0624), Color(0xEA15031A), Color(0xEE0F0112))),
@@ -237,21 +267,27 @@ fun Modifier.liquidGlass(
     appTheme: AppTheme? = null
 ): Modifier = composed {
     val activeTheme = appTheme ?: LocalAppTheme.current
-    val spec = LiquidGlassDesign.getSpec(thickness, tintColor, activeTheme)
+    val spec = remember(thickness, tintColor, activeTheme) {
+        LiquidGlassDesign.getSpec(thickness, tintColor, activeTheme)
+    }
+
+    val backgroundBrush = remember(spec, tintColor, activeTheme, tintAlpha) {
+        if (tintColor != Color.Transparent && activeTheme == AppTheme.CYBER_NIGHTS) {
+            Brush.verticalGradient(
+                listOf(
+                    tintColor.copy(alpha = (tintAlpha * 1.5f).coerceIn(0.08f, 0.45f)),
+                    Color(0xF0080E1A)
+                )
+            )
+        } else {
+            spec.surfaceGradient
+        }
+    }
 
     this
         .clip(shape)
         .background(
-            brush = if (tintColor != Color.Transparent && activeTheme == AppTheme.CYBER_NIGHTS) {
-                Brush.verticalGradient(
-                    listOf(
-                        tintColor.copy(alpha = (tintAlpha * 1.5f).coerceIn(0.08f, 0.45f)),
-                        Color(0xF0080E1A)
-                    )
-                )
-            } else {
-                spec.surfaceGradient
-            },
+            brush = backgroundBrush,
             shape = shape
         )
         .border(
@@ -270,9 +306,9 @@ fun Modifier.liquidGlass(
                             brush = Brush.horizontalGradient(
                                 listOf(
                                     Color.Transparent,
-                                    Color(0x99FFFFFF),
-                                    Color(0x6000E5FF),
-                                    Color(0x80FFFFFF),
+                                    Color(0xB0FFFFFF),
+                                    Color(0x7000E5FF),
+                                    Color(0x90FFFFFF),
                                     Color.Transparent
                                 )
                             ),
@@ -280,6 +316,25 @@ fun Modifier.liquidGlass(
                             end = Offset(size.width, 0f),
                             strokeWidth = 1.5f
                         )
+
+                        // Diagonal specular light beam reflection across the glass body
+                        if (size.width > 60f && size.height > 40f) {
+                            drawLine(
+                                brush = Brush.linearGradient(
+                                    listOf(
+                                        Color.Transparent,
+                                        Color(0x22FFFFFF),
+                                        Color(0x1000E5FF),
+                                        Color.Transparent
+                                    ),
+                                    start = Offset(0f, size.height * 0.35f),
+                                    end = Offset(size.width * 0.65f, 0f)
+                                ),
+                                start = Offset(0f, size.height * 0.35f),
+                                end = Offset(size.width * 0.65f, 0f),
+                                strokeWidth = 1.2f
+                            )
+                        }
                     }
                 }
                 AppTheme.CYBER_NIGHTS -> {

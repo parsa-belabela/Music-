@@ -140,12 +140,12 @@ fun NowPlayingScreen(
             }
             .testTag("now_playing_screen")
     ) {
-        // Living Atmosphere with vivid ambient light emission
+        // Living Atmosphere with elegant ambient light emission and Liquid Glass depth
         CinematicAtmosphereBackground(
             track = track,
             palette = palette,
             analysisDataProvider = analysisDataProvider,
-            glowStrength = if (isImmersive) appSettings.visualizerGlow * 2.2f else appSettings.visualizerGlow * 1.8f
+            glowStrength = if (isImmersive) appSettings.visualizerGlow * 1.15f else appSettings.visualizerGlow * 0.95f
         )
 
         // Signature Liquid Glass Mode (Matching Reference Screenshot 2)

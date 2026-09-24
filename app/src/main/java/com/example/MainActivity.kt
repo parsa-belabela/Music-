@@ -40,6 +40,24 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT)
         )
 
+        // Optimize hardware display pipeline to maximum supported refresh rate
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                val currentDisplay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    display
+                } else {
+                    @Suppress("DEPRECATION")
+                    window.windowManager.defaultDisplay
+                }
+                val maxRefreshMode = currentDisplay?.supportedModes?.maxByOrNull { it.refreshRate }
+                if (maxRefreshMode != null) {
+                    val params = window.attributes
+                    params.preferredDisplayModeId = maxRefreshMode.modeId
+                    window.attributes = params
+                }
+            } catch (_: Exception) {}
+        }
+
         setContent {
             val appSettings by viewModel.appSettings.collectAsState()
 
