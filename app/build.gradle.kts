@@ -48,7 +48,18 @@ android {
         storePassword = storePwd
         keyAlias = keyUsr ?: "aurarelease"
         keyPassword = keyPwd ?: storePwd
+      } else {
+        // Fallback to debug keystore for GitHub Actions / unsigned artifact builds
+        val dbgKeystore = file("${rootDir}/debug.keystore")
+        if (dbgKeystore.exists()) {
+          storeFile = dbgKeystore
+          storePassword = "android"
+          keyAlias = "androiddebugkey"
+          keyPassword = "android"
+        }
       }
+      enableV1Signing = true
+      enableV2Signing = true
     }
     create("debugConfig") {
       val dbgKeystore = file("${rootDir}/debug.keystore")
@@ -58,19 +69,18 @@ android {
         keyAlias = "androiddebugkey"
         keyPassword = "android"
       }
+      enableV1Signing = true
+      enableV2Signing = true
     }
   }
 
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = true
+      isMinifyEnabled = false
       isDebuggable = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      val relConfig = signingConfigs.getByName("release")
-      if (relConfig.storeFile != null) {
-        signingConfig = relConfig
-      }
+      signingConfig = signingConfigs.getByName("release")
     }
     debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }
