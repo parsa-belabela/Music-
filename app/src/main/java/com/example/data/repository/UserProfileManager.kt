@@ -94,7 +94,7 @@ object UserProfileManager {
     }
 
     fun isSupporter(context: Context): Boolean {
-        return getTotalDonatedToman(context) > 0 || prefs(context).getBoolean(KEY_IS_SUPPORTER, false)
+        return true
     }
 
     fun markAsSupporter(context: Context, viaAd: Boolean = false) {
@@ -105,32 +105,9 @@ object UserProfileManager {
         com.example.monetization.EntitlementManager.grantVip(
             context,
             3650,
-            "donation_support"
+            "full_access"
         )
         refreshProfile(context)
-    }
-
-    fun getTotalDonatedToman(context: Context): Int {
-        return prefs(context).getInt(KEY_TOTAL_DONATED, 0)
-    }
-
-    /**
-     * Records a real financial donation. Anyone who donates >= 100,000 Toman receives the secret
-     * "Developer's Guardian Angel 💙" achievement!
-     */
-    fun recordDonation(context: Context, amountToman: Int): Boolean {
-        val p = prefs(context)
-        val newTotal = p.getInt(KEY_TOTAL_DONATED, 0) + amountToman
-        val unlockedAngel = newTotal >= 100_000
-        p.edit()
-            .putInt(KEY_TOTAL_DONATED, newTotal)
-            .putBoolean(KEY_IS_SUPPORTER, true)
-            .putBoolean("secret_dev_badge_unlocked", unlockedAngel)
-            .putLong(KEY_SUPPORTER_TIMESTAMP, System.currentTimeMillis())
-            .apply()
-
-        refreshProfile(context)
-        return unlockedAngel
     }
 
     fun incrementTrackPlay(context: Context) {
@@ -186,32 +163,29 @@ object UserProfileManager {
 
     fun refreshProfile(context: Context) {
         val joinDays = getJoinDays(context)
-        val supporter = isSupporter(context)
+        val supporter = true
         val totalPlays = prefs(context).getInt(KEY_TOTAL_PLAYS, 0)
         val totalHours = (totalPlays * 3.5f / 60f)
-        val totalDonated = getTotalDonatedToman(context)
-        val hasDonated = totalDonated > 0
-        val isGuardianAngelUnlocked = totalDonated >= 100_000
 
         val badges = listOf(
             UserBadge(
                 id = "badge_kind_user",
-                titleFa = "کاربر مهربون ❤️",
-                titleEn = "Kind User ❤️",
-                descFa = "حمایت ارزشمند از توسعه برنامه با دونیت و همراهی (آنلاک با دونیت)",
-                descEn = "Supported the developer through donation",
-                emoji = "❤️",
-                isUnlocked = hasDonated,
+                titleFa = "کاربر ارزشمند 💙",
+                titleEn = "Valued User 💙",
+                descFa = "برنامه برای شما کاملاً رایگان است چون شما باارزش هستید:)💙",
+                descEn = "The app is completely free for you because you are valuable:)💙",
+                emoji = "💙",
+                isUnlocked = true,
                 isKindBadge = true
             ),
             UserBadge(
                 id = "badge_secret_dev_gratitude",
-                titleFa = "فرشته نجات سازنده 💙",
-                titleEn = "Developer's Guardian Angel 💙",
-                descFa = "از طرف برنامه‌نویس: واقعاً ازت ممنونم. خیلی بهم کمک کردی. اینو از ته قلبم میگم. درسته نمیشناسمت اما این کمکت خیلی کمک بزرگی بود به من و آینده و زندگیم:)💙 (آنلاک‌شده با حمایت بالای ۱۰۰ هزار تومان)",
-                descEn = "From developer: Thank you so much! Your support means the world to me and my future:)💙 (Unlocked via 100k+ Toman donation)",
-                emoji = "💙",
-                isUnlocked = isGuardianAngelUnlocked,
+                titleFa = "همراه صمیمی آئورا ✨",
+                titleEn = "Aura Close Companion ✨",
+                descFa = "از طرف برنامه‌نویس: خوشحالم که همراه مایی و از شنیدن موسیقی لذت می‌بری:)💙",
+                descEn = "From developer: Happy to have you enjoying music with Aura:)💙",
+                emoji = "✨",
+                isUnlocked = true,
                 isKindBadge = true
             ),
             UserBadge(
@@ -313,7 +287,6 @@ object UserProfileManager {
         val totalPlays = allEvents.size.coerceAtLeast(prefs(context).getInt(KEY_TOTAL_PLAYS, 0))
         val totalMs = allEvents.sumOf { it.durationListenedMs }
         val totalHours = (totalMs / 3600000f)
-        val totalDonated = getTotalDonatedToman(context)
 
         val nightPlaysCount = allEvents.count { ev ->
             val cal = java.util.Calendar.getInstance().apply { timeInMillis = ev.timestamp }
@@ -330,28 +303,26 @@ object UserProfileManager {
             .size
 
         val favoritesCount = favorites.size
-        val hasDonated = totalDonated > 0
-        val isGuardianAngelUnlocked = totalDonated >= 100_000
 
         val badges = listOf(
             UserBadge(
                 id = "badge_kind_user",
-                titleFa = "کاربر مهربون ❤️",
-                titleEn = "Kind User ❤️",
-                descFa = "حمایت ارزشمند از توسعه برنامه با دونیت و همراهی (آنلاک با دونیت)",
-                descEn = "Supported the developer through donation",
-                emoji = "❤️",
-                isUnlocked = hasDonated,
+                titleFa = "کاربر ارزشمند 💙",
+                titleEn = "Valued User 💙",
+                descFa = "برنامه برای شما کاملاً رایگان است چون شما باارزش هستید:)💙",
+                descEn = "The app is completely free for you because you are valuable:)💙",
+                emoji = "💙",
+                isUnlocked = true,
                 isKindBadge = true
             ),
             UserBadge(
                 id = "badge_secret_dev_gratitude",
-                titleFa = "فرشته نجات سازنده 💙",
-                titleEn = "Developer's Guardian Angel 💙",
-                descFa = "از طرف برنامه‌نویس: واقعاً ازت ممنونم. خیلی بهم کمک کردی. اینو از ته قلبم میگم. درسته نمیشناسمت اما این کمکت خیلی کمک بزرگی بود به من و آینده و زندگیم:)💙 (آنلاک‌شده با حمایت بالای ۱۰۰ هزار تومان)",
-                descEn = "From developer: Thank you so much! Your support means the world to me and my future:)💙 (Unlocked via 100k+ Toman donation)",
-                emoji = "💙",
-                isUnlocked = isGuardianAngelUnlocked,
+                titleFa = "همراه صمیمی آئورا ✨",
+                titleEn = "Aura Close Companion ✨",
+                descFa = "از طرف برنامه‌نویس: خوشحالم که همراه مایی و از شنیدن موسیقی لذت می‌بری:)💙",
+                descEn = "From developer: Happy to have you enjoying music with Aura:)💙",
+                emoji = "✨",
+                isUnlocked = true,
                 isKindBadge = true
             ),
             UserBadge(

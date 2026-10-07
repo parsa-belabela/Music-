@@ -81,8 +81,8 @@ private val COMPARISON_ROWS = listOf(
     ComparisonRow(
         featureFa = "تبلیغات و پیام‌ها",
         featureEn = "Ad Experience",
-        freeFa = "تبلیغات گاه‌به‌گاه",
-        freeEn = "Occasional ads",
+        freeFa = "بدون تبلیغ",
+        freeEn = "Ad-free experience",
         vipFa = "۱۰۰٪ بدون تبلیغ و فوق‌العاده سریع",
         vipEn = "100% Completely Ad-Free",
         icon = Icons.Default.Block
@@ -407,166 +407,6 @@ fun VipPaywallSheet(
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
-            // PROMINENT EYE-CATCHING "WATCH AD FOR 24H FREE VIP" CARD
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(
-                            Brush.linearGradient(
-                                listOf(
-                                    Color(0xFF003344),
-                                    Color(0xFF0A1526),
-                                    Color(0xFF140D26)
-                                )
-                            )
-                        )
-                        .border(
-                            width = 2.dp,
-                            brush = Brush.sweepGradient(
-                                listOf(
-                                    Color(0xFF00E5FF),
-                                    Color(0xFFFFD700),
-                                    Color(0xFFFF1493),
-                                    Color(0xFF00E5FF)
-                                )
-                            ),
-                            shape = RoundedCornerShape(22.dp)
-                        )
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            EntitlementManager.unlockFullVipPreview(context, hours = 24)
-                            Toast.makeText(
-                                context,
-                                if (lang == AppLanguage.PERSIAN) "دسترسی ۲۴ ساعته رایگان VIP با موفقیت فعال شد!" else "24-Hour Free VIP Access Granted!",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            onVipUnlocked()
-                            onDismiss()
-                        }
-                        .padding(18.dp)
-                ) {
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(
-                                        Brush.horizontalGradient(
-                                            listOf(Color(0xFF00E5FF), Color(0xFF00B0FF))
-                                        )
-                                    )
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = if (lang == AppLanguage.PERSIAN) "🎁 هدیه ویژه • ۲۴ ساعت رایگان" else "🎁 Special • 24h Free",
-                                    color = Color.Black,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.PlayCircle,
-                                    contentDescription = null,
-                                    tint = Color(0xFF00E5FF),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = if (lang == AppLanguage.PERSIAN) "تماشای تبلیغ" else "Watch Ad",
-                                    color = Color(0xFF00E5FF),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Text(
-                            text = if (lang == AppLanguage.PERSIAN)
-                                "۲۴ ساعت رایگان با تماشای تبلیغ"
-                            else
-                                "24 Hours Free VIP by Watching an Ad",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White,
-                                fontSize = 16.sp
-                            )
-                        )
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Text(
-                            text = if (lang == AppLanguage.PERSIAN)
-                                "با تماشای یک ویدیوی کوتاه، بدون نیاز به پرداخت به تمام پوسته‌ها و کیفیت استودیویی دسترسی پیدا کنید."
-                            else
-                                "Watch a quick short video to enjoy full VIP skins and master studio audio for 24 hours free.",
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = Color(0xFFB0C4DE),
-                                fontSize = 12.sp,
-                                lineHeight = 18.sp
-                            )
-                        )
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Button(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                EntitlementManager.unlockFullVipPreview(context, hours = 24)
-                                Toast.makeText(
-                                    context,
-                                    if (lang == AppLanguage.PERSIAN) "دسترسی ۲۴ ساعته رایگان VIP با موفقیت فعال شد!" else "24-Hour Free VIP Access Granted!",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                onVipUnlocked()
-                                onDismiss()
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(46.dp)
-                                .testTag("watch_ad_24h_vip_button"),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF00E5FF)
-                            )
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.PlayArrow,
-                                    contentDescription = null,
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = if (lang == AppLanguage.PERSIAN)
-                                        "تماشای تبلیغ و دریافت ۲۴ ساعت رایگان"
-                                    else
-                                        "Watch Ad & Get 24 Hours Free",
-                                    color = Color.Black,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 13.sp
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
             // Feature Comparison Table
             item {
                 Text(
@@ -667,23 +507,6 @@ fun VipPaywallSheet(
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
-
-                // Bottom Subtitle & Secondary Options
-                Text(
-                    text = if (lang == AppLanguage.PERSIAN)
-                        "⚡ یا ۲۴ ساعت رایگان با تماشای تبلیغ بالا فعال کنید"
-                    else
-                        "⚡ Or activate 24-hour free VIP with the ad above",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = Color(0xFF00E5FF),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
-                    ),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
 
                 // Promo code dialog trigger
                 Row(

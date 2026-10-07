@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioManager
+import android.os.StrictMode
 import com.example.audio.AudioAnalysisEngine
 import com.example.audio.AudioEngine
 import com.example.data.db.AppDatabase
@@ -24,36 +25,33 @@ class AuraApplication : Application() {
     val audioAnalysisEngine by lazy { AudioAnalysisEngine() }
     val trackAnalyzer by lazy { com.example.audio.TrackAnalyzer() }
 
-    private val noisyReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
-                audioEngine.pause()
-            }
-        }
-    }
-
     override fun onCreate() {
         super.onCreate()
         instance = this
 
-        // Initialize AudioEngine eagerly so audio routing & device callbacks are registered
-        audioEngine.let { }
-
-        applicationScope.launch {
-            repository.initDefaultDataIfNeeded()
+        if (BuildConfig.DEBUG) {
+            StrictMode.setThreadPolicy(
+                StrictMode.ThreadPolicy.Builder()
+                    .detectDiskReads()
+                    .detectDiskWrites()
+                    .detectNetwork()
+                    .penaltyLog()
+                    .build()
+            )
+            StrictMode.setVmPolicy(
+                StrictMode.VmPolicy.Builder()
+                    .detectLeakedSqlLiteObjects()
+                    .detectLeakedClosableObjects()
+                    .penaltyLog()
+                    .build()
+            )
         }
 
-        audioAnalysisEngine.start(applicationScope)
-
-        val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
-        registerReceiver(noisyReceiver, filter)
-    }
-
-    override fun onTerminate() {
-        super.onTerminate()
-        unregisterReceiver(noisyReceiver)
-        audioAnalysisEngine.stop()
-        audioEngine.release()
+        // Initialize database defaults and analysis asynchronously off the main thread
+        applicationScope.launch(Dispatchers.IO) {
+            repository.initDefaultDataIfNeeded()
+            audioAnalysisEngine.start(applicationScope)
+        }
     }
 
     companion object {

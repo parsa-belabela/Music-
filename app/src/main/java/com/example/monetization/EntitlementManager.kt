@@ -11,11 +11,8 @@ import java.util.Locale
 object EntitlementManager {
     private const val PREFS_NAME = "aura_entitlements"
     private const val KEY_VIP_EXPIRY = "vip_expiry_millis"       // Long.MAX_VALUE = Permanent
-    private const val KEY_VIP_SOURCE = "vip_source"              // "purchase" | "promo_code" | "ad_reward" | "gift" | "none"
+    private const val KEY_VIP_SOURCE = "vip_source"              // "purchase" | "promo_code" | "gift" | "none"
     private const val KEY_TEMP_UNLOCKS = "temp_unlocks"          // "featureId:expiryMillis,featureId:expiryMillis"
-    private const val KEY_DAILY_ADS_COUNT = "daily_ads_count"
-    private const val KEY_DAILY_ADS_DAY = "daily_ads_day"
-    const val MAX_DAILY_ADS = 3
 
     // Reactive StateFlow for instant UI reactivity across the entire app
     private val _vipChangeTrigger = MutableStateFlow(0L)
@@ -145,49 +142,11 @@ object EntitlementManager {
     }
 
     fun hasAccess(context: Context, featureId: String): Boolean {
-        if (isVip(context)) return true
-        val expiry = readTempUnlocks(context)[featureId] ?: return false
-        return expiry > System.currentTimeMillis()
-    }
-
-    fun getFeatureRemainingTimeMillis(context: Context, featureId: String): Long {
-        if (isVip(context)) return Long.MAX_VALUE
-        val expiry = readTempUnlocks(context)[featureId] ?: return 0L
-        return (expiry - System.currentTimeMillis()).coerceAtLeast(0L)
-    }
-
-    // Daily Rewarded Ad Cap (Max 3 per day)
-    fun getRemainingDailyAds(context: Context): Int {
-        val currentDay = getTodayDayOfYear()
-        val savedDay = prefs(context).getInt(KEY_DAILY_ADS_DAY, -1)
-        if (savedDay != currentDay) {
-            return MAX_DAILY_ADS
-        }
-        val count = prefs(context).getInt(KEY_DAILY_ADS_COUNT, 0)
-        return (MAX_DAILY_ADS - count).coerceIn(0, MAX_DAILY_ADS)
-    }
-
-    fun canWatchDailyAd(context: Context): Boolean {
-        return getRemainingDailyAds(context) > 0
-    }
-
-    fun recordAdWatched(context: Context): Boolean {
-        val currentDay = getTodayDayOfYear()
-        val savedDay = prefs(context).getInt(KEY_DAILY_ADS_DAY, -1)
-        var count = if (savedDay != currentDay) 0 else prefs(context).getInt(KEY_DAILY_ADS_COUNT, 0)
-        if (count >= MAX_DAILY_ADS) return false
-
-        count++
-        prefs(context).edit()
-            .putInt(KEY_DAILY_ADS_DAY, currentDay)
-            .putInt(KEY_DAILY_ADS_COUNT, count)
-            .commit()
         return true
     }
 
-    private fun getTodayDayOfYear(): Int {
-        val cal = Calendar.getInstance()
-        return cal.get(Calendar.YEAR) * 1000 + cal.get(Calendar.DAY_OF_YEAR)
+    fun getFeatureRemainingTimeMillis(context: Context, featureId: String): Long {
+        return Long.MAX_VALUE
     }
 
     private fun readTempUnlocks(context: Context): Map<String, Long> {

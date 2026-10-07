@@ -14,7 +14,7 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.auramusic.pvqkxt"
+    applicationId = "com.auramusic.player"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
@@ -38,20 +38,26 @@ android {
 
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      val keystoreFile = file(keystorePath)
-      if (keystoreFile.exists()) {
-        storeFile = keystoreFile
-        storePassword = System.getenv("STORE_PASSWORD") ?: "auramusic2026"
-        keyAlias = System.getenv("KEY_ALIAS") ?: "aurarelease"
-        keyPassword = System.getenv("KEY_PASSWORD") ?: "auramusic2026"
+      val keystorePath = System.getenv("KEYSTORE_PATH") ?: project.findProperty("KEYSTORE_PATH") as String?
+      val storePwd = System.getenv("STORE_PASSWORD") ?: project.findProperty("STORE_PASSWORD") as String?
+      val keyUsr = System.getenv("KEY_ALIAS") ?: project.findProperty("KEY_ALIAS") as String?
+      val keyPwd = System.getenv("KEY_PASSWORD") ?: project.findProperty("KEY_PASSWORD") as String?
+
+      if (!keystorePath.isNullOrEmpty() && file(keystorePath).exists() && !storePwd.isNullOrEmpty()) {
+        storeFile = file(keystorePath)
+        storePassword = storePwd
+        keyAlias = keyUsr ?: "aurarelease"
+        keyPassword = keyPwd ?: storePwd
       }
     }
     create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
+      val dbgKeystore = file("${rootDir}/debug.keystore")
+      if (dbgKeystore.exists()) {
+        storeFile = dbgKeystore
+        storePassword = "android"
+        keyAlias = "androiddebugkey"
+        keyPassword = "android"
+      }
     }
   }
 
@@ -61,7 +67,10 @@ android {
       isMinifyEnabled = true
       isDebuggable = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      val relConfig = signingConfigs.getByName("release")
+      if (relConfig.storeFile != null) {
+        signingConfig = relConfig
+      }
     }
     debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }
@@ -108,6 +117,7 @@ dependencies {
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.core.ktx)
+  implementation(libs.androidx.core.splashscreen)
   // implementation(libs.androidx.datastore.preferences)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)

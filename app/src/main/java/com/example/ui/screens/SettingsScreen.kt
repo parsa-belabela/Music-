@@ -66,7 +66,6 @@ fun SettingsScreen(
     var showBackupDialog by remember { mutableStateOf(false) }
     var showFeedbackDialog by remember { mutableStateOf(false) }
     var showFeaturesGuideDialog by remember { mutableStateOf(false) }
-    var showSupportDialog by remember { mutableStateOf(false) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var showAvatarPickerDialog by remember { mutableStateOf(false) }
     var backupJsonText by remember { mutableStateOf("") }
@@ -96,18 +95,6 @@ fun SettingsScreen(
             appSettings = settings,
             palette = palette,
             onDismiss = { showFeedbackDialog = false }
-        )
-    }
-
-    if (showSupportDialog) {
-        SupportDonationDialog(
-            palette = palette,
-            language = lang,
-            onDismiss = { showSupportDialog = false },
-            onSupportSuccess = {
-                showSupportDialog = false
-                UserProfileManager.refreshProfile(context)
-            }
         )
     }
 
@@ -153,8 +140,7 @@ fun SettingsScreen(
                 palette = palette,
                 isFa = isFa,
                 onEditName = { showEditProfileDialog = true },
-                onEditAvatar = { showAvatarPickerDialog = true },
-                onOpenSupport = { showSupportDialog = true }
+                onEditAvatar = { showAvatarPickerDialog = true }
             )
         }
 
@@ -163,8 +149,7 @@ fun SettingsScreen(
             BadgesAndHonorsSection(
                 badges = userProfile?.badges ?: emptyList(),
                 palette = palette,
-                isFa = isFa,
-                onOpenSupport = { showSupportDialog = true }
+                isFa = isFa
             )
         }
 
@@ -173,8 +158,7 @@ fun SettingsScreen(
             QuestsMissionsSection(
                 quests = userProfile?.quests ?: emptyList(),
                 palette = palette,
-                isFa = isFa,
-                onOpenSupport = { showSupportDialog = true }
+                isFa = isFa
             )
         }
 
@@ -755,8 +739,7 @@ private fun UserProfileCard(
     palette: AmbientPalette,
     isFa: Boolean,
     onEditName: () -> Unit,
-    onEditAvatar: () -> Unit,
-    onOpenSupport: () -> Unit
+    onEditAvatar: () -> Unit
 ) {
     val p = profile ?: return
     val goldColor = Color(0xFFFFD700)
@@ -891,37 +874,6 @@ private fun UserProfileCard(
                     color = goldColor
                 )
             }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Primary Heartwarming Support Button
-            Button(
-                onClick = onOpenSupport,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (p.isSupporter) goldColor.copy(alpha = 0.35f) else Color(0xFFFF4081).copy(alpha = 0.85f),
-                    contentColor = Color.White
-                ),
-                contentPadding = PaddingValues(vertical = 10.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Favorite,
-                    contentDescription = null,
-                    tint = if (p.isSupporter) goldColor else Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (p.isSupporter) {
-                        if (isFa) "شما حامی مهربون برنامه هستید ❤️ (افزایش حمایت)" else "You are a Kind Supporter ❤️ (Donate More)"
-                    } else {
-                        if (isFa) "حمایت از برنامه و سازنده ❤️ (رایگان با دیدن تبلیغ یا خرید مایکت)" else "Support Developer ❤️ (Free Ad or Myket Purchase)"
-                    },
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp
-                )
-            }
         }
     }
 }
@@ -938,8 +890,7 @@ private fun StatItem(label: String, value: String, color: Color) {
 private fun BadgesAndHonorsSection(
     badges: List<UserBadge>,
     palette: AmbientPalette,
-    isFa: Boolean,
-    onOpenSupport: () -> Unit
+    isFa: Boolean
 ) {
     Box(
         modifier = Modifier
@@ -1001,11 +952,6 @@ private fun BadgesAndHonorsSection(
                             } else Color.White.copy(alpha = 0.06f),
                             shape = RoundedCornerShape(14.dp)
                         )
-                        .clickable {
-                            if (!badge.isUnlocked && badge.isKindBadge) {
-                                onOpenSupport()
-                            }
-                        }
                         .padding(12.dp)
                 ) {
                     Row(
@@ -1060,8 +1006,7 @@ private fun BadgesAndHonorsSection(
 private fun QuestsMissionsSection(
     quests: List<UserQuest>,
     palette: AmbientPalette,
-    isFa: Boolean,
-    onOpenSupport: () -> Unit
+    isFa: Boolean
 ) {
     Box(
         modifier = Modifier

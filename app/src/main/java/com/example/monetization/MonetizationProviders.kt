@@ -4,39 +4,6 @@ import android.app.Activity
 import android.content.Context
 
 /**
- * Interface abstraction for rewarded video advertisements (e.g. Tapsell, AdMob, Unity Ads).
- * Allows plugging in real SDK implementations without touching the UI or business logic.
- */
-interface RewardedAdProvider {
-    fun preload(context: Context)
-    fun isReady(): Boolean
-    fun show(activity: Activity, onEarned: () -> Unit, onFailed: (String) -> Unit)
-}
-
-/**
- * Default fallback / stub provider for environments before integrating an actual ad network.
- * In debug / simulated mode, it can simulate viewing a rewarded video to preview the full UX flow.
- */
-class NoOpRewardedAdProvider : RewardedAdProvider {
-    var simulationMode: Boolean = true
-
-    override fun preload(context: Context) {
-        // Ready for real SDK preloading
-    }
-
-    override fun isReady(): Boolean = true
-
-    override fun show(activity: Activity, onEarned: () -> Unit, onFailed: (String) -> Unit) {
-        if (simulationMode) {
-            // Emulate rewarded ad completion for testing
-            onEarned()
-        } else {
-            onFailed("سرویس تبلیغات هنوز پیکربندی نشده است")
-        }
-    }
-}
-
-/**
  * Interface abstraction for in-app billing / subscription providers (e.g. Bazaar IAB, Google Play Billing).
  */
 interface BillingProvider {
@@ -64,6 +31,5 @@ class NoOpBillingProvider : BillingProvider {
  * Central registry holding the active Monetization providers.
  */
 object MonetizationService {
-    var rewardedAdProvider: RewardedAdProvider = NoOpRewardedAdProvider()
     var billingProvider: BillingProvider = NoOpBillingProvider()
 }

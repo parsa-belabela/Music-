@@ -14,13 +14,14 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.AppLanguage
 import com.example.ui.screens.MainScreen
 import com.example.ui.theme.MyApplicationTheme
@@ -30,6 +31,7 @@ class MainActivity : ComponentActivity() {
     private val viewModel: MusicPlayerViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         
         // Configure complete edge-to-edge rendering with transparent system UI overlays
@@ -40,7 +42,7 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT)
         )
 
-        // Optimize hardware display pipeline to maximum supported refresh rate
+        // Optimize hardware display pipeline to maximum supported refresh rate for matching physical resolution
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
                 val currentDisplay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -49,7 +51,12 @@ class MainActivity : ComponentActivity() {
                     @Suppress("DEPRECATION")
                     window.windowManager.defaultDisplay
                 }
-                val maxRefreshMode = currentDisplay?.supportedModes?.maxByOrNull { it.refreshRate }
+                val currentMode = currentDisplay?.mode
+                val maxRefreshMode = currentDisplay?.supportedModes
+                    ?.filter { mode ->
+                        currentMode == null || (mode.physicalWidth == currentMode.physicalWidth && mode.physicalHeight == currentMode.physicalHeight)
+                    }
+                    ?.maxByOrNull { it.refreshRate }
                 if (maxRefreshMode != null) {
                     val params = window.attributes
                     params.preferredDisplayModeId = maxRefreshMode.modeId
@@ -59,7 +66,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            val appSettings by viewModel.appSettings.collectAsState()
+            val appSettings by viewModel.appSettings.collectAsStateWithLifecycle()
 
             // Request necessary permissions at startup
             val permissionLauncher = rememberLauncherForActivityResult(
@@ -76,8 +83,8 @@ class MainActivity : ComponentActivity() {
             }
 
             LaunchedEffect(Unit) {
-                // Initialize Myket In-App Billing safely in background coroutine to ensure 0ms main thread stall
-                kotlinx.coroutines.Dispatchers.IO.let {
+                // Initialize Myket In-App Billing safely after the first frame completes rendering
+                window.decorView.post {
                     com.example.billing.MyketBillingManager.init(this@MainActivity)
                 }
 

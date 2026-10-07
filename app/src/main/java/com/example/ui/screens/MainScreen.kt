@@ -16,7 +16,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.model.AppLanguage
 import com.example.data.model.Track
 import kotlinx.coroutines.launch
 import com.example.ui.components.*
@@ -581,16 +583,53 @@ fun MainScreen(
             )
         }
 
-        if (showVipPaywallForFeature != null) {
-            SupportDonationDialog(
-                palette = palette,
-                language = lang,
-                onDismiss = { showVipPaywallForFeature = null },
-                onSupportSuccess = {
-                    showVipPaywallForFeature = null
-                    com.example.data.repository.UserProfileManager.refreshProfile(context)
-                    viewModel.refreshUnlockedStyles()
-                    viewModel.updateSettings(appSettings.copy())
+        var showFirstLaunchGiftNotice by remember {
+            mutableStateOf(!sharedPrefs.getBoolean("first_launch_gift_shown", false))
+        }
+
+        if (showFirstLaunchGiftNotice) {
+            AlertDialog(
+                onDismissRequest = {
+                    sharedPrefs.edit().putBoolean("first_launch_gift_shown", true).apply()
+                    showFirstLaunchGiftNotice = false
+                },
+                containerColor = Color(0xF00D1322),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = "💙", fontSize = 24.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (lang == AppLanguage.PERSIAN) "تقدیم با مهر" else "Gift for You",
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                },
+                text = {
+                    Text(
+                        text = if (lang == AppLanguage.PERSIAN)
+                            "این برنامه رایگانه چون تو با ارزشی:)"
+                        else
+                            "This app is completely free with all features unlocked, because you are truly valuable:)",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color(0xFFD0D6E8)
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            sharedPrefs.edit().putBoolean("first_launch_gift_shown", true).apply()
+                            showFirstLaunchGiftNotice = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = palette.primary)
+                    ) {
+                        Text(
+                            text = if (lang == AppLanguage.PERSIAN) "متشکرم 🎵" else "Enjoy 🎵",
+                            color = Color.White,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        )
+                    }
                 }
             )
         }
