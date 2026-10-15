@@ -83,6 +83,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     val unlockedStyles: StateFlow<List<String>> = _unlockedStyles.asStateFlow()
 
     val didRestoreSession = MutableStateFlow(false)
+    val isScanningMedia = MutableStateFlow(false)
 
     // Wrapped Statistics States
     private val _wrappedPeriods = MutableStateFlow<List<WrappedPeriod>>(emptyList())
@@ -233,6 +234,11 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     checkSmartFeatures()
                 }
             }
+        }
+
+        // Live real-time detection of newly downloaded songs
+        repository.startObservingMediaStore(viewModelScope) {
+            checkSmartFeatures()
         }
     }
 
@@ -1087,9 +1093,14 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     // Library Scan
     fun scanDeviceLibrary(onComplete: ((Int) -> Unit)? = null) {
         viewModelScope.launch {
-            val count = repository.scanDeviceMusic()
-            onComplete?.invoke(count)
-            checkSmartFeatures()
+            isScanningMedia.value = true
+            try {
+                val count = repository.scanDeviceMusic()
+                onComplete?.invoke(count)
+                checkSmartFeatures()
+            } finally {
+                isScanningMedia.value = false
+            }
         }
     }
 
@@ -1190,4 +1201,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     // Backup & Restore
     suspend fun exportBackupJson(): String = repository.exportBackupJson()
     suspend fun importBackupJson(json: String): Boolean = repository.importBackupJson(json)
+
+    override fun onCleared() {
+        super.onCleared()
+        repository.stopObservingMediaStore()
+    }
 }

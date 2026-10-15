@@ -31,7 +31,10 @@ class MainActivity : ComponentActivity() {
     private val viewModel: MusicPlayerViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
+        val splashScreen = installSplashScreen()
+        splashScreen.setOnExitAnimationListener { splashScreenView ->
+            splashScreenView.remove()
+        }
         super.onCreate(savedInstanceState)
         
         // Configure complete edge-to-edge rendering with transparent system UI overlays
@@ -83,11 +86,6 @@ class MainActivity : ComponentActivity() {
             }
 
             LaunchedEffect(Unit) {
-                // Initialize Myket In-App Billing safely after the first frame completes rendering
-                window.decorView.post {
-                    com.example.billing.MyketBillingManager.init(this@MainActivity)
-                }
-
                 val permissionsToRequest = mutableListOf<String>()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
@@ -95,7 +93,6 @@ class MainActivity : ComponentActivity() {
                 } else {
                     permissionsToRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
                 }
-                permissionsToRequest.add(Manifest.permission.RECORD_AUDIO)
 
                 permissionLauncher.launch(permissionsToRequest.toTypedArray())
             }
@@ -118,7 +115,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        com.example.billing.MyketBillingManager.dispose()
     }
 }
 

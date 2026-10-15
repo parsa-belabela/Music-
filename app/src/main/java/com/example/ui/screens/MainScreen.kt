@@ -64,6 +64,7 @@ fun MainScreen(
     val duplicateGroups by viewModel.duplicateGroups.collectAsStateWithLifecycle()
     val unlockedStyles by viewModel.unlockedStyles.collectAsStateWithLifecycle()
     val didRestoreSession by viewModel.didRestoreSession.collectAsStateWithLifecycle()
+    val isScanningMedia by viewModel.isScanningMedia.collectAsStateWithLifecycle()
 
     // Wrapped States
     val wrappedPeriods by viewModel.wrappedPeriods.collectAsStateWithLifecycle()
@@ -86,7 +87,6 @@ fun MainScreen(
     var achievementItems by remember { mutableStateOf<List<com.example.monetization.AchievementItem>>(emptyList()) }
     val coroutineScope = rememberCoroutineScope()
 
-    var showInitialSplash by remember { mutableStateOf(true) }
     var currentTab by remember { mutableStateOf(MainTab.HOME) }
     val lang = appSettings.language
 
@@ -136,7 +136,7 @@ fun MainScreen(
             Scaffold(
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 bottomBar = {
-                    if (!isNowPlayingExpanded && !showInitialSplash) {
+                    if (!isNowPlayingExpanded) {
                         Column(modifier = Modifier.navigationBarsPadding()) {
                             if (playbackState.currentTrack != null) {
                                 MiniPlayer(
@@ -358,6 +358,7 @@ fun MainScreen(
                             onDeletePlaylist = { id -> viewModel.deletePlaylist(id) },
                             onRemoveTrackFromPlaylist = { plId, trkId -> viewModel.removeTrackFromPlaylist(plId, trkId) },
                             onShareTrack = { track -> viewModel.showShareCard(track) },
+                            isScanningMedia = isScanningMedia,
                             bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()
                         )
@@ -472,18 +473,6 @@ fun MainScreen(
                     )
                 }
             }
-        }
-
-        // Cinematic Splash
-        AnimatedVisibility(
-            visible = showInitialSplash,
-            enter = fadeIn(),
-            exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(500)) + scaleOut(targetScale = 1.05f, animationSpec = androidx.compose.animation.core.tween(500))
-        ) {
-            CinematicGlassSplashScreen(
-                theme = appSettings.theme,
-                onSplashFinished = { showInitialSplash = false }
-            )
         }
 
         // Modal Sheets & Dialogs

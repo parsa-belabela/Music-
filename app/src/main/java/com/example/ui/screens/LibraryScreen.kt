@@ -1,9 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
@@ -71,6 +69,7 @@ fun LibraryScreen(
     onDeletePlaylist: (String) -> Unit = {},
     onRemoveTrackFromPlaylist: (String, String) -> Unit = { _, _ -> },
     onShareTrack: (Track) -> Unit = {},
+    isScanningMedia: Boolean = false,
     bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
     modifier: Modifier = Modifier
 ) {
@@ -129,6 +128,33 @@ fun LibraryScreen(
                         color = Color.White
                     )
                 )
+                Spacer(modifier = Modifier.height(4.dp))
+                // Live Real-Time Auto-Sync Status Badge
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0x18FFFFFF))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(if (isScanningMedia) Color(0xFF38BDF8) else Color(0xFF10B981))
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isScanningMedia) {
+                            if (lang == AppLanguage.PERSIAN) "در حال جستجو و پایش حافظه..." else "Scanning downloads..."
+                        } else {
+                            if (lang == AppLanguage.PERSIAN) "پایش زنده فعال است" else "Live auto-sync active"
+                        },
+                        fontSize = 11.sp,
+                        color = Color(0xFFD0D8EA),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -185,9 +211,28 @@ fun LibraryScreen(
                     }
                 }
 
-                // Rescan device button
-                IconButton(onClick = onRescanMedia, modifier = Modifier.testTag("rescan_library_button")) {
-                    Icon(imageVector = Icons.Default.Sync, contentDescription = "Rescan Library", tint = palette.accent)
+                // Rescan device button with dynamic spin animation
+                val syncSpinTransition = rememberInfiniteTransition(label = "rescanSpin")
+                val spinAngle by syncSpinTransition.animateFloat(
+                    initialValue = 0f,
+                    targetValue = 360f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(durationMillis = 900, easing = androidx.compose.animation.core.LinearEasing),
+                        repeatMode = androidx.compose.animation.core.RepeatMode.Restart
+                    ),
+                    label = "spinAngle"
+                )
+
+                IconButton(
+                    onClick = onRescanMedia,
+                    modifier = Modifier.testTag("rescan_library_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Sync,
+                        contentDescription = "Rescan Library",
+                        tint = if (isScanningMedia) Color(0xFF38BDF8) else palette.accent,
+                        modifier = if (isScanningMedia) Modifier.graphicsLayer { rotationZ = spinAngle } else Modifier
+                    )
                 }
             }
         }

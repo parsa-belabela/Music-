@@ -10,9 +10,13 @@ import com.example.data.db.MusicDao
 import com.example.data.model.*
 import com.example.lyrics.LrcParser
 import com.example.util.WrappedEngine
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -23,6 +27,50 @@ class MusicRepository(
     private val trackAudioProfileDao: com.example.data.db.TrackAudioProfileDao? = null
 ) {
     private val tag = "MusicRepository"
+    private var mediaStoreObserver: android.database.ContentObserver? = null
+    private var rescanDebounceJob: Job? = null
+
+    fun startObservingMediaStore(scope: CoroutineScope, onTracksUpdated: (() -> Unit)? = null) {
+        if (mediaStoreObserver != null) return
+        val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                super.onChange(selfChange, uri)
+                Log.d(tag, "Real-time MediaStore change detected: $uri")
+                rescanDebounceJob?.cancel()
+                rescanDebounceJob = scope.launch(Dispatchers.IO) {
+                    delay(700L) // debounce rapid downloads / filesystem writes
+                    val count = scanDeviceMusic()
+                    Log.d(tag, "Auto-scanned $count tracks after download/change")
+                    withContext(Dispatchers.Main) {
+                        onTracksUpdated?.invoke()
+                    }
+                }
+            }
+        }
+        mediaStoreObserver = observer
+        try {
+            val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+            } else {
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            }
+            context.contentResolver.registerContentObserver(collection, true, observer)
+            Log.d(tag, "Successfully registered MediaStore ContentObserver for real-time downloads")
+        } catch (e: Exception) {
+            Log.w(tag, "Could not register MediaStore ContentObserver: ${e.message}")
+        }
+    }
+
+    fun stopObservingMediaStore() {
+        mediaStoreObserver?.let {
+            try {
+                context.contentResolver.unregisterContentObserver(it)
+            } catch (e: Exception) {
+                Log.w(tag, "Failed to unregister MediaStore ContentObserver: ${e.message}")
+            }
+            mediaStoreObserver = null
+        }
+    }
 
     val allTracks: Flow<List<Track>> = musicDao.getAllTracks()
     val favoriteTracks: Flow<List<Track>> = musicDao.getFavoriteTracks()
