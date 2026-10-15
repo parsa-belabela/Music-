@@ -12,6 +12,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -157,12 +159,22 @@ fun MainScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    .shadow(8.dp, androidx.compose.foundation.shape.RoundedCornerShape(26.dp), spotColor = Color.Black)
                                     .clip(androidx.compose.foundation.shape.RoundedCornerShape(26.dp))
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                palette.primary.copy(alpha = 0.22f),
+                                                Color(0xF50B0E1B),
+                                                Color(0xFE070912)
+                                            )
+                                        )
+                                    )
                                     .liquidGlass(
                                         shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp),
                                         thickness = GlassThickness.REGULAR,
                                         tintColor = palette.primary,
-                                        tintAlpha = 0.12f,
+                                        tintAlpha = 0.30f,
                                         borderWidth = 1.dp
                                     )
                             ) {

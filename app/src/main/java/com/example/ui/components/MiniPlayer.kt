@@ -107,12 +107,28 @@ fun MiniPlayer(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .shadow(
+                        elevation = 12.dp,
+                        shape = RoundedCornerShape(20.dp),
+                        ambientColor = animatedPrimary.copy(alpha = 0.55f),
+                        spotColor = Color.Black
+                    )
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                animatedPrimary.copy(alpha = 0.32f),
+                                Color(0xF50B0E1C),
+                                Color(0xFE070912)
+                            )
+                        )
+                    )
                     .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
+                        shape = RoundedCornerShape(20.dp),
                         thickness = GlassThickness.REGULAR,
                         tintColor = animatedPrimary,
-                        tintAlpha = 0.14f,
-                        borderWidth = 1.dp
+                        tintAlpha = 0.35f,
+                        borderWidth = 1.2.dp
                     )
                     .clickable { onExpandNowPlaying() }
                     .testTag("mini_player_container")
