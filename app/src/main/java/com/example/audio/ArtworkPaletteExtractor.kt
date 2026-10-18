@@ -37,6 +37,15 @@ object ArtworkPaletteExtractor {
 
     private val paletteCache = LruCache<String, AmbientPalette>(64)
 
+    fun extractColors(context: Context, artworkUri: String?): Pair<Color, Color> {
+        val bitmap = loadThumbnailBitmap(context, artworkUri)
+        if (bitmap != null) {
+            val pal = extractDominantPaletteFromBitmap(bitmap, AppTheme.PURE_LIQUID_GLASS)
+            return Pair(pal.primary, pal.accent)
+        }
+        return Pair(Color(0xFF9D4EDD), Color(0xFF00E5FF))
+    }
+
     fun extract(
         track: Track?,
         appSettings: AppSettings,

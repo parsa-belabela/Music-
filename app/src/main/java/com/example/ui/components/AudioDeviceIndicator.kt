@@ -40,12 +40,19 @@ import com.example.audio.ConnectedAudioDevice
  */
 @Composable
 fun AudioDeviceIndicator(
-    device: ConnectedAudioDevice?,
+    device: ConnectedAudioDevice? = null,
     modifier: Modifier = Modifier,
-    compact: Boolean = false
+    compact: Boolean = false,
+    accentColor: Color = Color(0xFF00E5FF)
 ) {
+    val effectiveDevice = device ?: ConnectedAudioDevice(
+        name = "Lossless Audio",
+        isAirPods = false,
+        isBluetooth = false,
+        isHeadphones = false
+    )
     AnimatedVisibility(
-        visible = device != null,
+        visible = true,
         enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
                 scaleIn(
                     initialScale = 0.85f,
@@ -57,8 +64,6 @@ fun AudioDeviceIndicator(
         exit = fadeOut(tween(200)) + scaleOut(targetScale = 0.9f, animationSpec = tween(200)),
         modifier = modifier
     ) {
-        if (device == null) return@AnimatedVisibility
-
         val infiniteTransition = rememberInfiniteTransition(label = "airpodsLedPulse")
         val ledAlpha by infiniteTransition.animateFloat(
             initialValue = 0.45f,
@@ -70,7 +75,7 @@ fun AudioDeviceIndicator(
             label = "airpodsPulse"
         )
 
-        val isAirPods = device.isAirPods
+        val isAirPods = effectiveDevice.isAirPods
 
         Box(
             modifier = Modifier
@@ -95,7 +100,7 @@ fun AudioDeviceIndicator(
                         listOf(
                             Color(0x66FFFFFF),
                             Color(0x18FFFFFF),
-                            if (isAirPods) Color(0x4438BDF8) else Color(0x338B5CF6)
+                            if (isAirPods) Color(0x4438BDF8) else accentColor.copy(alpha = 0.35f)
                         )
                     ),
                     shape = RoundedCornerShape(20.dp)
@@ -114,21 +119,21 @@ fun AudioDeviceIndicator(
                     AirPodsVectorGlyph(modifier = Modifier.size(if (compact) 14.dp else 17.dp))
                 } else {
                     val icon = when {
-                        device.isBluetooth -> Icons.Default.Bluetooth
-                        device.isHeadphones -> Icons.Default.Headphones
+                        effectiveDevice.isBluetooth -> Icons.Default.Bluetooth
+                        effectiveDevice.isHeadphones -> Icons.Default.Headphones
                         else -> Icons.Default.Speaker
                     }
                     Icon(
                         imageVector = icon,
-                        contentDescription = device.name,
-                        tint = if (device.isBluetooth) Color(0xFF38BDF8) else Color.White,
+                        contentDescription = effectiveDevice.name,
+                        tint = if (effectiveDevice.isBluetooth) Color(0xFF38BDF8) else accentColor,
                         modifier = Modifier.size(if (compact) 14.dp else 17.dp)
                     )
                 }
 
                 // Device Label
                 Text(
-                    text = device.name,
+                    text = effectiveDevice.name,
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold,

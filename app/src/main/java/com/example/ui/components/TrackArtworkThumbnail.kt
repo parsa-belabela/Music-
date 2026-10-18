@@ -26,14 +26,17 @@ import coil.compose.AsyncImage
 @Composable
 fun TrackArtworkThumbnail(
     artworkUri: String?,
-    accentColor: Color,
     modifier: Modifier = Modifier,
+    accentColor: Color = Color(0xFF9D4EDD),
     size: Dp = 46.dp,
-    shape: Shape = RoundedCornerShape(10.dp),
+    cornerRadius: Dp = 10.dp,
+    shape: Shape = RoundedCornerShape(cornerRadius),
     iconSize: Dp = (size.value * 0.5f).dp,
     title: String? = null,
     artist: String? = null,
-    trackId: String? = null
+    trackId: String? = null,
+    primaryBorderColor: Color? = null,
+    secondaryBorderColor: Color? = null
 ) {
     Box(
         modifier = modifier
