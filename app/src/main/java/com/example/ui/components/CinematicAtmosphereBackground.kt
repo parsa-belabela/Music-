@@ -7,13 +7,13 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -22,6 +22,7 @@ import coil.request.ImageRequest
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
 import com.example.data.model.Track
+import kotlinx.coroutines.isActive
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -38,49 +39,73 @@ fun CinematicAtmosphereBackground(
 ) {
     val animatedPrimary by animateColorAsState(
         targetValue = palette.primary,
-        animationSpec = tween(900, easing = FastOutSlowInEasing),
+        animationSpec = tween(700, easing = FastOutSlowInEasing),
         label = "npBgPrimary"
     )
     val animatedSecondary by animateColorAsState(
         targetValue = palette.secondary,
-        animationSpec = tween(900, easing = FastOutSlowInEasing),
+        animationSpec = tween(700, easing = FastOutSlowInEasing),
         label = "npBgSecondary"
     )
     val animatedAccent by animateColorAsState(
         targetValue = palette.accent,
-        animationSpec = tween(900, easing = FastOutSlowInEasing),
+        animationSpec = tween(700, easing = FastOutSlowInEasing),
         label = "npBgAccent"
     )
     val animatedDeep by animateColorAsState(
         targetValue = palette.deepAtmosphere,
-        animationSpec = tween(900, easing = FastOutSlowInEasing),
+        animationSpec = tween(700, easing = FastOutSlowInEasing),
         label = "npBgDeep"
     )
 
-    // حرکت بسیار آرام، سنگین و نامحسوس (چرخه ۳۶ ثانیه‌ای)؛ فقط در حدی که زنده بودن نور حس شود
-    val infiniteTransition = rememberInfiniteTransition(label = "SubtleAmbientDrift")
-    val slowDriftPhase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2f * PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 36000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "slowDriftPhase"
-    )
+    val latestAnalysis by rememberUpdatedState(analysisDataProvider)
+
+    var phase1 by remember { mutableFloatStateOf(0f) }
+    var phase2 by remember { mutableFloatStateOf(1.8f) }
+    var phase3 by remember { mutableFloatStateOf(3.6f) }
+    var smoothVibeEnergy by remember { mutableFloatStateOf(0.35f) }
+
+    LaunchedEffect(track?.id) {
+        var lastNanos = withFrameNanos { it }
+        while (isActive) {
+            withFrameNanos { nowNanos ->
+                val dt = ((nowNanos - lastNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
+                lastNanos = nowNanos
+
+                val data = latestAnalysis()
+                val overallMoodEnergy = (
+                    data.totalEnergy * 0.45f +
+                    data.mid * 0.25f +
+                    data.lowMid * 0.15f +
+                    data.bass * 0.15f
+                ).coerceIn(0.18f, 1.0f)
+
+                smoothVibeEnergy += (overallMoodEnergy - smoothVibeEnergy) * (dt * 5.5f).coerceIn(0f, 1f)
+
+                // سرعت حرکت کاملاً محسوس و متناسب با فضای کلی آهنگ (آرام در آهنگ ملایم، سریع در آهنگ پرانرژی)
+                val speed1 = 0.75f + (smoothVibeEnergy * 1.95f)
+                val speed2 = 0.58f + (smoothVibeEnergy * 1.65f)
+                val speed3 = 0.90f + (smoothVibeEnergy * 2.20f)
+
+                val twoPi = (2f * PI).toFloat() * 100f
+                phase1 = (phase1 + dt * speed1) % twoPi
+                phase2 = (phase2 + dt * speed2) % twoPi
+                phase3 = (phase3 + dt * speed3) % twoPi
+            }
+        }
+    }
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF04050A))
+            .background(Color(0xFF05060C))
     ) {
-        // لایه ۱: تصویر کاور آهنگ با بلر عمیق در پس‌زمینه
         val context = LocalContext.current
         AnimatedContent(
             targetState = track?.artworkUri,
             transitionSpec = {
-                fadeIn(animationSpec = tween(900, easing = FastOutSlowInEasing))
-                    .togetherWith(fadeOut(animationSpec = tween(700, easing = FastOutSlowInEasing)))
+                fadeIn(animationSpec = tween(800, easing = FastOutSlowInEasing))
+                    .togetherWith(fadeOut(animationSpec = tween(600, easing = FastOutSlowInEasing)))
             },
             label = "BlurredCoverBackdrop",
             modifier = Modifier.fillMaxSize()
@@ -96,8 +121,8 @@ fun CinematicAtmosphereBackground(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxSize()
-                        .blur(68.dp),
-                    alpha = 0.44f
+                        .blur(64.dp),
+                    alpha = 0.36f
                 )
             } else {
                 Box(
@@ -106,8 +131,8 @@ fun CinematicAtmosphereBackground(
                         .background(
                             Brush.verticalGradient(
                                 listOf(
-                                    animatedPrimary.copy(alpha = 0.38f),
-                                    animatedSecondary.copy(alpha = 0.25f),
+                                    animatedPrimary.copy(alpha = 0.35f),
+                                    animatedSecondary.copy(alpha = 0.22f),
                                     animatedDeep
                                 )
                             )
@@ -116,95 +141,114 @@ fun CinematicAtmosphereBackground(
             }
         }
 
-        // لایه ۲: هاله نوری بسیار آرام که شدت و درخشش آن مستقیماً با قدرت واقعی بیس و کیک آهنگ کم و زیاد می‌شود
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
             if (w <= 0f || h <= 0f) return@Canvas
 
-            val audio = analysisDataProvider()
-            val realBass = audio.bass.coerceIn(0f, 1f)
-            val realKick = audio.kickPulse.coerceIn(0f, 1f)
-            val realEnergy = audio.totalEnergy.coerceIn(0f, 1f)
-
             val minDim = min(w, h)
+            val motionRangeX = w * (0.20f + smoothVibeEnergy * 0.16f)
+            val motionRangeY = h * (0.16f + smoothVibeEnergy * 0.14f)
+            val dynamicScale = 0.92f + (smoothVibeEnergy * 0.36f)
 
-            // جابجایی بسیار ظریف و آرام (فقط ۵ تا ۶ درصد عرض صفحه در طول ۳۶ ثانیه)
-            val subtleOffsetX = cos(slowDriftPhase) * (w * 0.055f)
-            val subtleOffsetY = sin(slowDriftPhase) * (h * 0.045f)
-
-            // شدت پایه آرام است (0.28f) و فقط وقتی بیس و کیک واقعی قوی می‌شوند تا 0.92f اوج می‌گیرد
-            val primaryGlowAlpha = ((0.28f + realBass * 0.42f + realKick * 0.25f) * glowStrength).coerceIn(0.18f, 0.92f)
-            val secondaryGlowAlpha = ((0.22f + realEnergy * 0.35f + realBass * 0.20f) * glowStrength).coerceIn(0.15f, 0.82f)
-            val dynamicRadiusScale = 1f + (realBass * 0.28f) + (realKick * 0.18f)
-
-            // هاله اول: رنگ غالب کاور در پشت استیج کاور آهنگ
-            val center1 = Offset(w * 0.50f + subtleOffsetX, h * 0.36f + subtleOffsetY)
-            val radius1 = minDim * 0.78f * dynamicRadiusScale
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colorStops = arrayOf(
-                        0.00f to animatedPrimary.copy(alpha = primaryGlowAlpha),
-                        0.45f to animatedPrimary.copy(alpha = primaryGlowAlpha * 0.52f),
-                        0.80f to animatedSecondary.copy(alpha = primaryGlowAlpha * 0.18f),
-                        1.00f to Color.Transparent
-                    ),
-                    center = center1,
-                    radius = radius1
-                ),
-                radius = radius1,
-                center = center1,
-                blendMode = BlendMode.Screen
-            )
-
-            // هاله دوم: رنگ مکمل کاور با حرکت معکوس بسیار آرام
-            val center2 = Offset(w * 0.48f - subtleOffsetX * 0.8f, h * 0.68f - subtleOffsetY * 0.8f)
-            val radius2 = minDim * 0.72f * (1f + realEnergy * 0.22f)
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colorStops = arrayOf(
-                        0.00f to animatedSecondary.copy(alpha = secondaryGlowAlpha),
-                        0.50f to animatedAccent.copy(alpha = secondaryGlowAlpha * 0.45f),
-                        1.00f to Color.Transparent
-                    ),
-                    center = center2,
-                    radius = radius2
-                ),
-                radius = radius2,
-                center = center2,
-                blendMode = BlendMode.Screen
-            )
-
-            // هاله سوم: درخشش عمیق و محو (Gaussian Blur) که دقیقاً با ضربه واقعی کیک و بیس جان می‌گیرد
-            if (realBass > 0.05f || realKick > 0.05f) {
-                drawIntoCanvas { canvas ->
-                    val kickIntensity = (realBass * 0.50f + realKick * 0.50f).coerceIn(0f, 1f)
-                    val blurPaint = Paint().apply {
-                        asFrameworkPaint().apply {
-                            isAntiAlias = true
-                            maskFilter = BlurMaskFilter(115f, BlurMaskFilter.Blur.NORMAL)
-                            color = animatedAccent.copy(alpha = (kickIntensity * 0.68f * glowStrength).coerceIn(0f, 0.85f)).toArgb()
-                        }
-                    }
-                    canvas.drawCircle(
-                        Offset(w * 0.5f, h * 0.36f),
-                        minDim * (0.36f + kickIntensity * 0.22f),
-                        blurPaint
+            fun drawFlowingMoodOrb(
+                cx: Float,
+                cy: Float,
+                velY: Float,
+                radius: Float,
+                color: Color,
+                alpha: Float
+            ) {
+                val stretchY = (1f + kotlin.math.abs(velY) * (0.28f + smoothVibeEnergy * 0.35f)).coerceIn(1f, 1.75f)
+                withTransform({
+                    scale(scaleX = 1f, scaleY = stretchY, pivot = Offset(cx, cy))
+                }) {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colorStops = arrayOf(
+                                0.00f to color.copy(alpha = (alpha * glowStrength).coerceIn(0f, 0.85f)),
+                                0.45f to color.copy(alpha = (alpha * 0.55f * glowStrength).coerceIn(0f, 0.65f)),
+                                0.78f to color.copy(alpha = (alpha * 0.18f * glowStrength).coerceIn(0f, 0.35f)),
+                                1.00f to Color.Transparent
+                            ),
+                            center = Offset(cx, cy),
+                            radius = radius
+                        ),
+                        radius = radius,
+                        center = Offset(cx, cy),
+                        blendMode = BlendMode.Screen
                     )
                 }
             }
+
+            // ۱. موج اول: حرکت عمودی و افقی کاملاً ملموس در پشت کاور آهنگ
+            val orb1X = (w * 0.50f) + cos(phase1) * motionRangeX
+            val orb1Y = (h * 0.34f) + sin(phase1) * motionRangeY
+            drawFlowingMoodOrb(
+                cx = orb1X,
+                cy = orb1Y,
+                velY = cos(phase1),
+                radius = minDim * 0.75f * dynamicScale,
+                color = animatedPrimary,
+                alpha = 0.68f + smoothVibeEnergy * 0.18f
+            )
+
+            // ۲. موج دوم: حرکت معکوس هماهنگ با فضای آهنگ
+            val orb2X = (w * 0.50f) - sin(phase2) * (motionRangeX * 1.1f)
+            val orb2Y = (h * 0.44f) + cos(phase2) * (motionRangeY * 1.15f)
+            drawFlowingMoodOrb(
+                cx = orb2X,
+                cy = orb2Y,
+                velY = -sin(phase2),
+                radius = minDim * 0.68f * dynamicScale,
+                color = animatedSecondary,
+                alpha = 0.60f + smoothVibeEnergy * 0.18f
+            )
+
+            // ۳. موج سوم: گردش نوری در بخش میانی و پایینی
+            val orb3X = (w * 0.50f) + sin(phase3) * (motionRangeX * 0.9f)
+            val orb3Y = (h * 0.68f) - cos(phase3) * (motionRangeY * 0.85f)
+            drawFlowingMoodOrb(
+                cx = orb3X,
+                cy = orb3Y,
+                velY = sin(phase3),
+                radius = minDim * 0.64f * dynamicScale,
+                color = animatedAccent,
+                alpha = 0.52f + smoothVibeEnergy * 0.16f
+            )
+
+            // ۴. هاله بلر گوسی مرکزی که با فضای آهنگ بالا و پایین میرود
+            drawIntoCanvas { canvas ->
+                val blurPaint = Paint().apply {
+                    asFrameworkPaint().apply {
+                        isAntiAlias = true
+                        maskFilter = BlurMaskFilter(105f, BlurMaskFilter.Blur.NORMAL)
+                        color = animatedPrimary.copy(
+                            alpha = (0.38f + smoothVibeEnergy * 0.38f).coerceIn(0.25f, 0.80f)
+                        ).toArgb()
+                    }
+                }
+                canvas.drawCircle(
+                    Offset(
+                        x = w * 0.5f + sin(phase1) * (w * 0.10f),
+                        y = h * 0.36f + cos(phase2) * (h * 0.10f)
+                    ),
+                    minDim * (0.40f + smoothVibeEnergy * 0.16f),
+                    blurPaint
+                )
+            }
         }
 
-        // لایه ۳: پوشش تاریک ملایم برای کنتراست عالی آیکون‌ها و نوشته‌ها
+        // لایه محافظ کنتراست (جلوگیری ۱۰۰٪ از محو شدن متنها و آیکنها در نور پسزمینه)
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        0.00f to Color(0x5004050A),
-                        0.30f to Color.Transparent,
-                        0.70f to Color(0x3504050A),
-                        1.00f to Color(0xB804050A)
+                        0.00f to Color(0x8804050A),
+                        0.18f to Color(0x3804050A),
+                        0.55f to Color(0x4504050A),
+                        1.00f to Color(0xCC04050A)
                     )
                 )
         )

@@ -1,28 +1,31 @@
 package com.example.ui.components
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -35,13 +38,9 @@ import coil.compose.AsyncImage
 import com.example.audio.AmbientPalette
 import com.example.data.model.AppLanguage
 import com.example.data.model.Track
-import com.example.ui.theme.GlassThickness
-import com.example.ui.theme.liquidGlass
-import com.example.util.Localization
-
-import android.net.Uri
-import androidx.core.content.FileProvider
-import java.io.File
+import com.example.util.SongShareCardGenerator
+import kotlinx.coroutines.launch
+import kotlin.math.sin
 
 @Composable
 fun ShareSongDialog(
@@ -51,79 +50,57 @@ fun ShareSongDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val isFa = language == AppLanguage.PERSIAN
+    var isGeneratingCard by remember { mutableStateOf(false) }
+    var selectedCardThemeIdx by remember { mutableIntStateOf(0) }
 
-    val shareText = buildString {
-        append("🎵 \"${track.title}\" - ${track.artist}\n")
-        if (track.album.isNotBlank()) {
-            append(if (language == AppLanguage.PERSIAN) "آلبوم: ${track.album}\n" else "Album: ${track.album}\n")
-        }
-        append(if (language == AppLanguage.PERSIAN) "کیفیت: ${track.bitrate} kbps صدای شفاف و استودیویی\n" else "Quality: ${track.bitrate} kbps Hi-Fi Audio\n")
-        append(if (language == AppLanguage.PERSIAN) "ارسال شده از موزیک پلیر Aura" else "Shared via Aura Music Player")
+    val cardThemes = remember(palette) {
+        listOf(
+            listOf(palette.primary, palette.secondary, Color(0xFF070913)),
+            listOf(Color(0xFFFF1E56), Color(0xFF7B2CBF), Color(0xFF06040D)),
+            listOf(Color(0xFF00F5D4), Color(0xFF3A86FF), Color(0xFF040914)),
+            listOf(Color(0xFFFFBE0B), Color(0xFFFB5607), Color(0xFF120804))
+        )
     }
+    val activeGradient = cardThemes[selectedCardThemeIdx % cardThemes.size]
 
-    val onShareIntent = {
-        try {
-            val mime = when {
-                track.uri.endsWith(".flac", ignoreCase = true) -> "audio/flac"
-                track.uri.endsWith(".wav", ignoreCase = true) -> "audio/wav"
-                track.uri.endsWith(".ogg", ignoreCase = true) -> "audio/ogg"
-                track.uri.endsWith(".m4a", ignoreCase = true) || track.uri.endsWith(".aac", ignoreCase = true) -> "audio/mp4"
-                else -> "audio/mpeg"
-            }
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = mime
-                putExtra(Intent.EXTRA_SUBJECT, "${track.title} - ${track.artist}")
-                putExtra(Intent.EXTRA_TEXT, shareText)
-
-                val uri = Uri.parse(track.uri)
-                val streamUri: Uri? = when {
-                    track.uri.startsWith("content://") -> uri
-                    track.uri.startsWith("file://") || track.uri.startsWith("/") -> {
-                        val filePath = if (track.uri.startsWith("file://")) uri.path ?: "" else track.uri
-                        val file = File(filePath)
-                        if (file.exists()) {
-                            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                        } else null
+    val shareStoryCardImage: () -> Unit = {
+        if (!isGeneratingCard) {
+            isGeneratingCard = true
+            scope.launch {
+                val customPalette = palette.copy(
+                    primary = activeGradient[0],
+                    secondary = activeGradient[1]
+                )
+                val uri = SongShareCardGenerator.generateSongCardBitmap(
+                    context = context,
+                    track = track,
+                    palette = customPalette,
+                    lang = language
+                )
+                isGeneratingCard = false
+                if (uri != null) {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "image/png"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        putExtra(
+                            Intent.EXTRA_TEXT,
+                            "🎵 ${track.title} — ${track.artist}\n#AuraMusic"
+                        )
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
-                    track.isDemo || track.uri.startsWith("asset://") -> {
-                        val demoFile = File(context.cacheDir, "${track.title.replace("[^a-zA-Z0-9_.-]".toRegex(), "_")}.mp3")
-                        if (!demoFile.exists()) {
-                            val assetName = if (track.uri.startsWith("asset://")) track.uri.removePrefix("asset://") else "demo_track.mp3"
-                            try {
-                                context.assets.open(assetName).use { input ->
-                                    demoFile.outputStream().use { output ->
-                                        input.copyTo(output)
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                // Ignore asset copy error
-                            }
-                        }
-                        if (demoFile.exists()) {
-                            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", demoFile)
-                        } else null
-                    }
-                    else -> null
-                }
-
-                if (streamUri != null) {
-                    putExtra(Intent.EXTRA_STREAM, streamUri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    context.startActivity(
+                        Intent.createChooser(
+                            intent,
+                            if (isFa) "اشتراک‌گذاری کارت استوری در اینستاگرام و..." else "Share Story Card"
+                        )
+                    )
+                } else {
+                    Toast.makeText(context, "Error generating card", Toast.LENGTH_SHORT).show()
                 }
             }
-            val chooserTitle = if (language == AppLanguage.PERSIAN) "اشتراک‌گذاری فایل موزیک" else "Share Music File"
-            context.startActivity(Intent.createChooser(intent, chooserTitle))
-        } catch (e: Exception) {
-            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
         }
-    }
-
-    val onCopyClipboard = {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("Song Info", shareText)
-        clipboard.setPrimaryClip(clip)
-        val msg = if (language == AppLanguage.PERSIAN) "مشخصات آهنگ در کلیپ‌بورد کپی شد" else "Song info copied to clipboard"
-        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
     }
 
     Dialog(
@@ -133,98 +110,126 @@ fun ShareSongDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.80f))
-                .padding(24.dp),
+                .background(Color(0xF504050A))
+                .systemBarsPadding()
+                .padding(20.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(28.dp),
-                        thickness = GlassThickness.REGULAR,
-                        tintColor = palette.primary,
-                        tintAlpha = 0.20f,
-                        borderWidth = 1.2.dp
-                    )
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Header with Close
+                // هدر بالا
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = if (language == AppLanguage.PERSIAN) "اشتراک‌گذاری کارت آهنگ" else "Share Music Card",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = activeGradient[0],
+                            modifier = Modifier.size(22.dp)
                         )
-                    )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isFa) "کارت استوری اینستاگرام (Spotify Style)" else "Spotify-Style Story Card",
+                            color = Color.White,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 16.sp
+                        )
+                    }
+
                     IconButton(
                         onClick = onDismiss,
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(36.dp)
                             .clip(CircleShape)
-                            .background(Color(0x22FFFFFF))
+                            .background(Color.White.copy(alpha = 0.12f))
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
                     }
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
-
-                // The Premium Share Card Preview
+                // پیش‌نمایش کارت گرافیکی ۹:۱۶ استوری مشابه اسپاتیفای
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .shadow(12.dp, RoundedCornerShape(22.dp), ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.45f))
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    Color(0xFF1F1D36),
-                                    Color(0xFF10101E)
-                                )
-                            )
-                        )
+                        .fillMaxWidth(0.88f)
+                        .aspectRatio(9f / 14.2f)
+                        .shadow(28.dp, RoundedCornerShape(32.dp), spotColor = activeGradient[0])
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(Brush.verticalGradient(activeGradient))
                         .border(
-                            width = 1.2.dp,
+                            width = 1.8.dp,
                             brush = Brush.linearGradient(
-                                listOf(
-                                    palette.accent.copy(alpha = 0.8f),
-                                    palette.primary.copy(alpha = 0.4f),
-                                    Color(0x22FFFFFF)
-                                )
+                                listOf(Color.White.copy(alpha = 0.75f), activeGradient[0], Color.White.copy(alpha = 0.25f))
                             ),
-                            shape = RoundedCornerShape(22.dp)
+                            shape = RoundedCornerShape(32.dp)
                         )
-                        .padding(18.dp)
                 ) {
+                    if (!track.artworkUri.isNullOrEmpty()) {
+                        AsyncImage(
+                            model = track.artworkUri,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .blur(45.dp),
+                            alpha = 0.35f
+                        )
+                    }
+
                     Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // Artwork
+                        // نشان بالای کارت
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "AURA MUSIC",
+                                color = Color.White.copy(alpha = 0.90f),
+                                fontWeight = FontWeight.Black,
+                                fontSize = 11.sp,
+                                letterSpacing = 2.sp
+                            )
+                            Surface(
+                                color = Color.Black.copy(alpha = 0.35f),
+                                shape = RoundedCornerShape(50)
+                            ) {
+                                Text(
+                                    text = "${track.bitrate} kbps • HI-RES",
+                                    color = Color.White,
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        // کاور وسط کارت با سایه عمیق
                         Box(
                             modifier = Modifier
-                                .size(130.dp)
-                                .shadow(12.dp, RoundedCornerShape(18.dp))
-                                .clip(RoundedCornerShape(18.dp))
-                                .background(Color(0xFF141322)),
+                                .size(195.dp)
+                                .shadow(24.dp, RoundedCornerShape(24.dp))
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(Color(0xFF10121E))
+                                .border(1.5.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(24.dp)),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (track.artworkUri != null) {
+                            if (!track.artworkUri.isNullOrEmpty()) {
                                 AsyncImage(
                                     model = track.artworkUri,
                                     contentDescription = track.title,
+                                    contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
                                 )
                             } else {
@@ -238,145 +243,119 @@ fun ShareSongDialog(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // Title & Artist
-                        Text(
-                            text = track.title,
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(3.dp))
-                        Text(
-                            text = track.artist,
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                color = palette.accent,
-                                fontWeight = FontWeight.Medium
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (track.album.isNotBlank()) {
+                        // اطلاعات آهنگ و موج صوتی گرافیکی پایین کارت
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(22.dp))
+                                .background(Color.Black.copy(alpha = 0.45f))
+                                .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(22.dp))
+                                .padding(16.dp)
+                        ) {
                             Text(
-                                text = track.album,
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    color = Color(0xFFA5A5BA)
-                                ),
+                                text = track.title,
+                                color = Color.White,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 20.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = track.artist,
+                                color = Color.White.copy(alpha = 0.85f),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // موج صوتی Spotify-Code Style
+                            Canvas(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.85f)
+                                    .height(26.dp)
+                            ) {
+                                val bars = 28
+                                val gap = 4.dp.toPx()
+                                val barW = (size.width - gap * (bars - 1)) / bars
+                                for (i in 0 until bars) {
+                                    val norm = (sin(i * 0.45f + track.title.hashCode()) * 0.4f + 0.55f).coerceIn(0.2f, 1f)
+                                    val h = size.height * norm
+                                    val x = i * (barW + gap)
+                                    val y = (size.height - h) / 2f
+                                    drawRoundRect(
+                                        color = Color.White.copy(alpha = 0.90f),
+                                        topLeft = Offset(x, y),
+                                        size = Size(barW, h),
+                                        cornerRadius = CornerRadius(barW / 2f, barW / 2f)
+                                    )
+                                }
+                            }
                         }
+                    }
+                }
 
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Audio specs badge
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            BadgePill(text = "${track.bitrate} kbps")
-                            BadgePill(text = "${track.sampleRate / 1000} kHz")
-                            BadgePill(text = track.durationFormatted)
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Watermark
-                        Text(
-                            text = "AURA MUSIC PLAYER",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = Color(0x66FFFFFF),
-                                letterSpacing = 2.sp,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Black
-                            )
+                // انتخابگر رنگ پس‌زمینه کارت استوری
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (isFa) "رنگ کارت:" else "Card Backdrop:",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    cardThemes.forEachIndexed { idx, colors ->
+                        val selected = selectedCardThemeIdx == idx
+                        Box(
+                            modifier = Modifier
+                                .size(if (selected) 32.dp else 26.dp)
+                                .clip(CircleShape)
+                                .background(Brush.linearGradient(colors.take(2)))
+                                .border(
+                                    width = if (selected) 2.dp else 1.dp,
+                                    color = if (selected) Color.White else Color.White.copy(alpha = 0.3f),
+                                    shape = CircleShape
+                                )
+                                .clickable { selectedCardThemeIdx = idx }
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // Actions: Share Apps & Copy Info
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                // دکمه اشتراک‌گذاری مستقیم تصویر کارت برای استوری اینستاگرام و شبکه‌های اجتماعی
+                Button(
+                    onClick = shareStoryCardImage,
+                    enabled = !isGeneratingCard,
+                    modifier = Modifier
+                        .fillMaxWidth(0.88f)
+                        .height(52.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = activeGradient[0])
                 ) {
-                    // Copy Info Button
-                    OutlinedButton(
-                        onClick = onCopyClipboard,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = Color.White
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x44FFFFFF))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ContentCopy,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
+                    if (isGeneratingCard) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(20.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                    } else {
+                        Icon(Icons.Default.Share, contentDescription = null, tint = Color.White)
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (language == AppLanguage.PERSIAN) "کپی متن" else "Copy Info",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-
-                    // Native Share Button
-                    Button(
-                        onClick = onShareIntent,
-                        modifier = Modifier
-                            .weight(1.2f)
-                            .height(48.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = palette.primary
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = Color.White
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (language == AppLanguage.PERSIAN) "اشتراک‌گذاری" else "Share",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            text = if (isFa) "اشتراک‌گذاری در استوری اینستاگرام و..." else "Share High-Res Story Card",
+                            color = Color.White,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 14.sp
                         )
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun BadgePill(text: String) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color(0x25FFFFFF))
-            .padding(horizontal = 8.dp, vertical = 3.dp)
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall.copy(
-                color = Color(0xFFD1D5DB),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold
-            )
-        )
     }
 }

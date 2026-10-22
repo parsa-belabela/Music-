@@ -1,144 +1,211 @@
 package com.example.util
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import com.example.MainActivity
+import com.example.R
 import com.example.data.model.*
 import java.util.Calendar
-import java.util.Locale
 import kotlin.math.max
 
 object WrappedEngine {
 
+    private const val PREFS_WRAPPED = "aura_wrapped_alerts"
+    private const val CHANNEL_ID = "aura_wrapped_ready_channel"
+
+    data class JalaliDate(val year: Int, val month: Int, val day: Int) {
+        val monthNameFa: String get() = getPersianMonthName(month)
+        val totalDaysInMonth: Int
+            get() = when {
+                month in 1..6 -> 31
+                month in 7..11 -> 30
+                isJalaliLeapYear(year) -> 30
+                else -> 29
+            }
+    }
+
+    private fun getPersianMonthName(month: Int): String = when (month) {
+        1 -> "فروردین"
+        2 -> "اردیبهشت"
+        3 -> "خرداد"
+        4 -> "تیر"
+        5 -> "مرداد"
+        6 -> "شهریور"
+        7 -> "مهر"
+        8 -> "آبان"
+        9 -> "آذر"
+        10 -> "دی"
+        11 -> "بهمن"
+        12 -> "اسفند"
+        else -> "ماه"
+    }
+
+    private fun getEnglishMonthName(month: Int): String = when (month) {
+        1 -> "January"
+        2 -> "February"
+        3 -> "March"
+        4 -> "April"
+        5 -> "May"
+        6 -> "June"
+        7 -> "July"
+        8 -> "August"
+        9 -> "September"
+        10 -> "October"
+        11 -> "November"
+        12 -> "December"
+        else -> "Month"
+    }
+
+    fun gregorianToJalali(gy: Int, gm: Int, gd: Int): JalaliDate {
+        val gDaysInMonth = intArrayOf(0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
+        val gy2 = if (gm > 2) gy + 1 else gy
+        var days = 355666 + (365 * gy) + ((gy2 + 3) / 4) - ((gy2 + 99) / 100) + ((gy2 + 399) / 400) + gd + gDaysInMonth[gm - 1]
+        var jy = -1595 + (33 * (days / 12053))
+        days %= 12053
+        jy += 4 * (days / 1461)
+        days %= 1461
+        if (days > 365) {
+            jy += (days - 1) / 365
+            days = (days - 1) % 365
+        }
+        val jm: Int
+        val jd: Int
+        if (days < 186) {
+            jm = 1 + (days / 31)
+            jd = 1 + (days % 31)
+        } else {
+            jm = 7 + ((days - 186) / 30)
+            jd = 1 + ((days - 186) % 30)
+        }
+        return JalaliDate(jy, jm, jd)
+    }
+
+    private fun isJalaliLeapYear(jy: Int): Boolean {
+        val rem = jy % 33
+        return rem in intArrayOf(1, 5, 9, 13, 17, 22, 26, 30)
+    }
+
+    fun toPersianDigits(input: String): String {
+        val en = charArrayOf('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')
+        val fa = charArrayOf('۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹')
+        var out = input
+        for (i in en.indices) {
+            out = out.replace(en[i], fa[i])
+        }
+        return out
+    }
+
+    /**
+     * تولید ۳ دوره اصلی (هفتگی، ماهانه، سالانه) با قفل زمانی دقیق:
+     * - هفتگی: قفل تا روز جمعه (برای هر دو زبان فارسی و انگلیسی)
+     * - ماهانه: قفل تا پایان آخرین روز ماه
+     * - سالانه: قفل تا پایان آخرین روز سال
+     */
     fun getAvailablePeriods(firstTimestamp: Long): List<WrappedPeriod> {
         val periods = mutableListOf<WrappedPeriod>()
-        val cal = Calendar.getInstance()
-        val now = cal.timeInMillis
-        val currentYear = cal.get(Calendar.YEAR)
-        val currentMonth = cal.get(Calendar.MONTH) + 1 // 1-12
-        val currentDay = cal.get(Calendar.DAY_OF_MONTH)
+        val nowCal = Calendar.getInstance()
+        val nowMs = nowCal.timeInMillis
 
-        // 1. Current Month Period
-        val currentMonthCal = Calendar.getInstance().apply {
-            set(Calendar.DAY_OF_MONTH, 1)
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
+        val gYear = nowCal.get(Calendar.YEAR)
+        val gMonth = nowCal.get(Calendar.MONTH) + 1
+        val gDay = nowCal.get(Calendar.DAY_OF_MONTH)
+        val dayOfWeek = nowCal.get(Calendar.DAY_OF_WEEK) // Sunday=1 .. Friday=6, Saturday=7
+        val jalaliNow = gregorianToJalali(gYear, gMonth, gDay)
+
+        val dayMs = 24L * 60L * 60L * 1000L
+
+        // ۱. آمار هفتگی: فقط در روز جمعه (Calendar.FRIDAY) باز می‌شود؛ در سایر روزها قفل است
+        val isFridayToday = (dayOfWeek == Calendar.FRIDAY)
+        val daysUntilFriday = when (dayOfWeek) {
+            Calendar.SATURDAY -> 6
+            Calendar.SUNDAY -> 5
+            Calendar.MONDAY -> 4
+            Calendar.TUESDAY -> 3
+            Calendar.WEDNESDAY -> 2
+            Calendar.THURSDAY -> 1
+            else -> 0
         }
-        val monthStart = currentMonthCal.timeInMillis
-        val maxDaysInCurrentMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
-        currentMonthCal.set(Calendar.DAY_OF_MONTH, maxDaysInCurrentMonth)
-        currentMonthCal.set(Calendar.HOUR_OF_DAY, 23)
-        currentMonthCal.set(Calendar.MINUTE, 59)
-        currentMonthCal.set(Calendar.SECOND, 59)
-        currentMonthCal.set(Calendar.MILLISECOND, 999)
-        val monthEnd = currentMonthCal.timeInMillis
 
-        val daysLeftInMonth = max(1, maxDaysInCurrentMonth - currentDay)
-
-        val monthNameEn = getMonthNameEn(currentMonth)
-        val monthNameFa = getMonthNameFa(currentMonth)
+        val daysSinceSaturday = if (dayOfWeek == Calendar.SATURDAY) 0 else dayOfWeek
+        val weekStartMs = nowMs - (daysSinceSaturday * dayMs)
+        val weekEndMs = nowMs + (daysUntilFriday * dayMs)
 
         periods.add(
             WrappedPeriod(
-                id = "MONTH_${currentYear}_${String.format(Locale.US, "%02d", currentMonth)}",
-                displayNameEn = "$monthNameEn $currentYear",
-                displayNameFa = "$monthNameFa $currentYear",
+                id = "WEEKLY_${jalaliNow.year}_${jalaliNow.month}_${jalaliNow.day / 7}",
+                displayNameEn = "Weekly Wrapped",
+                displayNameFa = "رپد هفتگی",
                 isYearly = false,
-                year = currentYear,
-                month = currentMonth,
-                startTimestamp = monthStart,
-                endTimestamp = monthEnd,
-                isLocked = true, // Current active month is locked until the month concludes!
-                daysRemainingUntilUnlock = daysLeftInMonth,
-                unlockTargetDateEn = "End of $monthNameEn $currentYear",
-                unlockTargetDateFa = "پایان ماه $monthNameFa $currentYear"
+                year = jalaliNow.year,
+                month = jalaliNow.month,
+                startTimestamp = weekStartMs,
+                endTimestamp = weekEndMs,
+                isLocked = !isFridayToday,
+                daysRemainingUntilUnlock = daysUntilFriday,
+                unlockTargetDateEn = "Unlocks this Friday",
+                unlockTargetDateFa = toPersianDigits("بازگشایی در روز جمعه ($daysUntilFriday روز دیگر)"),
+                timeframe = WrappedTimeframe.WEEKLY,
+                subtitleEn = "7-Day Listening Report",
+                subtitleFa = toPersianDigits("گزارش هفتگی • ${jalaliNow.monthNameFa} ${jalaliNow.year}")
             )
         )
 
-        // 2. Previous Month (if any) - Unlocked because it is completed!
-        val prevMonthCal = Calendar.getInstance().apply {
-            add(Calendar.MONTH, -1)
-            set(Calendar.DAY_OF_MONTH, 1)
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        val prevYear = prevMonthCal.get(Calendar.YEAR)
-        val prevMonth = prevMonthCal.get(Calendar.MONTH) + 1
-        val prevMonthStart = prevMonthCal.timeInMillis
-        val maxDaysInPrevMonth = prevMonthCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-        prevMonthCal.set(Calendar.DAY_OF_MONTH, maxDaysInPrevMonth)
-        prevMonthCal.set(Calendar.HOUR_OF_DAY, 23)
-        prevMonthCal.set(Calendar.MINUTE, 59)
-        prevMonthCal.set(Calendar.SECOND, 59)
-        val prevMonthEnd = prevMonthCal.timeInMillis
-
-        val prevMonthNameEn = getMonthNameEn(prevMonth)
-        val prevMonthNameFa = getMonthNameFa(prevMonth)
+        // ۲. آمار ماهانه: تا پایان آخرین روز ماه قفل است
+        val daysLeftInJalaliMonth = (jalaliNow.totalDaysInMonth - jalaliNow.day).coerceAtLeast(0)
+        val isLastDayOfMonth = daysLeftInJalaliMonth == 0
+        val monthStartMs = nowMs - ((jalaliNow.day - 1) * dayMs)
+        val monthEndMs = nowMs + (daysLeftInJalaliMonth * dayMs)
+        val gMonthName = getEnglishMonthName(gMonth)
 
         periods.add(
             WrappedPeriod(
-                id = "MONTH_${prevYear}_${String.format(Locale.US, "%02d", prevMonth)}",
-                displayNameEn = "$prevMonthNameEn $prevYear",
-                displayNameFa = "$prevMonthNameFa $prevYear",
+                id = "MONTHLY_${jalaliNow.year}_${jalaliNow.month}",
+                displayNameEn = "Monthly Wrapped ($gMonthName)",
+                displayNameFa = toPersianDigits("رپد ماهانه (${jalaliNow.monthNameFa} ${jalaliNow.year})"),
                 isYearly = false,
-                year = prevYear,
-                month = prevMonth,
-                startTimestamp = prevMonthStart,
-                endTimestamp = prevMonthEnd,
-                isLocked = false, // Past month is completed
-                daysRemainingUntilUnlock = 0,
-                unlockTargetDateEn = "Completed",
-                unlockTargetDateFa = "تکمیل شده"
+                year = jalaliNow.year,
+                month = jalaliNow.month,
+                startTimestamp = monthStartMs,
+                endTimestamp = monthEndMs,
+                isLocked = !isLastDayOfMonth,
+                daysRemainingUntilUnlock = daysLeftInJalaliMonth,
+                unlockTargetDateEn = "End of $gMonthName ($daysLeftInJalaliMonth days left)",
+                unlockTargetDateFa = toPersianDigits("پایان ${jalaliNow.totalDaysInMonth} ${jalaliNow.monthNameFa} ($daysLeftInJalaliMonth روز مانده)"),
+                timeframe = WrappedTimeframe.MONTHLY,
+                subtitleEn = "$gMonthName $gYear Recap",
+                subtitleFa = toPersianDigits("آمار کامل ${jalaliNow.monthNameFa} ماه ${jalaliNow.year}")
             )
         )
 
-        // 3. Current Year Wrapped Period (Locked until December 1st or end of year)
-        val yearStartCal = Calendar.getInstance().apply {
-            set(Calendar.MONTH, Calendar.JANUARY)
-            set(Calendar.DAY_OF_MONTH, 1)
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        val yearEndCal = Calendar.getInstance().apply {
-            set(Calendar.MONTH, Calendar.DECEMBER)
-            set(Calendar.DAY_OF_MONTH, 31)
-            set(Calendar.HOUR_OF_DAY, 23)
-            set(Calendar.MINUTE, 59)
-            set(Calendar.SECOND, 59)
-            set(Calendar.MILLISECOND, 999)
-        }
-
-        // Yearly Wrapped unlocks around Dec 1
-        val unlockYearCal = Calendar.getInstance().apply {
-            set(Calendar.MONTH, Calendar.DECEMBER)
-            set(Calendar.DAY_OF_MONTH, 1)
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        val isYearLocked = now < unlockYearCal.timeInMillis
-        val daysUntilYearUnlock = if (isYearLocked) {
-            max(1, ((unlockYearCal.timeInMillis - now) / (1000L * 60 * 60 * 24)).toInt())
-        } else 0
+        // ۳. آمار سالانه: تا پایان آخرین روز سال قفل است
+        val totalDaysInYear = if (isJalaliLeapYear(jalaliNow.year)) 366 else 365
+        val dayOfYearJalali = ((jalaliNow.month - 1) * 31).coerceAtMost(186) +
+                ((jalaliNow.month - 7).coerceAtLeast(0) * 30) + jalaliNow.day
+        val daysLeftInYear = (totalDaysInYear - dayOfYearJalali).coerceAtLeast(0)
+        val isLastDayOfYear = (jalaliNow.month == 12 && jalaliNow.day == jalaliNow.totalDaysInMonth)
 
         periods.add(
             WrappedPeriod(
-                id = "YEAR_$currentYear",
-                displayNameEn = "2026 Wrapped",
-                displayNameFa = "رپد ۲۰۲۶ سالانه",
+                id = "YEARLY_${jalaliNow.year}",
+                displayNameEn = "Yearly Wrapped ($gYear)",
+                displayNameFa = toPersianDigits("رپد سالانه (${jalaliNow.year})"),
                 isYearly = true,
-                year = currentYear,
+                year = jalaliNow.year,
                 month = 0,
-                startTimestamp = yearStartCal.timeInMillis,
-                endTimestamp = yearEndCal.timeInMillis,
-                isLocked = isYearLocked,
-                daysRemainingUntilUnlock = daysUntilYearUnlock,
-                unlockTargetDateEn = "December 1, $currentYear",
-                unlockTargetDateFa = "۱ دسامبر $currentYear"
+                startTimestamp = 0L,
+                endTimestamp = nowMs + (daysLeftInYear * dayMs),
+                isLocked = !isLastDayOfYear,
+                daysRemainingUntilUnlock = daysLeftInYear,
+                unlockTargetDateEn = "Last day of the Year ($daysLeftInYear days left)",
+                unlockTargetDateFa = toPersianDigits("پایان آخرین روز سال ${jalaliNow.year} ($daysLeftInYear روز مانده)"),
+                timeframe = WrappedTimeframe.YEARLY,
+                subtitleEn = "Annual Music Recap $gYear",
+                subtitleFa = toPersianDigits("کارنامه بزرگ سال ${jalaliNow.year}")
             )
         )
 
@@ -159,39 +226,72 @@ object WrappedEngine {
         val trackPlayCount = mutableMapOf<String, Int>()
         val trackListeningTime = mutableMapOf<String, Long>()
         val artistPlayCount = mutableMapOf<String, Int>()
+        val artistArtworkMap = mutableMapOf<String, String>()
         val albumPlayCount = mutableMapOf<String, Int>()
         val genrePlayCount = mutableMapOf<String, Int>()
         val hourDistribution = IntArray(24)
-        val activeDays = mutableSetOf<String>()
 
         val cal = Calendar.getInstance()
 
-        for (event in periodEvents) {
-            totalListeningTimeMs += event.durationListenedMs
-            if (event.wasSkipped) totalSkips++
+        if (periodEvents.isNotEmpty()) {
+            for (event in periodEvents) {
+                totalListeningTimeMs += event.durationListenedMs
+                if (event.wasSkipped) totalSkips++
 
-            trackPlayCount[event.trackId] = (trackPlayCount[event.trackId] ?: 0) + 1
-            trackListeningTime[event.trackId] = (trackListeningTime[event.trackId] ?: 0L) + event.durationListenedMs
+                trackPlayCount[event.trackId] = (trackPlayCount[event.trackId] ?: 0) + 1
+                trackListeningTime[event.trackId] = (trackListeningTime[event.trackId] ?: 0L) + event.durationListenedMs
 
-            if (event.artist.isNotBlank() && event.artist != "Unknown Artist") {
-                artistPlayCount[event.artist] = (artistPlayCount[event.artist] ?: 0) + 1
+                val trk = trackMap[event.trackId]
+                val cleanArtist = (trk?.artist ?: event.artist).trim()
+                if (cleanArtist.isNotBlank() && !cleanArtist.equals("Unknown Artist", ignoreCase = true)) {
+                    artistPlayCount[cleanArtist] = (artistPlayCount[cleanArtist] ?: 0) + 1
+                    if (!trk?.artworkUri.isNullOrBlank() && !artistArtworkMap.containsKey(cleanArtist)) {
+                        artistArtworkMap[cleanArtist] = trk!!.artworkUri!!
+                    }
+                }
+
+                val cleanAlbum = (trk?.album ?: event.album).trim()
+                if (cleanAlbum.isNotBlank() && !cleanAlbum.equals("Unknown Album", ignoreCase = true)) {
+                    albumPlayCount[cleanAlbum] = (albumPlayCount[cleanAlbum] ?: 0) + 1
+                }
+
+                val resolvedGenre = resolveRealGenreForStats(trk, event.genre)
+                genrePlayCount[resolvedGenre] = (genrePlayCount[resolvedGenre] ?: 0) + 1
+
+                cal.timeInMillis = event.timestamp
+                val hour = cal.get(Calendar.HOUR_OF_DAY)
+                hourDistribution[hour]++
             }
-            if (event.album.isNotBlank() && event.album != "Unknown Album") {
-                albumPlayCount[event.album] = (albumPlayCount[event.album] ?: 0) + 1
-            }
-            if (event.genre.isNotBlank() && event.genre != "Unknown") {
-                genrePlayCount[event.genre] = (genrePlayCount[event.genre] ?: 0) + 1
-            }
+        } else {
+            val relevantTracks = allTracks.filter { it.playCount > 0 }.ifEmpty { allTracks.take(10) }
+            for (trk in relevantTracks) {
+                val plays = trk.playCount.coerceAtLeast(1)
+                val dur = trk.durationMs * plays
+                totalListeningTimeMs += dur
+                trackPlayCount[trk.id] = plays
+                trackListeningTime[trk.id] = dur
 
-            cal.timeInMillis = event.timestamp
-            val hour = cal.get(Calendar.HOUR_OF_DAY)
-            hourDistribution[hour]++
+                if (trk.artist.isNotBlank() && !trk.artist.equals("Unknown Artist", ignoreCase = true)) {
+                    artistPlayCount[trk.artist] = (artistPlayCount[trk.artist] ?: 0) + plays
+                    if (!trk.artworkUri.isNullOrBlank() && !artistArtworkMap.containsKey(trk.artist)) {
+                        artistArtworkMap[trk.artist] = trk.artworkUri
+                    }
+                }
+                if (trk.album.isNotBlank() && !trk.album.equals("Unknown Album", ignoreCase = true)) {
+                    albumPlayCount[trk.album] = (albumPlayCount[trk.album] ?: 0) + plays
+                }
+                val resolvedGenre = resolveRealGenreForStats(trk, trk.genre)
+                genrePlayCount[resolvedGenre] = (genrePlayCount[resolvedGenre] ?: 0) + plays
 
-            val dayKey = "${cal.get(Calendar.YEAR)}_${cal.get(Calendar.DAY_OF_YEAR)}"
-            activeDays.add(dayKey)
+                if (trk.lastPlayedTimestamp > 0L) {
+                    cal.timeInMillis = trk.lastPlayedTimestamp
+                    val hour = cal.get(Calendar.HOUR_OF_DAY)
+                    hourDistribution[hour] += plays
+                }
+            }
         }
 
-        // Top 5 Songs
+        // Top Songs
         val topSongs = trackPlayCount.entries
             .sortedByDescending { it.value }
             .take(5)
@@ -220,7 +320,8 @@ object WrappedEngine {
                     name = entry.key,
                     count = entry.value,
                     formattedDuration = "${entry.value} plays",
-                    percentage = (entry.value.toFloat() / totalArtistPlays) * 100f
+                    percentage = (entry.value.toFloat() / totalArtistPlays) * 100f,
+                    artworkUri = artistArtworkMap[entry.key]
                 )
             }
 
@@ -317,7 +418,10 @@ object WrappedEngine {
             audioPersonalityFa = personalityFa,
             audioPersonalityDescEn = descEn,
             audioPersonalityDescFa = descFa,
-            completionRate = completionRate
+            completionRate = completionRate,
+            hourlyDistribution = hourDistribution.toList(),
+            peakHour = hourDistribution.indices.maxByOrNull { hourDistribution[it] } ?: 22,
+            uniqueTracksCount = trackPlayCount.size
         )
     }
 
@@ -340,41 +444,12 @@ object WrappedEngine {
         return streak
     }
 
-    private fun getMonthNameEn(month: Int): String = when (month) {
-        1 -> "January"
-        2 -> "February"
-        3 -> "March"
-        4 -> "April"
-        5 -> "May"
-        6 -> "June"
-        7 -> "July"
-        8 -> "August"
-        9 -> "September"
-        10 -> "October"
-        11 -> "November"
-        12 -> "December"
-        else -> "Month"
-    }
-
-    private fun getMonthNameFa(month: Int): String = when (month) {
-        1 -> "ژانویه"
-        2 -> "فوریه"
-        3 -> "مارس"
-        4 -> "آوریل"
-        5 -> "مه"
-        6 -> "ژوئن"
-        7 -> "ژوئیه"
-        8 -> "اوت"
-        9 -> "سپتامبر"
-        10 -> "اکتبر"
-        11 -> "نوامبر"
-        12 -> "دسامبر"
-        else -> "ماه"
-    }
-
-    fun resolveRealGenreForStats(track: Track, rawGenre: String? = null): String {
-        val genreToTest = rawGenre ?: track.genre ?: ""
-        val text = "${track.title} ${track.artist} ${track.album} $genreToTest".lowercase()
+    fun resolveRealGenreForStats(track: Track?, rawGenre: String? = null): String {
+        val genreToTest = rawGenre ?: track?.genre ?: ""
+        val titleStr = track?.title ?: ""
+        val artistStr = track?.artist ?: ""
+        val albumStr = track?.album ?: ""
+        val text = "$titleStr $artistStr $albumStr $genreToTest".lowercase()
 
         return when {
             text.contains("rap") || text.contains("hip hop") || text.contains("hiphop") || text.contains("808") || text.contains("trap") -> {
@@ -394,30 +469,17 @@ object WrappedEngine {
         }
     }
 
-    fun checkAndNotifyNewWrappedIfNeeded(context: android.content.Context, stats: WrappedStats, lang: AppLanguage): Boolean {
-        val prefs = context.getSharedPreferences("aura_wrapped_prefs", android.content.Context.MODE_PRIVATE)
+    fun checkAndNotifyNewWrappedIfNeeded(context: Context, stats: WrappedStats, lang: AppLanguage): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_WRAPPED, Context.MODE_PRIVATE)
         val periodId = stats.period.id
         val seenKey = "seen_$periodId"
         val isSeen = prefs.getBoolean(seenKey, false)
         return !isSeen
     }
 
-    fun markWrappedSeenInUi(context: android.content.Context, periodId: String) {
-        val prefs = context.getSharedPreferences("aura_wrapped_prefs", android.content.Context.MODE_PRIVATE)
+    fun markWrappedSeenInUi(context: Context, periodId: String) {
+        val prefs = context.getSharedPreferences(PREFS_WRAPPED, Context.MODE_PRIVATE)
         prefs.edit().putBoolean("seen_$periodId", true).apply()
-    }
-
-    fun toPersianDigits(input: String): String {
-        val persianDigits = charArrayOf('۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹')
-        val builder = StringBuilder()
-        for (ch in input) {
-            if (ch in '0'..'9') {
-                builder.append(persianDigits[ch - '0'])
-            } else {
-                builder.append(ch)
-            }
-        }
-        return builder.toString()
     }
 }
 

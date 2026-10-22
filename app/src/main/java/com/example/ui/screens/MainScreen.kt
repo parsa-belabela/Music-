@@ -466,7 +466,6 @@ fun MainScreen(
                         appSettings = appSettings,
                         analysisDataProvider = { viewModel.analysisData.value },
                         currentPositionProvider = { livePositionMs },
-                        currentPositionMs = livePositionMs,
                         audioProfile = currentAudioProfile,
                         onCollapse = { viewModel.isNowPlayingExpanded.value = false },
                         onTogglePlay = { viewModel.togglePlayPause() },

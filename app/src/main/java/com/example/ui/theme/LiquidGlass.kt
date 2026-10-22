@@ -1,17 +1,13 @@
 package com.example.ui.theme
 
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
@@ -59,16 +55,15 @@ object LiquidGlassDesign {
             GlassThickness.THIN -> LiquidGlassSpec(
                 surfaceGradient = Brush.verticalGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.16f),
-                        primaryTint.copy(alpha = 0.10f),
-                        Color(0xFF0C101D).copy(alpha = 0.65f)
+                        Color(0xCC121626),
+                        Color(0xD90A0D18)
                     )
                 ),
                 borderGradient = Brush.linearGradient(
                     listOf(
                         Color.White.copy(alpha = 0.55f),
-                        primaryTint.copy(alpha = 0.40f),
-                        Color.White.copy(alpha = 0.15f)
+                        primaryTint.copy(alpha = 0.45f),
+                        Color.White.copy(alpha = 0.18f)
                     )
                 ),
                 shadowElevation = 0.dp,
@@ -79,54 +74,46 @@ object LiquidGlassDesign {
             GlassThickness.REGULAR -> LiquidGlassSpec(
                 surfaceGradient = Brush.verticalGradient(
                     listOf(
-                        Color(0xFF1A2035).copy(alpha = 0.72f),
-                        primaryTint.copy(alpha = 0.14f),
-                        Color(0xFF0A0D18).copy(alpha = 0.84f)
+                        Color(0xD9161B2E),
+                        Color(0xE60B0E1A)
                     )
                 ),
                 borderGradient = Brush.linearGradient(
                     listOf(
                         Color.White.copy(alpha = 0.70f),
-                        primaryTint.copy(alpha = 0.65f),
-                        Color.White.copy(alpha = 0.20f)
+                        primaryTint.copy(alpha = 0.60f),
+                        Color.White.copy(alpha = 0.22f)
                     )
                 ),
                 shadowElevation = 8.dp,
-                shadowColor = Color.Black.copy(alpha = 0.45f),
-                specularReflectionAlpha = 0.55f
+                shadowColor = Color.Black.copy(alpha = 0.50f),
+                specularReflectionAlpha = 0.50f
             )
 
             GlassThickness.THICK -> LiquidGlassSpec(
                 surfaceGradient = Brush.verticalGradient(
                     listOf(
-                        Color(0xFF181E32).copy(alpha = 0.86f),
-                        primaryTint.copy(alpha = 0.18f),
-                        Color(0xFF070A14).copy(alpha = 0.92f)
+                        Color(0xEB151A2D),
+                        Color(0xF5080B14)
                     )
                 ),
                 borderGradient = Brush.linearGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.75f),
-                        primaryTint.copy(alpha = 0.70f),
+                        Color.White.copy(alpha = 0.78f),
+                        primaryTint.copy(alpha = 0.68f),
                         Color.White.copy(alpha = 0.25f)
                     )
                 ),
                 shadowElevation = 16.dp,
-                shadowColor = Color.Black.copy(alpha = 0.60f),
-                specularReflectionAlpha = 0.65f
+                shadowColor = Color.Black.copy(alpha = 0.65f),
+                specularReflectionAlpha = 0.60f
             )
         }
     }
 }
 
-/**
- * شیشه مایع (Liquid Glass) با انعکاس نور زنده و پویا هنگام اسکرول بالا و پایین
- * - بدون هیچ تکسچر یا خط اضافی روی دکمههای کوچک
- * - دارای پرتو انعکاس نوری ابریشمی و لبههای براق حساس به اسکرول روی کارتها
- */
 fun Modifier.liquidGlass(
     shape: Shape = RoundedCornerShape(20.dp),
-    cornerRadius: Dp = 20.dp,
     thickness: GlassThickness = GlassThickness.REGULAR,
     tintColor: Color = Color.Transparent,
     tintAlpha: Float = 0.14f,
@@ -135,17 +122,27 @@ fun Modifier.liquidGlass(
     accentColor: Color = tintColor,
     secondaryAccent: Color = Color(0xFF00E5FF)
 ): Modifier = composed {
-    val effectiveShape = if (shape == RoundedCornerShape(20.dp) && cornerRadius != 20.dp) {
-        RoundedCornerShape(cornerRadius)
-    } else {
-        shape
-    }
     val activeTint = if (tintColor != Color.Transparent && tintColor != Color.Unspecified) {
         tintColor
     } else if (accentColor != Color.Transparent && accentColor != Color.Unspecified) {
         accentColor
     } else {
         Color(0xFF8B5CF6)
+    }
+
+    // محدودسازی درخشندگی رنگ پس‌زمینه کارت‌ها تا متن‌ها و آیکن‌های سفید همیشه ۱۰۰٪ خوانا و واضح باشند
+    val safeTint = remember(activeTint) {
+        val lum = 0.299f * activeTint.red + 0.587f * activeTint.green + 0.114f * activeTint.blue
+        if (lum > 0.65f) {
+            Color(
+                red = activeTint.red * 0.55f,
+                green = activeTint.green * 0.55f,
+                blue = activeTint.blue * 0.55f,
+                alpha = 1f
+            )
+        } else {
+            activeTint
+        }
     }
 
     val density = LocalDensity.current
@@ -156,7 +153,6 @@ fun Modifier.liquidGlass(
 
     var windowY by remember { mutableFloatStateOf(0f) }
 
-    // واکنش نرم و سیال انعکاس نور هنگام بالا و پایین کردن صفحه
     val smoothScrollRatio by animateFloatAsState(
         targetValue = (windowY / screenHeightPx).coerceIn(-0.3f, 1.3f),
         animationSpec = spring(
@@ -170,14 +166,14 @@ fun Modifier.liquidGlass(
         .onGloballyPositioned { coordinates ->
             windowY = coordinates.positionInWindow().y
         }
-        .clip(effectiveShape)
+        .clip(shape)
         .drawWithCache {
             val w = size.width
             val h = size.height
             val minDim = min(w, h)
             val isSmallButton = minDim < 56.dp.toPx() || w < 72.dp.toPx()
 
-            val outline = effectiveShape.createOutline(size, layoutDirection, this)
+            val outline = shape.createOutline(size, layoutDirection, this)
             val outlinePath = Path().apply {
                 when (outline) {
                     is Outline.Generic -> addPath(outline.path)
@@ -187,19 +183,18 @@ fun Modifier.liquidGlass(
             }
 
             if (isSmallButton) {
-                // حالت دکمههای کوچک: کریستالی، تمیز و بدون هیچ خط یا تکسچر مزاحم
                 val btnFill = Brush.verticalGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.18f),
-                        activeTint.copy(alpha = (tintAlpha * 1.1f).coerceIn(0.08f, 0.30f)),
-                        Color(0xFF0B0E1A).copy(alpha = 0.70f)
+                        Color(0xD8161B2E),
+                        safeTint.copy(alpha = 0.28f),
+                        Color(0xEE090C16)
                     )
                 )
                 val btnRim = Brush.linearGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.60f),
-                        activeTint.copy(alpha = 0.50f),
-                        Color.White.copy(alpha = 0.20f)
+                        Color.White.copy(alpha = 0.70f),
+                        activeTint.copy(alpha = 0.55f),
+                        Color.White.copy(alpha = 0.25f)
                     ),
                     start = Offset(0f, 0f),
                     end = Offset(w, h)
@@ -215,55 +210,41 @@ fun Modifier.liquidGlass(
                     )
                 }
             } else {
-                // حالت کارتها و پنلها: انعکاس نور زنده هنگام اسکرول + عمق سهبعدی
                 val sweepProgress = (1f - smoothScrollRatio) * 1.55f - 0.25f
                 val beamCenterX = w * sweepProgress
                 val beamCenterY = h * (0.2f + smoothScrollRatio * 0.6f)
                 val beamWidth = (w * 0.52f).coerceAtLeast(160f)
 
                 val baseAlpha = when (thickness) {
-                    GlassThickness.THIN -> 0.68f
-                    GlassThickness.REGULAR -> 0.78f
-                    GlassThickness.THICK -> 0.88f
+                    GlassThickness.THIN -> 0.80f
+                    GlassThickness.REGULAR -> 0.86f
+                    GlassThickness.THICK -> 0.92f
                 }
 
                 val glassBodyBrush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFF171C2E).copy(alpha = baseAlpha),
-                        activeTint.copy(alpha = (tintAlpha * 1.35f).coerceIn(0.10f, 0.38f)),
-                        Color(0xFF090C16).copy(alpha = (baseAlpha + 0.08f).coerceAtMost(0.95f))
+                        Color(0xFF121626).copy(alpha = baseAlpha),
+                        safeTint.copy(alpha = (tintAlpha * 1.15f).coerceIn(0.12f, 0.32f)),
+                        Color(0xFF080A14).copy(alpha = (baseAlpha + 0.05f).coerceAtMost(0.96f))
                     ),
                     start = Offset(0f, 0f),
                     end = Offset(w, h)
                 )
 
-                // پرتو نور منشوری که با اسکرول کردن صفحه به نرمی روی شیشه حرکت میکند
                 val specularReflectionBrush = Brush.linearGradient(
                     colorStops = arrayOf(
                         0.00f to Color.Transparent,
-                        0.32f to activeTint.copy(alpha = 0.06f),
-                        0.45f to Color.White.copy(alpha = 0.14f),
-                        0.50f to Color.White.copy(alpha = 0.28f),
-                        0.55f to secondaryAccent.copy(alpha = 0.10f),
-                        0.68f to Color.Transparent,
+                        0.35f to safeTint.copy(alpha = 0.05f),
+                        0.46f to Color.White.copy(alpha = 0.10f),
+                        0.50f to Color.White.copy(alpha = 0.18f),
+                        0.54f to secondaryAccent.copy(alpha = 0.08f),
+                        0.65f to Color.Transparent,
                         1.00f to Color.Transparent
                     ),
                     start = Offset(beamCenterX - beamWidth, beamCenterY - beamWidth * 0.7f),
                     end = Offset(beamCenterX + beamWidth, beamCenterY + beamWidth * 0.7f)
                 )
 
-                // پخ نوری سهبعدی سقف و کف شیشه
-                val topLightFactor = (1f - smoothScrollRatio * 0.5f).coerceIn(0.35f, 1f)
-                val innerBevelBrush = Brush.verticalGradient(
-                    colorStops = arrayOf(
-                        0.00f to Color.White.copy(alpha = 0.24f * topLightFactor),
-                        0.12f to Color.White.copy(alpha = 0.03f),
-                        0.85f to Color.Transparent,
-                        1.00f to Color.Black.copy(alpha = 0.35f)
-                    )
-                )
-
-                // چرخش نقطه درخشش کادر دور کارت هماهنگ با اسکرول
                 val rimAngle = (smoothScrollRatio * PI).toFloat()
                 val rimStart = Offset(
                     x = (w * 0.5f) + cos(rimAngle) * w * 0.6f,
@@ -276,10 +257,10 @@ fun Modifier.liquidGlass(
 
                 val dynamicBorderBrush = Brush.linearGradient(
                     colorStops = arrayOf(
-                        0.00f to activeTint.copy(alpha = 0.80f),
+                        0.00f to activeTint.copy(alpha = 0.85f),
                         0.35f to Color.White.copy(alpha = 0.85f),
-                        0.65f to secondaryAccent.copy(alpha = 0.70f),
-                        1.00f to activeTint.copy(alpha = 0.55f)
+                        0.65f to secondaryAccent.copy(alpha = 0.75f),
+                        1.00f to activeTint.copy(alpha = 0.60f)
                     ),
                     start = rimStart,
                     end = rimEnd
@@ -288,8 +269,7 @@ fun Modifier.liquidGlass(
                 onDrawWithContent {
                     clipPath(outlinePath) {
                         drawRect(brush = glassBodyBrush)
-                        drawRect(brush = specularReflectionBrush, blendMode = BlendMode.Plus)
-                        drawRect(brush = innerBevelBrush)
+                        drawRect(brush = specularReflectionBrush)
                     }
                     drawContent()
                     drawPath(

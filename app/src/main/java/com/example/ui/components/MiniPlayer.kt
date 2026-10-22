@@ -128,7 +128,6 @@ fun MiniPlayer(
                     )
                     .liquidGlass(
                         shape = RoundedCornerShape(22.dp),
-                        cornerRadius = 22.dp,
                         thickness = GlassThickness.REGULAR,
                         tintColor = animatedPrimary,
                         tintAlpha = 0.28f,
