@@ -49,6 +49,7 @@ import com.example.data.model.RepeatMode as PlaybackRepeatMode
 import com.example.ui.components.*
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
+import kotlinx.coroutines.isActive
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -111,7 +112,7 @@ fun NowPlayingScreen(
 
     val isPlaying = playbackState.isPlaying
 
-    // استخراج زنده و نرم رنگ‌های غالب کاور آهنگ (بدون هیچ رنگ نارنجی دستی!)
+    // رنگ‌های زنده مستخرج از کاور آهنگ
     val coverPrimary by animateColorAsState(
         targetValue = palette.primary,
         animationSpec = tween(700, easing = FastOutSlowInEasing),
@@ -155,20 +156,50 @@ fun NowPlayingScreen(
         audioProfile?.waveformEnvelope?.split(",")?.mapNotNull { it.trim().toFloatOrNull() }?.toFloatArray()
     }
 
-    // موشن شناوری سه‌بعدی کاور و هاله نوری پشت آن
-    val infiniteTransition = rememberInfiniteTransition(label = "NowPlayingCoverMotion")
-    val floatPhase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2f * PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = if (isPlaying) 4200 else 9000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "floatPhase"
-    )
+    // موتور فیزیک 120 FPS (VSYNC Frame-Paced) برای چرخش و حرکت کاور متناسب با ریتم، تمپو و انرژی واقعی آهنگ
+    var dynamicPhaseRad by remember { mutableFloatStateOf(0f) }
+    var smoothReactiveEnergy by remember { mutableFloatStateOf(0.2f) }
+    var smoothReactiveKick by remember { mutableFloatStateOf(0f) }
+
+    val latestAnalysisProvider by rememberUpdatedState(analysisDataProvider)
+    val trackBaseBpm = remember(audioProfile?.estimatedTempoBpm) {
+        (audioProfile?.estimatedTempoBpm ?: 100).coerceIn(60, 180)
+    }
+    val trackBaseEnergy = remember(audioProfile?.energyLevel) {
+        (audioProfile?.energyLevel ?: 0.5f).coerceIn(0.15f, 0.95f)
+    }
+
+    LaunchedEffect(isPlaying, track.id) {
+        var lastFrameNanos = withFrameNanos { it }
+        while (isActive) {
+            withFrameNanos { nowNanos ->
+                val dtSec = ((nowNanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
+                lastFrameNanos = nowNanos
+
+                val audio = latestAnalysisProvider()
+                val targetEnergy = if (isPlaying) {
+                    (audio.totalEnergy * 0.55f + audio.bass * 0.30f + trackBaseEnergy * 0.15f).coerceIn(0.05f, 1.0f)
+                } else {
+                    0.04f
+                }
+
+                // نرم‌سازی ۱۲۰ فریم بر ثانیه بدون کوچک‌ترین لگ
+                smoothReactiveEnergy += (targetEnergy - smoothReactiveEnergy) * (dtSec * 8f).coerceIn(0f, 1f)
+                smoothReactiveKick += (audio.kickPulse - smoothReactiveKick) * (dtSec * 14f).coerceIn(0f, 1f)
+
+                if (isPlaying) {
+                    val bpmFactor = (trackBaseBpm / 110f).coerceIn(0.55f, 1.65f)
+                    val angularVelocity = (0.28f + (smoothReactiveEnergy * 1.55f * bpmFactor) + (smoothReactiveKick * 1.15f))
+                    dynamicPhaseRad = (dynamicPhaseRad + angularVelocity * dtSec) % (2f * PI.toFloat() * 100f)
+                } else {
+                    dynamicPhaseRad = (dynamicPhaseRad + 0.08f * dtSec) % (2f * PI.toFloat() * 100f)
+                }
+            }
+        }
+    }
 
     val artworkBaseScale by animateFloatAsState(
-        targetValue = if (isPlaying) 1.0f else 0.90f,
+        targetValue = if (isPlaying) 1.0f else 0.92f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
@@ -179,20 +210,9 @@ fun NowPlayingScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures { _, dragAmount ->
-                    if (dragAmount > 55) {
-                        triggerHaptic()
-                        onPrevious()
-                    } else if (dragAmount < -55) {
-                        triggerHaptic()
-                        onNext()
-                    }
-                }
-            }
             .testTag("now_playing_screen")
     ) {
-        // ۱. پس‌زمینه سینمایی با بلر عمیق کاور و امواج موشن‌بلر شده هم‌رنگ با کاور آهنگ
+        // ۱. پس‌زمینه آرام و حساس به قدرت واقعی بیس و کیک
         CinematicAtmosphereBackground(
             track = track,
             palette = dynamicCoverPalette,
@@ -209,9 +229,7 @@ fun NowPlayingScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // =========================================================================
-            // ۲. هدر بالایی پلیر + نشانگر هوشمند ایرپاد/اسپیکر بلوتوثی
-            // =========================================================================
+            // ۲. هدر بالایی پلیر
             AnimatedVisibility(
                 visible = !isImmersive,
                 enter = fadeIn() + expandVertically(),
@@ -221,7 +239,6 @@ fun NowPlayingScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // دستگیره کپسولی بالای صفحه
                     Box(
                         modifier = Modifier
                             .padding(bottom = 8.dp)
@@ -259,14 +276,12 @@ fun NowPlayingScreen(
                             )
                         }
 
-                        // اگر ایرپاد یا اسپیکر بلوتوثی وصل باشد، با موشن‌گرافیک نمایش داده می‌شود
                         if (connectedDevice != null) {
                             AudioDeviceIndicator(
                                 device = connectedDevice,
                                 compact = false
                             )
                         } else {
-                            // سوییچر شیشه‌ای بین کاور آهنگ و متن ترانه
                             Box(
                                 modifier = Modifier
                                     .liquidGlass(
@@ -383,9 +398,7 @@ fun NowPlayingScreen(
                 }
             }
 
-            // =========================================================================
-            // ۳. استیج مرکزی: کاور سه‌بعدی با هاله نوری محو و موشن‌بلر تپنده در پشت کاور
-            // =========================================================================
+            // ۳. استیج کاور با چرخش ۱۲۰ فریم هماهنگ با ریتم واقعی آهنگ + هاله نوری حساس به کیک و بیس
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -395,88 +408,65 @@ fun NowPlayingScreen(
             ) {
                 when (centerView) {
                     NowPlayingCenterView.ARTWORK_AND_HALO -> {
-                        val audioData = analysisDataProvider()
-                        val beatPulse = if (isPlaying) {
-                            (audioData.kickPulse * 0.05f + audioData.haloExpansion * 0.03f).coerceIn(0f, 0.08f)
-                        } else 0f
+                        var artworkSwipeAccum by remember { mutableFloatStateOf(0f) }
 
-                        val animatedBeatPulse by animateFloatAsState(
-                            targetValue = beatPulse,
-                            animationSpec = spring(
-                                stiffness = Spring.StiffnessMediumLow,
-                                dampingRatio = Spring.DampingRatioMediumBouncy
-                            ),
-                            label = "artworkBeatPulse"
-                        )
+                        val dynamicTiltAmplitude = 1.2f + (smoothReactiveEnergy * 4.8f) + (smoothReactiveKick * 2.2f)
+                        val floatOffsetY = sin(dynamicPhaseRad) * (3f + smoothReactiveEnergy * 11f)
 
-                        val floatOffsetY = sin(floatPhase) * (if (isPlaying) 12f else 3f)
-
-                        // الف) هاله‌های نوری کاملاً محو و بلر شده (Gaussian Blurred Aura) دقیقاً پشت کاور آهنگ
                         Canvas(modifier = Modifier.fillMaxSize()) {
                             val cx = size.width / 2f
                             val cy = (size.height / 2f) + floatOffsetY
-                            val baseR = size.minDimension * 0.42f * (1f + animatedBeatPulse * 1.8f)
+                            val realPulseExpand = 1f + (smoothReactiveEnergy * 0.18f) + (smoothReactiveKick * 0.22f)
+                            val baseR = size.minDimension * 0.40f * realPulseExpand
+
+                            val primaryAlpha = (0.30f + smoothReactiveEnergy * 0.42f + smoothReactiveKick * 0.25f).coerceIn(0.22f, 0.92f)
+                            val secondaryAlpha = (0.24f + smoothReactiveEnergy * 0.38f + smoothReactiveKick * 0.20f).coerceIn(0.18f, 0.85f)
 
                             drawIntoCanvas { canvas ->
-                                // هاله اول: رنگ غالب کاور آهنگ با بلر فوق‌العاده نرم و موشن چرخشی
                                 val paintPrimary = Paint().apply {
                                     asFrameworkPaint().apply {
                                         isAntiAlias = true
                                         maskFilter = BlurMaskFilter(95f, BlurMaskFilter.Blur.NORMAL)
-                                        color = coverPrimary.copy(alpha = if (isPlaying) 0.82f else 0.45f).toArgb()
+                                        color = coverPrimary.copy(alpha = if (isPlaying) primaryAlpha else 0.28f).toArgb()
                                     }
                                 }
                                 canvas.drawCircle(
-                                    Offset(cx - 22f * cos(floatPhase), cy + 22f * sin(floatPhase)),
+                                    Offset(cx - 16f * cos(dynamicPhaseRad * 0.5f), cy + 16f * sin(dynamicPhaseRad * 0.5f)),
                                     baseR,
                                     paintPrimary
                                 )
 
-                                // هاله دوم: رنگ مکمل کاور آهنگ با حرکت معکوس برای ایجاد موشن‌بلر پشت کاور
                                 val paintSecondary = Paint().apply {
                                     asFrameworkPaint().apply {
                                         isAntiAlias = true
                                         maskFilter = BlurMaskFilter(85f, BlurMaskFilter.Blur.NORMAL)
-                                        color = coverSecondary.copy(alpha = if (isPlaying) 0.72f else 0.35f).toArgb()
+                                        color = coverSecondary.copy(alpha = if (isPlaying) secondaryAlpha else 0.22f).toArgb()
                                     }
                                 }
                                 canvas.drawCircle(
-                                    Offset(cx + 24f * sin(floatPhase), cy - 24f * cos(floatPhase)),
+                                    Offset(cx + 18f * sin(dynamicPhaseRad * 0.5f), cy - 18f * cos(dynamicPhaseRad * 0.5f)),
                                     baseR * 0.90f,
                                     paintSecondary
-                                )
-
-                                // هاله سوم: درخشش مرکزی تاکیدی هنگام ضربه بیس
-                                val paintAccent = Paint().apply {
-                                    asFrameworkPaint().apply {
-                                        isAntiAlias = true
-                                        maskFilter = BlurMaskFilter(70f, BlurMaskFilter.Blur.NORMAL)
-                                        color = coverAccent.copy(alpha = (0.35f + animatedBeatPulse * 4f).coerceIn(0.2f, 0.85f)).toArgb()
-                                    }
-                                }
-                                canvas.drawCircle(
-                                    Offset(cx, cy),
-                                    baseR * 0.78f,
-                                    paintAccent
                                 )
                             }
                         }
 
-                        // ب) قاب شیشه‌ای و سه‌بعدی خودِ کاور آهنگ با خط نوری هم‌رنگ کاور
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight(0.76f)
                                 .aspectRatio(1f)
                                 .graphicsLayer {
-                                    val totalScale = artworkBaseScale + (animatedBeatPulse * 0.6f)
+                                    val beatScaleBoost = smoothReactiveKick * 0.045f + smoothReactiveEnergy * 0.02f
+                                    val totalScale = artworkBaseScale + (if (isPlaying) beatScaleBoost else 0f)
                                     scaleX = totalScale
                                     scaleY = totalScale
                                     translationY = floatOffsetY
-                                    rotationX = sin(floatPhase) * (if (isPlaying) 3.0f else 0.5f)
-                                    rotationY = cos(floatPhase) * (if (isPlaying) 3.0f else 0.5f)
+                                    rotationX = sin(dynamicPhaseRad) * (if (isPlaying) dynamicTiltAmplitude else 0.5f)
+                                    rotationY = cos(dynamicPhaseRad) * (if (isPlaying) dynamicTiltAmplitude else 0.5f)
+                                    rotationZ = sin(dynamicPhaseRad * 0.5f) * (if (isPlaying) smoothReactiveEnergy * 2.2f else 0f)
                                 }
                                 .shadow(
-                                    elevation = if (isPlaying) 36.dp else 18.dp,
+                                    elevation = if (isPlaying) 34.dp else 16.dp,
                                     shape = RoundedCornerShape(32.dp),
                                     spotColor = coverPrimary,
                                     ambientColor = coverSecondary
@@ -496,7 +486,28 @@ fun NowPlayingScreen(
                                 .padding(3.dp)
                                 .clip(RoundedCornerShape(29.dp))
                                 .background(Color(0xFF10121E))
-                                .pointerInput(Unit) {
+                                .pointerInput(track.id) {
+                                    detectHorizontalDragGestures(
+                                        onHorizontalDrag = { change, dragAmount ->
+                                            change.consume()
+                                            artworkSwipeAccum += dragAmount
+                                        },
+                                        onDragEnd = {
+                                            if (artworkSwipeAccum > 110f) {
+                                                triggerHaptic()
+                                                onPrevious()
+                                            } else if (artworkSwipeAccum < -110f) {
+                                                triggerHaptic()
+                                                onNext()
+                                            }
+                                            artworkSwipeAccum = 0f
+                                        },
+                                        onDragCancel = {
+                                            artworkSwipeAccum = 0f
+                                        }
+                                    )
+                                }
+                                .pointerInput(track.id) {
                                     detectTapGestures(
                                         onDoubleTap = {
                                             triggerHaptic()
@@ -562,9 +573,7 @@ fun NowPlayingScreen(
                 }
             }
 
-            // =========================================================================
-            // ۴. داک شیشه‌ای یکپارچه پایین صفحه (تغییر رنگ ۱۰۰٪ با کاور آهنگ + کنتراست تضمینی)
-            // =========================================================================
+            // ۴. داک شیشه‌ای پایینی
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -579,7 +588,6 @@ fun NowPlayingScreen(
                     .padding(horizontal = 18.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // الف) نام آهنگ، خواننده، موج انرژی زنده و دکمه قلب
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -604,6 +612,8 @@ fun NowPlayingScreen(
 
                             LiveCoverEnergyBars(
                                 isPlaying = isPlaying,
+                                energy = smoothReactiveEnergy,
+                                kick = smoothReactiveKick,
                                 primaryColor = coverPrimary,
                                 accentColor = coverAccent
                             )
@@ -648,7 +658,6 @@ fun NowPlayingScreen(
                     }
                 }
 
-                // ب) نوار پیشرفت هماهنگ با رنگ کاور آهنگ (بدون رنگ نارنجی دستی!)
                 val dur = if (track.durationMs > 0) track.durationMs else 1L
                 LiquidGlassProgressBar(
                     currentPositionProvider = currentPositionProvider,
@@ -660,13 +669,11 @@ fun NowPlayingScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // ج) دکمه‌های کنترل پخش با کنتراست تضمین‌شده و گوی نوری هم‌رنگ کاور
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // دکمه Shuffle
                     IconButton(
                         onClick = {
                             triggerHaptic()
@@ -689,7 +696,6 @@ fun NowPlayingScreen(
                         )
                     }
 
-                    // دکمه قبلی (Skip Previous)
                     IconButton(
                         onClick = {
                             triggerHaptic()
@@ -712,7 +718,6 @@ fun NowPlayingScreen(
                         )
                     }
 
-                    // دکمه مرکزی Play / Pause که رنگش را مستقیم از کاور می‌گیرد و آیکونش همیشه ۱۰۰٪ خواناست
                     CoverReactivePlayButton(
                         isPlaying = isPlaying,
                         primaryColor = coverPrimary,
@@ -724,7 +729,6 @@ fun NowPlayingScreen(
                         }
                     )
 
-                    // دکمه بعدی (Skip Next)
                     IconButton(
                         onClick = {
                             triggerHaptic()
@@ -747,7 +751,6 @@ fun NowPlayingScreen(
                         )
                     }
 
-                    // دکمه Repeat
                     IconButton(
                         onClick = {
                             triggerHaptic()
@@ -776,13 +779,11 @@ fun NowPlayingScreen(
                     }
                 }
 
-                // د) اسلایدر صدا که رنگش با کاور آهنگ عوض می‌شود
                 LiquidGlassVolumeControl(
                     palette = dynamicCoverPalette,
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // ه) نوار ابزار پایینی: [ Lyrics ] [ Speed ] [ Share ] [ Queue ]
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -926,10 +927,6 @@ fun NowPlayingScreen(
     }
 }
 
-/**
- * دکمه Play/Pause مرکزی با هاله بلر شده هم‌رنگ با کاور آهنگ و کنتراست هوشمند آیکون
- * (حتی اگر کاور آهنگ کاملاً سفید باشد، آیکون هرگز سفید تو سفید و ناپدید نمی‌شود)
- */
 @Composable
 private fun CoverReactivePlayButton(
     isPlaying: Boolean,
@@ -949,7 +946,6 @@ private fun CoverReactivePlayButton(
         label = "PlayOrbScale"
     )
 
-    // محاسبه روشنایی رنگ کاور برای اینکه اگر کاور خیلی روشن/سفید بود، آیکون تیره شود و هرگز گم نشود
     val luminance = (0.299f * primaryColor.red + 0.587f * primaryColor.green + 0.114f * primaryColor.blue)
     val iconColor = if (luminance > 0.72f) Color(0xFF090B14) else Color.White
 
@@ -957,7 +953,6 @@ private fun CoverReactivePlayButton(
         modifier = Modifier.size(72.dp),
         contentAlignment = Alignment.Center
     ) {
-        // هاله نوری بلر شده در پشت دکمه پلی
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawIntoCanvas { canvas ->
                 val glowPaint = Paint().apply {
@@ -1017,22 +1012,24 @@ private fun CoverReactivePlayButton(
     }
 }
 
-/**
- * میله‌های اکولایزر زنده کنار نام آهنگ که با رنگ کاور آهنگ می‌درخشند
- */
 @Composable
 private fun LiveCoverEnergyBars(
     isPlaying: Boolean,
+    energy: Float,
+    kick: Float,
     primaryColor: Color,
     accentColor: Color
 ) {
-    val transition = rememberInfiniteTransition(label = "CoverEnergyBars")
-    val b1 by transition.animateFloat(0.25f, 1.0f, infiniteRepeatable(tween(320, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b1")
-    val b2 by transition.animateFloat(0.35f, 0.95f, infiniteRepeatable(tween(240, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b2")
-    val b3 by transition.animateFloat(0.20f, 1.0f, infiniteRepeatable(tween(400, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b3")
-    val b4 by transition.animateFloat(0.30f, 0.90f, infiniteRepeatable(tween(280, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b4")
-
-    val bars = if (isPlaying) listOf(b1, b2, b3, b4) else listOf(0.25f, 0.25f, 0.25f, 0.25f)
+    val bars = if (isPlaying) {
+        listOf(
+            (0.22f + energy * 0.65f + kick * 0.25f).coerceIn(0.2f, 1f),
+            (0.30f + kick * 0.60f + energy * 0.35f).coerceIn(0.2f, 1f),
+            (0.18f + energy * 0.75f).coerceIn(0.2f, 1f),
+            (0.25f + kick * 0.45f + energy * 0.45f).coerceIn(0.2f, 1f)
+        )
+    } else {
+        listOf(0.22f, 0.22f, 0.22f, 0.22f)
+    }
 
     Row(
         modifier = Modifier.height(16.dp),

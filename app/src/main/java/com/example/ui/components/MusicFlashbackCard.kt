@@ -42,8 +42,12 @@ fun MusicFlashbackCard(
     modifier: Modifier = Modifier
 ) {
     val isFa = language == AppLanguage.PERSIAN
-    val fallbackInsight = remember(currentTrack) {
-        if (currentTrack != null) {
+    val hasRealData = currentTrack != null || (customInsight != null && customInsight.trackTitle.isNotBlank())
+
+    val fallbackInsight = remember(currentTrack, customInsight) {
+        if (customInsight != null && customInsight.trackTitle.isNotBlank()) {
+            customInsight
+        } else if (currentTrack != null) {
             FunMusicInsight(
                 trackTitle = currentTrack.title,
                 artistName = currentTrack.artist,
@@ -57,15 +61,15 @@ fun MusicFlashbackCard(
                 trackTitle = "",
                 artistName = "",
                 messageFa = "هنوز آهنگی پخش نشده است. با پخش موسیقی‌های مورد علاقه‌تان، خاطرات و فکت‌های واقعی شما در دیتابیس ثبت می‌شود.",
-                messageEn = "No music played yet. Start playing your favorite tracks to generate real music memories!",
+                messageEn = "No play history recorded in database yet. Play tracks to create real music memories!",
                 badgeEmoji = "🎧",
-                statHighlight = "دفترچه خاطرات موسیقی"
+                statHighlight = "دفترچه خاطرات موسیقی شما"
             )
         }
     }
 
-    var refreshedInsight by remember { mutableStateOf<FunMusicInsight?>(null) }
-    val insight = refreshedInsight ?: customInsight ?: fallbackInsight
+    var refreshedInsight by remember(currentTrack, customInsight) { mutableStateOf<FunMusicInsight?>(null) }
+    val insight = refreshedInsight ?: fallbackInsight
 
     Box(
         modifier = modifier
@@ -110,16 +114,21 @@ fun MusicFlashbackCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     IconButton(
                         onClick = {
-                            val title = currentTrack?.title ?: "آهنگ"
-                            val artist = currentTrack?.artist ?: "هنرمند"
-                            refreshedInsight = UserProfileManager.generateFunInsight(title, artist, (3..14).random().toFloat())
+                            if (hasRealData && currentTrack != null) {
+                                refreshedInsight = UserProfileManager.generateFunInsight(
+                                    currentTrack.title,
+                                    currentTrack.artist,
+                                    (3..14).random().toFloat()
+                                )
+                            }
                         },
+                        enabled = hasRealData,
                         modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = "New Insight",
-                            tint = Color.White.copy(alpha = 0.7f),
+                            tint = if (hasRealData) Color.White.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.25f),
                             modifier = Modifier.size(16.dp)
                         )
                     }

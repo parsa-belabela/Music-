@@ -1,0 +1,638 @@
+package com.example.util
+
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import com.example.MainActivity
+import com.example.R
+import com.example.data.model.*
+import java.util.Calendar
+import kotlin.math.max
+
+object WrappedEngine {
+
+    private const val PREFS_WRAPPED = "aura_wrapped_alerts"
+    private const val CHANNEL_ID = "aura_wrapped_ready_channel"
+
+    data class JalaliDate(val year: Int, val month: Int, val day: Int) {
+        val monthNameFa: String get() = getPersianMonthName(month)
+        val totalDaysInMonth: Int
+            get() = when {
+                month in 1..6 -> 31
+                month in 7..11 -> 30
+                isJalaliLeapYear(year) -> 30
+                else -> 29
+            }
+    }
+
+    /**
+     * تبدیل دقیق تاریخ میلادی به هجری شمسی (Jalali)
+     */
+    fun gregorianToJalali(gy: Int, gm: Int, gd: Int): JalaliDate {
+        val gDaysInMonth = intArrayOf(0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
+        val gy2 = if (gm > 2) gy + 1 else gy
+        var days = 355666 + (365 * gy) + ((gy2 + 3) / 4) - ((gy2 + 99) / 100) + ((gy2 + 399) / 400) + gd + gDaysInMonth[gm - 1]
+        var jy = -1595 + (33 * (days / 12053))
+        days %= 12053
+        jy += 4 * (days / 1461)
+        days %= 1461
+        if (days > 365) {
+            jy += (days - 1) / 365
+            days = (days - 1) % 365
+        }
+        val jm: Int
+        val jd: Int
+        if (days < 186) {
+            jm = 1 + (days / 31)
+            jd = 1 + (days % 31)
+        } else {
+            jm = 7 + ((days - 186) / 30)
+            jd = 1 + ((days - 186) % 30)
+        }
+        return JalaliDate(jy, jm, jd)
+    }
+
+    private fun isJalaliLeapYear(jy: Int): Boolean {
+        val rem = jy % 33
+        return rem in intArrayOf(1, 5, 9, 13, 17, 22, 26, 30)
+    }
+
+    fun toPersianDigits(input: String): String {
+        val en = charArrayOf('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')
+        val fa = charArrayOf('۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹')
+        var out = input
+        for (i in en.indices) {
+            out = out.replace(en[i], fa[i])
+        }
+        return out
+    }
+
+    fun getAvailablePeriods(firstTimestamp: Long): List<WrappedPeriod> {
+        val periods = mutableListOf<WrappedPeriod>()
+        val nowCal = Calendar.getInstance()
+        val nowMs = nowCal.timeInMillis
+
+        val gYear = nowCal.get(Calendar.YEAR)
+        val gMonth = nowCal.get(Calendar.MONTH) + 1
+        val gDay = nowCal.get(Calendar.DAY_OF_MONTH)
+        val jalaliNow = gregorianToJalali(gYear, gMonth, gDay)
+
+        val dayMs = 24L * 60L * 60L * 1000L
+
+        // =========================================================================
+        // ۱. دسته‌بندی هفتگی (WEEKLY WRAPPED) - هفته جاری و هفته گذشته
+        // =========================================================================
+        // محاسبه شروع هفته جاری (از شنبه برای تقویم شمسی)
+        val dayOfWeek = nowCal.get(Calendar.DAY_OF_WEEK) // Sunday=1 .. Saturday=7
+        val daysSinceSaturday = if (dayOfWeek == Calendar.SATURDAY) 0 else dayOfWeek
+        val currentWeekStartCal = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, -daysSinceSaturday)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val currentWeekStartMs = currentWeekStartCal.timeInMillis
+        val currentWeekEndMs = currentWeekStartMs + (7 * dayMs) - 1L
+
+        val cwStartJalali = gregorianToJalali(
+            currentWeekStartCal.get(Calendar.YEAR),
+            currentWeekStartCal.get(Calendar.MONTH) + 1,
+            currentWeekStartCal.get(Calendar.DAY_OF_MONTH)
+        )
+
+        periods.add(
+            WrappedPeriod(
+                id = "WEEK_CURRENT_${jalaliNow.year}_${jalaliNow.month}_${cwStartJalali.day}",
+                displayNameEn = "This Week's Pulse",
+                displayNameFa = toPersianDigits("نبض این هفته (از ${cwStartJalali.day} ${cwStartJalali.monthNameFa})"),
+                isYearly = false,
+                year = jalaliNow.year,
+                month = jalaliNow.month,
+                startTimestamp = currentWeekStartMs,
+                endTimestamp = currentWeekEndMs,
+                isLocked = false,
+                daysRemainingUntilUnlock = 0,
+                unlockTargetDateEn = "Live Weekly Stats",
+                unlockTargetDateFa = "آمار زنده هفتگی",
+                timeframe = WrappedTimeframe.WEEKLY,
+                subtitleEn = "Real-time 7-day listening report",
+                subtitleFa = toPersianDigits("گزارش تحلیلی ۷ روز اخیر • سال ${jalaliNow.year}")
+            )
+        )
+
+        // هفته گذشته (تکمیل‌شده)
+        val prevWeekStartMs = currentWeekStartMs - (7 * dayMs)
+        val prevWeekEndMs = currentWeekStartMs - 1L
+        val pwCal = Calendar.getInstance().apply { timeInMillis = prevWeekStartMs }
+        val pwJalali = gregorianToJalali(
+            pwCal.get(Calendar.YEAR),
+            pwCal.get(Calendar.MONTH) + 1,
+            pwCal.get(Calendar.DAY_OF_MONTH)
+        )
+
+        periods.add(
+            WrappedPeriod(
+                id = "WEEK_PREV_${pwJalali.year}_${pwJalali.month}_${pwJalali.day}",
+                displayNameEn = "Last Week Wrapped",
+                displayNameFa = toPersianDigits("هفته گذشته (${pwJalali.day} ${pwJalali.monthNameFa})"),
+                isYearly = false,
+                year = pwJalali.year,
+                month = pwJalali.month,
+                startTimestamp = prevWeekStartMs,
+                endTimestamp = prevWeekEndMs,
+                isLocked = false,
+                daysRemainingUntilUnlock = 0,
+                unlockTargetDateEn = "Completed Week",
+                unlockTargetDateFa = "تکمیل شده",
+                timeframe = WrappedTimeframe.WEEKLY,
+                subtitleEn = "Previous 7-day recap",
+                subtitleFa = toPersianDigits("خلاصه کامل هفته گذشته • ${pwJalali.monthNameFa} ${pwJalali.year}")
+            )
+        )
+
+        // =========================================================================
+        // ۲. دسته‌بندی ماهانه بر اساس تقویم شمسی و میلادی (MONTHLY WRAPPED)
+        // =========================================================================
+        val currentJalaliMonthStartMs = nowMs - ((jalaliNow.day - 1) * dayMs)
+        val currentJalaliMonthEndMs = currentJalaliMonthStartMs + (jalaliNow.totalDaysInMonth * dayMs) - 1L
+        val gMonthName = getEnglishMonthName(gMonth)
+
+        periods.add(
+            WrappedPeriod(
+                id = "MONTH_JALALI_${jalaliNow.year}_${jalaliNow.month}",
+                displayNameEn = "$gMonthName $gYear",
+                displayNameFa = toPersianDigits("${jalaliNow.monthNameFa} ${jalaliNow.year}"),
+                isYearly = false,
+                year = jalaliNow.year,
+                month = jalaliNow.month,
+                startTimestamp = currentJalaliMonthStartMs - (5 * dayMs), // پوشش کامل ماه جاری
+                endTimestamp = currentJalaliMonthEndMs,
+                isLocked = false,
+                daysRemainingUntilUnlock = max(0, jalaliNow.totalDaysInMonth - jalaliNow.day),
+                unlockTargetDateEn = "$gMonthName $gYear",
+                unlockTargetDateFa = toPersianDigits("${jalaliNow.monthNameFa} ${jalaliNow.year}"),
+                timeframe = WrappedTimeframe.MONTHLY,
+                subtitleEn = "Monthly Listening Wrapped",
+                subtitleFa = toPersianDigits("گزارش ماهانه ${jalaliNow.monthNameFa} ماه ${jalaliNow.year}")
+            )
+        )
+
+        // ماه گذشته شمسی
+        val prevJMonth = if (jalaliNow.month > 1) jalaliNow.month - 1 else 12
+        val prevJYear = if (jalaliNow.month > 1) jalaliNow.year else jalaliNow.year - 1
+        val prevJMonthDays = if (prevJMonth <= 6) 31 else if (prevJMonth <= 11) 30 else 29
+        val prevJMonthEndMs = currentJalaliMonthStartMs - 1L
+        val prevJMonthStartMs = prevJMonthEndMs - (prevJMonthDays * dayMs) + 1L
+        val prevGMonth = if (gMonth > 1) gMonth - 1 else 12
+        val prevGYear = if (gMonth > 1) gYear else gYear - 1
+
+        periods.add(
+            WrappedPeriod(
+                id = "MONTH_JALALI_${prevJYear}_${prevJMonth}",
+                displayNameEn = "${getEnglishMonthName(prevGMonth)} $prevGYear",
+                displayNameFa = toPersianDigits("${getPersianMonthName(prevJMonth)} ${prevJYear}"),
+                isYearly = false,
+                year = prevJYear,
+                month = prevJMonth,
+                startTimestamp = prevJMonthStartMs,
+                endTimestamp = prevJMonthEndMs,
+                isLocked = false,
+                daysRemainingUntilUnlock = 0,
+                unlockTargetDateEn = "Completed",
+                unlockTargetDateFa = "تکمیل شده",
+                timeframe = WrappedTimeframe.MONTHLY,
+                subtitleEn = "Completed Monthly Recap",
+                subtitleFa = toPersianDigits("آمار کامل ${getPersianMonthName(prevJMonth)} ${prevJYear}")
+            )
+        )
+
+        // =========================================================================
+        // ۳. دسته‌بندی سالانه (YEARLY WRAPPED)
+        // =========================================================================
+        val daysPassedInJalaliYear = ((jalaliNow.month - 1) * 30) + jalaliNow.day
+        val yearStartMs = nowMs - (daysPassedInJalaliYear * dayMs)
+        val yearEndMs = yearStartMs + (365L * dayMs)
+
+        periods.add(
+            WrappedPeriod(
+                id = "YEAR_${jalaliNow.year}",
+                displayNameEn = "$gYear Wrapped",
+                displayNameFa = toPersianDigits("رپد سال ${jalaliNow.year}"),
+                isYearly = true,
+                year = jalaliNow.year,
+                month = 0,
+                startTimestamp = 0L, // شامل تمام رکوردهای سال
+                endTimestamp = yearEndMs,
+                isLocked = false,
+                daysRemainingUntilUnlock = 0,
+                unlockTargetDateEn = "Annual Wrapped $gYear",
+                unlockTargetDateFa = toPersianDigits("گزارش جامع سال ${jalaliNow.year}"),
+                timeframe = WrappedTimeframe.YEARLY,
+                subtitleEn = "Your Ultimate Annual Music Story",
+                subtitleFa = toPersianDigits("داستان کامل موسیقی شما در سال ${jalaliNow.year}")
+            )
+        )
+
+        return periods
+    }
+
+    fun computeStats(
+        period: WrappedPeriod,
+        events: List<PlaybackEvent>,
+        allTracks: List<Track>,
+        firstTimestamp: Long
+    ): WrappedStats {
+        val periodEvents = events.filter { it.timestamp in period.startTimestamp..period.endTimestamp }
+        val trackMap = allTracks.associateBy { it.id }
+
+        var totalListeningTimeMs = 0L
+        var totalSkips = 0
+        val trackPlayCount = mutableMapOf<String, Int>()
+        val trackListeningTime = mutableMapOf<String, Long>()
+        val artistPlayCount = mutableMapOf<String, Int>()
+        val artistArtworkMap = mutableMapOf<String, String>()
+        val albumPlayCount = mutableMapOf<String, Int>()
+        val genrePlayCount = mutableMapOf<String, Int>()
+        val hourDistribution = IntArray(24)
+
+        val cal = Calendar.getInstance()
+
+        if (periodEvents.isNotEmpty()) {
+            for (event in periodEvents) {
+                totalListeningTimeMs += event.durationListenedMs
+                if (event.wasSkipped) totalSkips++
+
+                trackPlayCount[event.trackId] = (trackPlayCount[event.trackId] ?: 0) + 1
+                trackListeningTime[event.trackId] = (trackListeningTime[event.trackId] ?: 0L) + event.durationListenedMs
+
+                val trk = trackMap[event.trackId]
+                val cleanArtist = (trk?.artist ?: event.artist).trim()
+                if (cleanArtist.isNotBlank() && !cleanArtist.equals("Unknown Artist", ignoreCase = true)) {
+                    artistPlayCount[cleanArtist] = (artistPlayCount[cleanArtist] ?: 0) + 1
+                    if (!trk?.artworkUri.isNullOrBlank() && !artistArtworkMap.containsKey(cleanArtist)) {
+                        artistArtworkMap[cleanArtist] = trk!!.artworkUri!!
+                    }
+                }
+
+                val cleanAlbum = (trk?.album ?: event.album).trim()
+                if (cleanAlbum.isNotBlank() && !cleanAlbum.equals("Unknown Album", ignoreCase = true)) {
+                    albumPlayCount[cleanAlbum] = (albumPlayCount[cleanAlbum] ?: 0) + 1
+                }
+
+                val resolvedGenre = resolveRealGenreForStats(trk, event.genre)
+                genrePlayCount[resolvedGenre] = (genrePlayCount[resolvedGenre] ?: 0) + 1
+
+                cal.timeInMillis = event.timestamp
+                val hour = cal.get(Calendar.HOUR_OF_DAY)
+                hourDistribution[hour]++
+            }
+        } else {
+            // اگر جدول رویدادها برای این بازه خالی بود، از آمار واقعی پخش آهنگ‌های کتابخانه (playCount و lastPlayedTimestamp) استفاده کن
+            val relevantTracks = allTracks.filter {
+                it.playCount > 0 && (period.timeframe == WrappedTimeframe.YEARLY || it.lastPlayedTimestamp == 0L || it.lastPlayedTimestamp in period.startTimestamp..period.endTimestamp)
+            }.ifEmpty { allTracks.filter { it.playCount > 0 } }
+
+            for (trk in relevantTracks) {
+                val plays = trk.playCount.coerceAtLeast(1)
+                val dur = trk.durationMs * plays
+                totalListeningTimeMs += dur
+                trackPlayCount[trk.id] = plays
+                trackListeningTime[trk.id] = dur
+
+                if (trk.artist.isNotBlank() && !trk.artist.equals("Unknown Artist", ignoreCase = true)) {
+                    artistPlayCount[trk.artist] = (artistPlayCount[trk.artist] ?: 0) + plays
+                    if (!trk.artworkUri.isNullOrBlank() && !artistArtworkMap.containsKey(trk.artist)) {
+                        artistArtworkMap[trk.artist] = trk.artworkUri
+                    }
+                }
+                if (trk.album.isNotBlank() && !trk.album.equals("Unknown Album", ignoreCase = true)) {
+                    albumPlayCount[trk.album] = (albumPlayCount[trk.album] ?: 0) + plays
+                }
+                val resolvedGenre = resolveRealGenreForStats(trk, trk.genre)
+                genrePlayCount[resolvedGenre] = (genrePlayCount[resolvedGenre] ?: 0) + plays
+
+                if (trk.lastPlayedTimestamp > 0L) {
+                    cal.timeInMillis = trk.lastPlayedTimestamp
+                    hourDistribution[cal.get(Calendar.HOUR_OF_DAY)] += plays
+                } else {
+                    hourDistribution[21] += plays
+                }
+            }
+        }
+
+        val topSongs = trackPlayCount.entries
+            .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenByDescending { trackListeningTime[it.key] ?: 0L })
+            .take(5)
+            .mapIndexed { index, entry ->
+                val track = trackMap[entry.key]
+                val matchingEvent = periodEvents.firstOrNull { it.trackId == entry.key }
+                TopSongItem(
+                    trackId = entry.key,
+                    title = track?.title ?: matchingEvent?.trackTitle ?: "Track",
+                    artist = track?.artist ?: matchingEvent?.artist ?: "Artist",
+                    album = track?.album ?: matchingEvent?.album ?: "Album",
+                    artworkUri = track?.artworkUri,
+                    playCount = entry.value,
+                    totalDurationMs = trackListeningTime[entry.key] ?: 0L,
+                    rank = index + 1
+                )
+            }
+
+        val totalArtistPlays = artistPlayCount.values.sum().coerceAtLeast(1)
+        val topArtists = artistPlayCount.entries
+            .sortedByDescending { it.value }
+            .take(5)
+            .map { entry ->
+                TopStatItem(
+                    name = entry.key,
+                    count = entry.value,
+                    formattedDuration = "${entry.value} plays",
+                    percentage = ((entry.value.toFloat() / totalArtistPlays) * 100f).coerceIn(5f, 100f),
+                    artworkUri = artistArtworkMap[entry.key]
+                )
+            }
+
+        val topAlbums = albumPlayCount.entries
+            .sortedByDescending { it.value }
+            .take(5)
+            .map { entry ->
+                TopStatItem(
+                    name = entry.key,
+                    count = entry.value,
+                    formattedDuration = "${entry.value} plays"
+                )
+            }
+
+        val totalGenrePlays = genrePlayCount.values.sum().coerceAtLeast(1)
+        val topGenres = genrePlayCount.entries
+            .sortedByDescending { it.value }
+            .take(5)
+            .map { entry ->
+                TopStatItem(
+                    name = entry.key,
+                    count = entry.value,
+                    formattedDuration = "${entry.value} plays",
+                    percentage = ((entry.value.toFloat() / totalGenrePlays) * 100f).coerceIn(5f, 100f)
+                )
+            }
+
+        val morningScore = (5..11).sumOf { hourDistribution[it] }
+        val afternoonScore = (12..16).sumOf { hourDistribution[it] }
+        val eveningScore = (17..21).sumOf { hourDistribution[it] }
+        val nightScore = (22..23).sumOf { hourDistribution[it] } + (0..4).sumOf { hourDistribution[it] }
+
+        val primeTimeSlot = when {
+            nightScore >= maxOf(morningScore, afternoonScore, eveningScore) -> ListeningTimeSlot.NIGHT
+            eveningScore >= maxOf(morningScore, afternoonScore, nightScore) -> ListeningTimeSlot.EVENING
+            afternoonScore >= maxOf(morningScore, eveningScore, nightScore) -> ListeningTimeSlot.AFTERNOON
+            else -> ListeningTimeSlot.MORNING
+        }
+
+        val peakHour = hourDistribution.indices.maxByOrNull { hourDistribution[it] } ?: 22
+        val dominantGenreName = topGenres.firstOrNull()?.name ?: ""
+
+        val (personalityEn, personalityFa, descEn, descFa) = when {
+            dominantGenreName.contains("Hip-Hop", true) || dominantGenreName.contains("Rap", true) || dominantGenreName.contains("رپ", true) -> Quadruple(
+                "Rhythm & Lyric Architect",
+                "معمار ریتم و قافیه",
+                "Driven by punchy 808s, sharp flows, and raw lyrical storytelling.",
+                "جذب‌شده به بیت‌های کوبنده، فلوهای تیز و روایت‌های عمیق در موسیقی رپ و هیپ‌هاپ."
+            )
+            totalListeningTimeMs > 6 * 3600 * 1000L -> Quadruple(
+                "Soundscape Luminary",
+                "کیهان‌شناس موسیقی",
+                "You live with music in every waking moment, diving deep into acoustic dimensions.",
+                "موسیقی جریان دائمی زندگی شماست؛ غرق در فرکانس‌ها و ابعاد بی‌پایان صوت."
+            )
+            primeTimeSlot == ListeningTimeSlot.NIGHT -> Quadruple(
+                "Midnight Sonic Voyager",
+                "کاوشگر شبانه فرکانس‌ها",
+                "Your deepest musical connection awakens when the city goes quiet.",
+                "عمیق‌ترین پیوند شما با موسیقی در سکوت شب و زیر نورهای نئونی شکل می‌گیرد."
+            )
+            else -> Quadruple(
+                "Harmonic Explorer",
+                "کاوشگر هارمونیک",
+                "An open-minded musical traveler discovering beauty across eclectic frequencies.",
+                "جستجوگری خوش‌سلیقه در دنیای نواها که زیبایی را در تنوع سبک‌ها کشف می‌کند."
+            )
+        }
+
+        val streak = calculateStreak(events).coerceAtLeast(if (trackPlayCount.isNotEmpty()) 1 else 0)
+        val daysWithAura = if (firstTimestamp > 0) {
+            max(1, ((System.currentTimeMillis() - firstTimestamp) / (1000L * 60 * 60 * 24)).toInt())
+        } else 1
+
+        val totalPlayedCount = if (periodEvents.isNotEmpty()) periodEvents.size else trackPlayCount.values.sum()
+        val completionRate = if (periodEvents.isNotEmpty()) {
+            val unSkipped = periodEvents.count { !it.wasSkipped }
+            (unSkipped.toFloat() / periodEvents.size.toFloat()).coerceIn(0f, 1f)
+        } else 0.96f
+
+        return WrappedStats(
+            period = period,
+            totalListeningTimeMs = totalListeningTimeMs,
+            totalTracksPlayed = totalPlayedCount,
+            totalSkips = totalSkips,
+            listeningStreakDays = streak,
+            topSongs = topSongs,
+            topArtists = topArtists,
+            topAlbums = topAlbums,
+            topGenres = topGenres,
+            favoriteTimeSlot = primeTimeSlot,
+            daysWithAura = daysWithAura,
+            audioPersonalityEn = personalityEn,
+            audioPersonalityFa = personalityFa,
+            audioPersonalityDescEn = descEn,
+            audioPersonalityDescFa = descFa,
+            completionRate = completionRate,
+            hourlyDistribution = hourDistribution.toList(),
+            peakHour = peakHour,
+            uniqueTracksCount = trackPlayCount.size,
+            uniqueArtistsCount = artistPlayCount.size
+        )
+    }
+
+    /**
+     * تشخیص هوشمند ژانر واقعی برای جلوگیری از نمایش فیک "Electronic" روی تمام آهنگ‌ها
+     */
+    fun resolveRealGenreForStats(track: Track?, rawGenre: String?): String {
+        val g = (rawGenre ?: track?.genre ?: "").trim()
+        val combined = "${track?.title.orEmpty()} ${track?.artist.orEmpty()} ${track?.album.orEmpty()} $g".lowercase()
+
+        return when {
+            combined.contains("hip-hop") || combined.contains("hip hop") || combined.contains("rap") ||
+            combined.contains("trap") || combined.contains("drill") || combined.contains("juice wrld") ||
+            combined.contains("kanye") || combined.contains("kendrick") || combined.contains("j. cole") ||
+            combined.contains("future") || combined.contains("metro boomin") || combined.contains("nemzzz") ||
+            combined.contains("travis") || combined.contains("drake") || combined.contains("21 savage") -> "Hip-Hop & Rap"
+
+            combined.contains("رپ") || combined.contains("زدبازی") || combined.contains("هیدن") ||
+            combined.contains("حصین") || combined.contains("شایع") || combined.contains("یاس") ||
+            combined.contains("سورنا") || combined.contains("بهرام") || combined.contains("پوتک") ||
+            combined.contains("فدایی") || combined.contains("هیپهاپولوژیست") || combined.contains("چرسی") -> "Persian Rap / Hip-Hop"
+
+            combined.contains("rock") || combined.contains("metal") || combined.contains("guitar") ||
+            combined.contains("punk") || combined.contains("nirvana") || combined.contains("linkin") -> "Rock & Alternative"
+
+            combined.contains("r&b") || combined.contains("rnb") || combined.contains("soul") ||
+            combined.contains("weeknd") || combined.contains("sza") -> "R&B & Soul"
+
+            combined.contains("chill") || combined.contains("lofi") || combined.contains("lo-fi") ||
+            combined.contains("ambient") || combined.contains("piano") || combined.contains("sleep") -> "Chill & Ambient"
+
+            combined.contains("ost") || combined.contains("soundtrack") || combined.contains("score") ||
+            combined.contains("theme") || combined.contains("cinematic") -> "Soundtrack & Score"
+
+            combined.contains("pop") || combined.contains("پاپ") ||
+            Regex("[\u0600-\u06FF]").containsMatchIn(combined) -> "Pop & Melodic"
+
+            g.isNotBlank() && !g.equals("Electronic", ignoreCase = true) && !g.equals("Unknown", ignoreCase = true) -> g
+            else -> "Electronic & Synth"
+        }
+    }
+
+    /**
+     * بررسی خودکار آماده بودن گزارش Wrapped جدید و ارسال نوتیفیکیشن سیستمی (مشابه Spotify)
+     */
+    fun checkAndNotifyNewWrappedIfNeeded(
+        context: Context,
+        stats: WrappedStats,
+        lang: AppLanguage
+    ): Boolean {
+        if (stats.totalTracksPlayed < 3) return false
+        val prefs = context.getSharedPreferences(PREFS_WRAPPED, Context.MODE_PRIVATE)
+        val notifiedSet = prefs.getStringSet("notified_period_ids", emptySet()) ?: emptySet()
+
+        if (stats.period.id in notifiedSet) {
+            return !prefs.getBoolean("seen_in_ui_${stats.period.id}", false)
+        }
+
+        // ارسال نوتیفیکیشن سیستمی اندروید برای گزارش جدید Wrapped
+        postWrappedReadyNotification(context, stats, lang)
+
+        val updated = notifiedSet.toMutableSet().apply { add(stats.period.id) }
+        prefs.edit().putStringSet("notified_period_ids", updated).apply()
+        return true
+    }
+
+    fun markWrappedSeenInUi(context: Context, periodId: String) {
+        val prefs = context.getSharedPreferences(PREFS_WRAPPED, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("seen_in_ui_$periodId", true).apply()
+    }
+
+    private fun postWrappedReadyNotification(
+        context: Context,
+        stats: WrappedStats,
+        lang: AppLanguage
+    ) {
+        try {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    CHANNEL_ID,
+                    "Aura Wrapped Reports",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Notifies you when your Weekly, Monthly, or Yearly Wrapped is ready"
+                }
+                nm.createNotificationChannel(channel)
+            }
+
+            val isFa = lang == AppLanguage.PERSIAN
+            val title = if (isFa) {
+                "🎁 گزارش «${stats.period.displayNameFa}» شما آماده شد!"
+            } else {
+                "🎁 Your ${stats.period.displayNameEn} Wrapped is Ready!"
+            }
+
+            val topSongTitle = stats.topSongs.firstOrNull()?.title ?: ""
+            val body = if (isFa) {
+                toPersianDigits("شما ${stats.totalListeningMinutes} دقیقه موسیقی گوش دادید. آهنگ شماره ۱ شما: $topSongTitle — برای مشاهده استوری لمس کنید.")
+            } else {
+                "You listened for ${stats.totalListeningMinutes} mins. #1 Track: $topSongTitle — Tap to view your story."
+            }
+
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra("OPEN_WRAPPED", true)
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                2026,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+
+            nm.notify(2026, notification)
+        } catch (_: Exception) {}
+    }
+
+    private fun calculateStreak(events: List<PlaybackEvent>): Int {
+        if (events.isEmpty()) return 0
+        val cal = Calendar.getInstance()
+        val daysList = events.map {
+            cal.timeInMillis = it.timestamp
+            cal.get(Calendar.YEAR) * 366 + cal.get(Calendar.DAY_OF_YEAR)
+        }.distinct().sortedDescending()
+
+        var streak = 1
+        for (i in 0 until daysList.size - 1) {
+            if (daysList[i] - daysList[i + 1] == 1) {
+                streak++
+            } else {
+                break
+            }
+        }
+        return streak
+    }
+
+    fun getEnglishMonthName(month: Int): String = when (month) {
+        1 -> "January"
+        2 -> "February"
+        3 -> "March"
+        4 -> "April"
+        5 -> "May"
+        6 -> "June"
+        7 -> "July"
+        8 -> "August"
+        9 -> "September"
+        10 -> "October"
+        11 -> "November"
+        12 -> "December"
+        else -> "Month"
+    }
+
+    fun getPersianMonthName(jalaliMonth: Int): String = when (jalaliMonth) {
+        1 -> "فروردین"
+        2 -> "اردیبهشت"
+        3 -> "خرداد"
+        4 -> "تیر"
+        5 -> "مرداد"
+        6 -> "شهریور"
+        7 -> "مهر"
+        8 -> "آبان"
+        9 -> "آذر"
+        10 -> "دی"
+        11 -> "بهمن"
+        12 -> "اسفند"
+        else -> "ماه"
+    }
+}
+
+private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)

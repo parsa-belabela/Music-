@@ -371,6 +371,54 @@ object WrappedEngine {
         12 -> "دسامبر"
         else -> "ماه"
     }
+
+    fun resolveRealGenreForStats(track: Track, rawGenre: String? = null): String {
+        val genreToTest = rawGenre ?: track.genre ?: ""
+        val text = "${track.title} ${track.artist} ${track.album} $genreToTest".lowercase()
+
+        return when {
+            text.contains("rap") || text.contains("hip hop") || text.contains("hiphop") || text.contains("808") || text.contains("trap") -> {
+                if (text.contains("persian") || text.contains("farsi") || text.contains("فارسی") || text.contains("رپ") || text.contains("سورنا") || text.contains("یاس") || text.contains("هیچکس") || text.contains("پیشرو") || text.contains("حصین") || text.contains("شایع") || text.contains("فدائی") || text.contains("کابوس") || text.contains("بهرام") || text.contains("خلوت")) {
+                    "Persian Rap / Hip-Hop"
+                } else {
+                    "Hip-Hop & Rap"
+                }
+            }
+            text.contains("rock") || text.contains("metal") || text.contains("guitar") || text.contains("alternative") || text.contains("punk") -> "Rock & Alternative"
+            text.contains("pop") || text.contains("dance") || text.contains("پاپ") -> "Pop & Melodic"
+            text.contains("r&b") || text.contains("rnb") || text.contains("soul") || text.contains("funk") -> "R&B & Soul"
+            text.contains("chill") || text.contains("ambient") || text.contains("lofi") || text.contains("lo-fi") || text.contains("relax") || text.contains("sleep") -> "Chill & Ambient"
+            text.contains("soundtrack") || text.contains("score") || text.contains("ost") || text.contains("instrumental") || text.contains("cinema") -> "Soundtrack & Score"
+            text.contains("electro") || text.contains("techno") || text.contains("house") || text.contains("edm") || text.contains("synth") -> "Electronic & Synth"
+            else -> "Pop & Melodic"
+        }
+    }
+
+    fun checkAndNotifyNewWrappedIfNeeded(context: android.content.Context, stats: WrappedStats, lang: AppLanguage): Boolean {
+        val prefs = context.getSharedPreferences("aura_wrapped_prefs", android.content.Context.MODE_PRIVATE)
+        val periodId = stats.period.id
+        val seenKey = "seen_$periodId"
+        val isSeen = prefs.getBoolean(seenKey, false)
+        return !isSeen
+    }
+
+    fun markWrappedSeenInUi(context: android.content.Context, periodId: String) {
+        val prefs = context.getSharedPreferences("aura_wrapped_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("seen_$periodId", true).apply()
+    }
+
+    fun toPersianDigits(input: String): String {
+        val persianDigits = charArrayOf('۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹')
+        val builder = StringBuilder()
+        for (ch in input) {
+            if (ch in '0'..'9') {
+                builder.append(persianDigits[ch - '0'])
+            } else {
+                builder.append(ch)
+            }
+        }
+        return builder.toString()
+    }
 }
 
 private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)

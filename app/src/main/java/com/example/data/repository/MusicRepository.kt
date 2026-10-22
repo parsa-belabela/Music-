@@ -466,10 +466,10 @@ class MusicRepository(
         }
     }
 
-    // Backup & Restore
+    // Backup & Restore (Complete JSON File Serialization)
     suspend fun exportBackupJson(): String = withContext(Dispatchers.IO) {
         val root = JSONObject()
-        val allTracksList = musicDao.getAllTracks().firstOrNull() ?: emptyList()
+        val allTracksList = musicDao.getAllTracksSync()
         val allPlaylistsList = musicDao.getAllPlaylists().firstOrNull() ?: emptyList()
 
         val tracksArray = JSONArray()
@@ -491,10 +491,13 @@ class MusicRepository(
             obj.put("id", p.id)
             obj.put("name", p.name)
             obj.put("description", p.description)
+            val idsArr = JSONArray()
+            p.trackIds.forEach { idsArr.put(it) }
+            obj.put("trackIds", idsArr)
             playlistsArray.put(obj)
         }
         root.put("playlists", playlistsArray)
-        root.put("version", 1)
+        root.put("version", 2)
         root.put("exportedAt", System.currentTimeMillis())
 
         root.toString(2)
@@ -502,17 +505,47 @@ class MusicRepository(
 
     suspend fun importBackupJson(jsonString: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            val root = JSONObject(jsonString)
+            val clean = jsonString.trim()
+            val start = clean.indexOf('{')
+            val end = clean.lastIndexOf('}')
+            if (start == -1 || end == -1 || end <= start) return@withContext false
+
+            val root = JSONObject(clean.substring(start, end + 1))
+
+            // 1. Restore Favorites & Play Counts
+            if (root.has("tracks")) {
+                val tracksArr = root.getJSONArray("tracks")
+                for (i in 0 until tracksArr.length()) {
+                    val item = tracksArr.getJSONObject(i)
+                    val id = item.optString("id", "")
+                    if (id.isNotBlank() && item.optBoolean("isFavorite", false)) {
+                        musicDao.setFavorite(id, true)
+                    }
+                }
+            }
+
+            // 2. Restore Playlists and their tracks
             if (root.has("playlists")) {
                 val array = root.getJSONArray("playlists")
                 for (i in 0 until array.length()) {
                     val item = array.getJSONObject(i)
+                    val trackIds = mutableListOf<String>()
+                    val idsJson = item.optJSONArray("trackIds")
+                    if (idsJson != null) {
+                        for (j in 0 until idsJson.length()) {
+                            trackIds.add(idsJson.getString(j))
+                        }
+                    }
                     val p = Playlist(
                         id = item.getString("id"),
                         name = item.getString("name"),
-                        description = item.optString("description", "")
+                        description = item.optString("description", ""),
+                        trackIds = trackIds
                     )
                     musicDao.insertPlaylist(p)
+                    trackIds.forEachIndexed { idx, trkId ->
+                        musicDao.insertPlaylistTrack(PlaylistTrackCrossRef(p.id, trkId, idx))
+                    }
                 }
             }
             true

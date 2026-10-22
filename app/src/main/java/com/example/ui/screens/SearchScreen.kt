@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
@@ -42,6 +44,7 @@ import com.example.ui.components.TrackArtworkThumbnail
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
 import com.example.util.Localization
+import com.example.util.WrappedEngine
 
 enum class SearchFilterScope {
     ALL,
@@ -50,6 +53,23 @@ enum class SearchFilterScope {
     ALBUMS,
     GENRES
 }
+
+data class RealArtistSummary(
+    val name: String,
+    val tracks: List<Track>,
+    val totalPlays: Int,
+    val favoriteCount: Int,
+    val artworkUri: String?,
+    val score: Long
+)
+
+data class RealGenreBucket(
+    val genreName: String,
+    val displayTitleFa: String,
+    val tracks: List<Track>,
+    val totalPlays: Int,
+    val accentColor: Color
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,7 +94,9 @@ fun SearchScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedScope by remember { mutableStateOf(SearchFilterScope.ALL) }
-    var selectedGenreFilter by remember { mutableStateOf<String?>(null) }
+    var selectedGenreBucket by remember { mutableStateOf<RealGenreBucket?>(null) }
+    var selectedArtistProfile by remember { mutableStateOf<RealArtistSummary?>(null) }
+    var quickSmartFilter by remember { mutableStateOf<String?>(null) } // "MOST_PLAYED", "FAVORITES", "HIRES"
     var selectedTrackMenu by remember { mutableStateOf<Track?>(null) }
     var disintegratingTrackId by remember { mutableStateOf<String?>(null) }
     var selectedDetailPlaylist by remember { mutableStateOf<Playlist?>(null) }
@@ -82,49 +104,113 @@ fun SearchScreen(
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
     val lang = appSettings.language
+    val isFa = lang == AppLanguage.PERSIAN
 
-    // Distinct Genres & Artists for quick exploration
-    val distinctGenres = remember(tracks) {
-        tracks.mapNotNull { it.genre.takeIf { g -> g.isNotBlank() && g != "Unknown Genre" } }
-            .distinct()
-            .take(12)
+    // ۱. محاسبه ۱۰۰٪ واقعی هنرمندان برتر بر اساس مجموع دفعات پخش، علاقه‌مندی‌ها و تعداد قطعات (بدون باگ حروف الفبای فارسی!)
+    val rankedTopArtists = remember(tracks) {
+        tracks
+            .filter { it.artist.isNotBlank() && !it.artist.equals("Unknown Artist", ignoreCase = true) && !it.artist.equals("<unknown>", ignoreCase = true) }
+            .groupBy { it.artist.trim() }
+            .map { (artistName, artistTracks) ->
+                val plays = artistTracks.sumOf { it.playCount }
+                val favs = artistTracks.count { it.isFavorite }
+                val recentBonus = if (artistTracks.any { it.lastPlayedTimestamp > 0L }) 25L else 0L
+                val score = (plays * 100L) + (favs * 60L) + (artistTracks.size * 15L) + recentBonus
+                val bestArtwork = artistTracks.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri
+                RealArtistSummary(
+                    name = artistName,
+                    tracks = artistTracks.sortedByDescending { it.playCount },
+                    totalPlays = plays,
+                    favoriteCount = favs,
+                    artworkUri = bestArtwork,
+                    score = score
+                )
+            }
+            .sortedWith(compareByDescending<RealArtistSummary> { it.score }.thenByDescending { it.tracks.size })
     }
 
-    val distinctArtists = remember(tracks) {
-        tracks.map { it.artist }.filter { it.isNotBlank() && it != "Unknown Artist" }.distinct().take(10)
+    // ۲. استخراج و دسته‌بندی ۱۰۰٪ واقعی ژانرها بر اساس متادیتا و تحلیل هوشمند آهنگ‌های موجود در دستگاه کاربر
+    val realGenreBuckets = remember(tracks) {
+        val genreColors = listOf(
+            Color(0xFF8B5CF6),
+            Color(0xFF06B6D4),
+            Color(0xFFF43F5E),
+            Color(0xFF10B981),
+            Color(0xFFF59E0B),
+            Color(0xFF3B82F6),
+            Color(0xFFEC4899),
+            Color(0xFF14B8A6)
+        )
+
+        tracks
+            .groupBy { trk -> WrappedEngine.resolveRealGenreForStats(trk, trk.genre) }
+            .entries
+            .sortedByDescending { entry -> entry.value.sumOf { it.playCount + 1 } }
+            .mapIndexed { idx, (genreName, genreTracks) ->
+                val faTitle = when (genreName) {
+                    "Hip-Hop & Rap" -> "هیپ‌هاپ و رپ جهانی"
+                    "Persian Rap / Hip-Hop" -> "رپ و هیپ‌هاپ فارسی"
+                    "Pop & Melodic" -> "پاپ و ملودیک"
+                    "Rock & Alternative" -> "راک و آلترناتیو"
+                    "R&B & Soul" -> "آر اند بی و سول"
+                    "Chill & Ambient" -> "چیل، لوفای و امبینت"
+                    "Soundtrack & Score" -> "موسیقی متن و بیکلام"
+                    "Electronic & Synth" -> "الکترونیک و سینث"
+                    else -> genreName
+                }
+                RealGenreBucket(
+                    genreName = genreName,
+                    displayTitleFa = faTitle,
+                    tracks = genreTracks,
+                    totalPlays = genreTracks.sumOf { it.playCount },
+                    accentColor = genreColors[idx % genreColors.size]
+                )
+            }
     }
 
-    // Filter tracks dynamically based on search query, scope, and genre
-    val filteredTracks = remember(tracks, searchQuery, selectedScope, selectedGenreFilter) {
-        tracks.filter { track ->
-            val matchesGenre = if (selectedGenreFilter == null) true else track.genre.equals(selectedGenreFilter, ignoreCase = true)
-            if (!matchesGenre) return@filter false
+    // ۳. فیلتر هوشمند نتایج جستجو
+    val filteredTracks = remember(tracks, searchQuery, selectedScope, selectedGenreBucket, selectedArtistProfile, quickSmartFilter) {
+        val basePool = when {
+            selectedArtistProfile != null -> selectedArtistProfile!!.tracks
+            selectedGenreBucket != null -> selectedGenreBucket!!.tracks
+            quickSmartFilter == "MOST_PLAYED" -> tracks.filter { it.playCount > 0 }.sortedByDescending { it.playCount }.ifEmpty { tracks }
+            quickSmartFilter == "FAVORITES" -> tracks.filter { it.isFavorite }
+            quickSmartFilter == "HIRES" -> tracks.filter { it.bitrate >= 256 }.sortedByDescending { it.bitrate }
+            else -> tracks
+        }
 
-            if (searchQuery.isBlank()) {
-                selectedGenreFilter != null
+        if (searchQuery.isBlank()) {
+            if (selectedArtistProfile != null || selectedGenreBucket != null || quickSmartFilter != null) {
+                basePool
             } else {
+                emptyList()
+            }
+        } else {
+            val q = searchQuery.trim()
+            basePool.filter { track ->
+                val resolvedG = WrappedEngine.resolveRealGenreForStats(track, track.genre)
                 when (selectedScope) {
                     SearchFilterScope.ALL -> {
-                        track.title.contains(searchQuery, ignoreCase = true) ||
-                                track.artist.contains(searchQuery, ignoreCase = true) ||
-                                track.album.contains(searchQuery, ignoreCase = true) ||
-                                track.genre.contains(searchQuery, ignoreCase = true)
+                        track.title.contains(q, ignoreCase = true) ||
+                                track.artist.contains(q, ignoreCase = true) ||
+                                track.album.contains(q, ignoreCase = true) ||
+                                resolvedG.contains(q, ignoreCase = true)
                     }
-                    SearchFilterScope.SONGS -> track.title.contains(searchQuery, ignoreCase = true)
-                    SearchFilterScope.ARTISTS -> track.artist.contains(searchQuery, ignoreCase = true)
-                    SearchFilterScope.ALBUMS -> track.album.contains(searchQuery, ignoreCase = true)
-                    SearchFilterScope.GENRES -> track.genre.contains(searchQuery, ignoreCase = true)
+                    SearchFilterScope.SONGS -> track.title.contains(q, ignoreCase = true)
+                    SearchFilterScope.ARTISTS -> track.artist.contains(q, ignoreCase = true)
+                    SearchFilterScope.ALBUMS -> track.album.contains(q, ignoreCase = true)
+                    SearchFilterScope.GENRES -> resolvedG.contains(q, ignoreCase = true)
                 }
             }
         }
     }
 
     val scopeLabels = listOf(
-        SearchFilterScope.ALL to if (lang == AppLanguage.PERSIAN) "همه" else "All",
-        SearchFilterScope.SONGS to if (lang == AppLanguage.PERSIAN) "آهنگ‌ها" else "Songs",
-        SearchFilterScope.ARTISTS to if (lang == AppLanguage.PERSIAN) "هنرمندان" else "Artists",
-        SearchFilterScope.ALBUMS to if (lang == AppLanguage.PERSIAN) "آلبوم‌ها" else "Albums",
-        SearchFilterScope.GENRES to if (lang == AppLanguage.PERSIAN) "سبک‌ها" else "Genres"
+        SearchFilterScope.ALL to if (isFa) "همه" else "All",
+        SearchFilterScope.SONGS to if (isFa) "آهنگ‌ها" else "Songs",
+        SearchFilterScope.ARTISTS to if (isFa) "هنرمندان" else "Artists",
+        SearchFilterScope.ALBUMS to if (isFa) "آلبوم‌ها" else "Albums",
+        SearchFilterScope.GENRES to if (isFa) "ژانرها" else "Genres"
     )
 
     LazyColumn(
@@ -132,33 +218,42 @@ fun SearchScreen(
             .fillMaxSize()
             .statusBarsPadding()
             .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = maxOf(bottomPadding + 20.dp, 120.dp)),
+        contentPadding = PaddingValues(top = 16.dp, bottom = maxOf(bottomPadding + 24.dp, 128.dp)),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Search Header
+        // =========================================================================
+        // هدر و نوار جستجوی شیشه‌ای
+        // =========================================================================
         item {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
+                    text = if (isFa) "کاوش هوشمند در آرشیو شما" else "SONIC DISCOVERY & SEARCH",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = palette.accent,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.5.sp
+                    )
+                )
+                Text(
                     text = Localization.getString("nav_search", lang),
                     style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.ExtraBold,
                         color = Color.White
                     )
                 )
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Liquid Glass Search Input Field
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .liquidGlass(
-                            shape = RoundedCornerShape(18.dp),
+                            shape = RoundedCornerShape(20.dp),
                             thickness = GlassThickness.REGULAR,
                             tintColor = palette.primary,
-                            tintAlpha = 0.16f,
-                            borderWidth = 1.dp
+                            tintAlpha = 0.18f,
+                            borderWidth = 1.2.dp
                         )
-                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                        .padding(horizontal = 14.dp, vertical = 2.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -177,7 +272,7 @@ fun SearchScreen(
                             placeholder = {
                                 Text(
                                     text = Localization.getString("search_hint", lang),
-                                    style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFF8E8E9F))
+                                    style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFF9096AC))
                                 )
                             },
                             singleLine = true,
@@ -198,12 +293,19 @@ fun SearchScreen(
                                 .focusRequester(focusRequester)
                                 .testTag("search_input_field")
                         )
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
+                        if (searchQuery.isNotEmpty() || selectedGenreBucket != null || selectedArtistProfile != null || quickSmartFilter != null) {
+                            IconButton(
+                                onClick = {
+                                    searchQuery = ""
+                                    selectedGenreBucket = null
+                                    selectedArtistProfile = null
+                                    quickSmartFilter = null
+                                }
+                            ) {
                                 Icon(
                                     Icons.Default.Clear,
                                     contentDescription = "Clear",
-                                    tint = Color(0xFFAAAAAA),
+                                    tint = Color.White,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -213,31 +315,61 @@ fun SearchScreen(
             }
         }
 
-        // Scope Filter Chips (All, Songs, Artists, Albums, Genres)
+        // =========================================================================
+        // چیپ‌های دامنه جستجو + فیلترهای سریع هوشمند
+        // =========================================================================
         item {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(scopeLabels) { (scope, label) ->
-                    val isSelected = selectedScope == scope
-                    Box(
-                        modifier = Modifier
-                            .liquidGlass(
-                                shape = RoundedCornerShape(14.dp),
-                                thickness = if (isSelected) GlassThickness.THICK else GlassThickness.REGULAR,
-                                tintColor = if (isSelected) palette.accent else palette.primary,
-                                tintAlpha = if (isSelected) 0.32f else 0.10f,
-                                borderWidth = if (isSelected) 1.2.dp else 0.6.dp
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(scopeLabels) { (scope, label) ->
+                        val isSelected = selectedScope == scope
+                        Box(
+                            modifier = Modifier
+                                .liquidGlass(
+                                    shape = RoundedCornerShape(14.dp),
+                                    thickness = if (isSelected) GlassThickness.THICK else GlassThickness.THIN,
+                                    tintColor = if (isSelected) palette.accent else palette.primary,
+                                    tintAlpha = if (isSelected) 0.32f else 0.10f,
+                                    borderWidth = if (isSelected) 1.3.dp else 0.7.dp
+                                )
+                                .clickable { selectedScope = scope }
+                                .padding(horizontal = 14.dp, vertical = 7.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                                    color = if (isSelected) Color.White else Color(0xFFC0C5D8)
+                                )
                             )
-                            .clickable { selectedScope = scope }
-                            .padding(horizontal = 14.dp, vertical = 7.dp)
-                    ) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isSelected) palette.accent else Color(0xFFC0C0D4)
+                        }
+                    }
+                }
+
+                // فیلترهای سریع کاربردی
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    val smartPills = listOf(
+                        "MOST_PLAYED" to (if (isFa) "🔥 بیشترین پخش" else "🔥 Most Played"),
+                        "FAVORITES" to (if (isFa) "❤️ علاقه‌مندی‌ها" else "❤️ Favorites"),
+                        "HIRES" to (if (isFa) "⚡ کیفیت استودیویی (320kbps)" else "⚡ Studio Hi-Res")
+                    )
+                    items(smartPills) { (key, title) ->
+                        val active = quickSmartFilter == key
+                        FilterChip(
+                            selected = active,
+                            onClick = { quickSmartFilter = if (active) null else key },
+                            label = { Text(title, fontSize = 11.5.sp, fontWeight = FontWeight.Bold) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = palette.primary.copy(alpha = 0.45f),
+                                selectedLabelColor = Color.White,
+                                containerColor = Color(0x18FFFFFF),
+                                labelColor = Color(0xFFD0D5E8)
                             )
                         )
                     }
@@ -245,53 +377,103 @@ fun SearchScreen(
             }
         }
 
-        // Active Genre Filter Pill
-        if (selectedGenreFilter != null) {
+        // =========================================================================
+        // هدر فعال زمانی که کاربر روی یک هنرمند یا ژانر کلیک کرده است
+        // =========================================================================
+        if (selectedArtistProfile != null || selectedGenreBucket != null) {
             item {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                val title = selectedArtistProfile?.name
+                    ?: (if (isFa) selectedGenreBucket!!.displayTitleFa else selectedGenreBucket!!.genreName)
+                val sub = if (selectedArtistProfile != null) {
+                    if (isFa) "${selectedArtistProfile!!.tracks.size} آهنگ • ${selectedArtistProfile!!.totalPlays} بار پخش"
+                    else "${selectedArtistProfile!!.tracks.size} Tracks • ${selectedArtistProfile!!.totalPlays} Plays"
+                } else {
+                    if (isFa) "${selectedGenreBucket!!.tracks.size} آهنگ در این سبک"
+                    else "${selectedGenreBucket!!.tracks.size} Tracks in Genre"
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .liquidGlass(
+                            shape = RoundedCornerShape(24.dp),
+                            thickness = GlassThickness.THICK,
+                            tintColor = selectedGenreBucket?.accentColor ?: palette.primary,
+                            tintAlpha = 0.26f,
+                            borderWidth = 1.4.dp
+                        )
+                        .padding(18.dp)
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = palette.accent.copy(alpha = 0.25f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, palette.accent.copy(alpha = 0.6f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Category,
-                                contentDescription = null,
-                                tint = palette.accent,
-                                modifier = Modifier.size(16.dp)
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            TrackArtworkThumbnail(
+                                artworkUri = selectedArtistProfile?.artworkUri ?: filteredTracks.firstOrNull()?.artworkUri,
+                                accentColor = palette.accent,
+                                size = 60.dp,
+                                shape = if (selectedArtistProfile != null) CircleShape else RoundedCornerShape(16.dp),
+                                title = title
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = selectedGenreFilter!!,
-                                style = MaterialTheme.typography.labelMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = palette.accent
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column {
+                                Text(
+                                    text = title,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 20.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Icon(
-                                Icons.Default.Close,
-                                contentDescription = "Remove Filter",
-                                tint = palette.accent,
+                                Text(
+                                    text = sub,
+                                    color = palette.accent,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.5.sp
+                                )
+                            }
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            // دکمه پخش همه قطعات این هنرمند یا ژانر
+                            IconButton(
+                                onClick = {
+                                    if (filteredTracks.isNotEmpty()) {
+                                        onPlayTrack(filteredTracks.first(), filteredTracks)
+                                    }
+                                },
                                 modifier = Modifier
-                                    .size(14.dp)
-                                    .clickable { selectedGenreFilter = null }
-                            )
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(palette.accent)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = "Play All", tint = Color.Black)
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    selectedArtistProfile = null
+                                    selectedGenreBucket = null
+                                },
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.12f))
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Back", tint = Color.White)
+                            }
                         }
                     }
                 }
             }
         }
 
-        // When Query or Genre Filter is Active -> Show Search Results
-        if (searchQuery.isNotBlank() || selectedGenreFilter != null) {
+        // =========================================================================
+        // نمایش نتایج جستجو یا فیلتر فعال
+        // =========================================================================
+        if (searchQuery.isNotBlank() || selectedGenreBucket != null || selectedArtistProfile != null || quickSmartFilter != null) {
             if (filteredTracks.isEmpty()) {
                 item {
                     Box(
@@ -311,7 +493,7 @@ fun SearchScreen(
                                 modifier = Modifier.size(48.dp)
                             )
                             Text(
-                                text = if (lang == AppLanguage.PERSIAN) "نتیجه‌ای برای جستجوی شما یافت نشد" else "No matching tracks found",
+                                text = if (isFa) "نتیجه‌ای برای جستجوی شما یافت نشد" else "No matching tracks found",
                                 style = MaterialTheme.typography.bodyLarge.copy(
                                     fontWeight = FontWeight.Medium,
                                     color = Color(0xFF9CA3AF)
@@ -322,18 +504,35 @@ fun SearchScreen(
                 }
             } else {
                 item {
-                    Text(
-                        text = "${filteredTracks.size} ${Localization.getString("tracks", lang)}",
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            color = palette.accent,
-                            fontWeight = FontWeight.Bold
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${filteredTracks.size} ${Localization.getString("tracks", lang)}",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                color = palette.accent,
+                                fontWeight = FontWeight.ExtraBold
+                            )
                         )
-                    )
+                        TextButton(
+                            onClick = {
+                                val shuffled = filteredTracks.shuffled()
+                                shuffled.firstOrNull()?.let { onPlayTrack(it, shuffled) }
+                            }
+                        ) {
+                            Icon(Icons.Default.Shuffle, contentDescription = null, tint = palette.accent, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(if (isFa) "پخش تصادفی نتایج" else "Shuffle Results", color = palette.accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
 
                 items(filteredTracks, key = { it.id }) { track ->
                     val isCurrent = playbackState.currentTrack?.id == track.id
                     val isDisintegrating = disintegratingTrackId == track.id
+                    val realGenre = remember(track) { WrappedEngine.resolveRealGenreForStats(track, track.genre) }
 
                     AnimatedVisibility(
                         visible = !isDisintegrating,
@@ -343,11 +542,11 @@ fun SearchScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .liquidGlass(
-                                    shape = RoundedCornerShape(16.dp),
+                                    shape = RoundedCornerShape(18.dp),
                                     thickness = if (isCurrent) GlassThickness.THICK else GlassThickness.REGULAR,
-                                    tintColor = if (isCurrent) palette.primary else Color(0xFF1E1E2E),
-                                    tintAlpha = if (isCurrent) 0.25f else 0.08f,
-                                    borderWidth = if (isCurrent) 1.2.dp else 0.5.dp,
+                                    tintColor = if (isCurrent) palette.primary else Color(0xFF1A1D2E),
+                                    tintAlpha = if (isCurrent) 0.28f else 0.10f,
+                                    borderWidth = if (isCurrent) 1.3.dp else 0.7.dp,
                                     appTheme = appSettings.theme
                                 )
                                 .clickable { onPlayTrack(track, filteredTracks) }
@@ -360,7 +559,7 @@ fun SearchScreen(
                                 TrackArtworkThumbnail(
                                     artworkUri = track.artworkUri,
                                     accentColor = palette.accent,
-                                    size = 48.dp,
+                                    size = 50.dp,
                                     shape = RoundedCornerShape(12.dp),
                                     title = track.title,
                                     artist = track.artist,
@@ -371,15 +570,15 @@ fun SearchScreen(
                                     Text(
                                         text = track.title,
                                         style = MaterialTheme.typography.bodyLarge.copy(
-                                            fontWeight = FontWeight.Bold,
+                                            fontWeight = FontWeight.ExtraBold,
                                             color = if (isCurrent) palette.accent else Color.White
                                         ),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = "${track.artist} • ${track.album}",
-                                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF94A3B8)),
+                                        text = "${track.artist} • $realGenre",
+                                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA5ABC0)),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -389,7 +588,7 @@ fun SearchScreen(
                                     Icon(
                                         if (track.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                                         contentDescription = "Favorite",
-                                        tint = if (track.isFavorite) Color(0xFFF43F5E) else Color(0xFF75758C),
+                                        tint = if (track.isFavorite) Color(0xFFF43F5E) else Color(0xFF888EA8),
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
@@ -398,7 +597,7 @@ fun SearchScreen(
                                     Icon(
                                         imageVector = Icons.Default.MoreVert,
                                         contentDescription = "Options",
-                                        tint = Color(0xFF8888A0),
+                                        tint = Color(0xFF9096AC),
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
@@ -423,64 +622,185 @@ fun SearchScreen(
                 }
             }
         } else {
-            // When Idle / No Query: Quick Exploration Sections (Genres & Artists)
-            if (distinctGenres.isNotEmpty()) {
+            // =========================================================================
+            // حالت کاوش (Explore): ۱. هنرمندان برتر واقعی بر اساس آمار پخش کاربر
+            // =========================================================================
+            if (rankedTopArtists.isNotEmpty()) {
                 item {
-                    Text(
-                        text = if (lang == AppLanguage.PERSIAN) "کاوش بر اساس سبک" else "Explore by Genre",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        ),
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
-
-                items(distinctGenres.chunked(2)) { pair ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        pair.forEach { genre ->
+                        Column {
+                            Text(
+                                text = if (isFa) "هنرمندان برتر شما (بر اساس آمار واقعی پخش)" else "Your Top Artists (Ranked by Real Plays)",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White
+                                )
+                            )
+                            Text(
+                                text = if (isFa) "برای مشاهده تمام آهنگ‌های هر هنرمند لمس کنید" else "Tap any artist to open their track collection",
+                                style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A6BC), fontSize = 11.5.sp)
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(rankedTopArtists.take(12), key = { it.name }) { artistItem ->
                             Box(
                                 modifier = Modifier
-                                    .weight(1f)
+                                    .width(136.dp)
                                     .liquidGlass(
-                                        shape = RoundedCornerShape(16.dp),
+                                        shape = RoundedCornerShape(22.dp),
                                         thickness = GlassThickness.REGULAR,
-                                        tintColor = palette.secondary,
+                                        tintColor = palette.primary,
                                         tintAlpha = 0.16f,
                                         borderWidth = 1.dp
                                     )
-                                    .clickable { selectedGenreFilter = genre }
-                                    .padding(horizontal = 14.dp, vertical = 16.dp)
+                                    .clickable { selectedArtistProfile = artistItem }
+                                    .padding(14.dp)
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(34.dp)
-                                            .clip(CircleShape)
-                                            .background(palette.secondary.copy(alpha = 0.25f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.MusicNote,
-                                            contentDescription = null,
-                                            tint = palette.accent,
-                                            modifier = Modifier.size(18.dp)
+                                    Box(contentAlignment = Alignment.BottomEnd) {
+                                        TrackArtworkThumbnail(
+                                            artworkUri = artistItem.artworkUri,
+                                            accentColor = palette.accent,
+                                            size = 76.dp,
+                                            shape = CircleShape,
+                                            title = artistItem.name,
+                                            artist = artistItem.name
                                         )
+                                        if (artistItem.totalPlays > 0) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(palette.accent)
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = "${artistItem.totalPlays}x",
+                                                    color = Color.Black,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 9.5.sp
+                                                )
+                                            }
+                                        }
                                     }
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
                                     Text(
-                                        text = genre,
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White
-                                        ),
+                                        text = artistItem.name,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 13.5.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = if (isFa) "${artistItem.tracks.size} آهنگ" else "${artistItem.tracks.size} tracks",
+                                        color = Color(0xFFA5ABC0),
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // =========================================================================
+            // حالت کاوش (Explore): ۲. دسته‌بندی واقعی ژانرها به همراه کاور و تعداد آهنگ‌ها
+            // =========================================================================
+            if (realGenreBuckets.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.padding(top = 6.dp)) {
+                        Text(
+                            text = if (isFa) "دسته‌بندی واقعی سبک‌ها و ژانرها" else "Authentic Genres & Sonic Moods",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
+                        )
+                        Text(
+                            text = if (isFa) "استخراج‌شده از متادیتا و پروفایل صوتی آهنگ‌های شما" else "Classified from your library metadata & audio profiles",
+                            style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A6BC), fontSize = 11.5.sp)
+                        )
+                    }
+                }
+
+                items(realGenreBuckets.chunked(2)) { pair ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        pair.forEach { bucket ->
+                            val sampleArt = bucket.tracks.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(104.dp)
+                                    .liquidGlass(
+                                        shape = RoundedCornerShape(22.dp),
+                                        thickness = GlassThickness.REGULAR,
+                                        tintColor = bucket.accentColor,
+                                        tintAlpha = 0.24f,
+                                        borderWidth = 1.2.dp
+                                    )
+                                    .clickable { selectedGenreBucket = bucket }
+                                    .padding(14.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = if (isFa) bucket.displayTitleFa else bucket.genreName,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 14.sp,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Surface(
+                                            color = bucket.accentColor.copy(alpha = 0.28f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text(
+                                                text = if (isFa) "${bucket.tracks.size} قطعه" else "${bucket.tracks.size} tracks",
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 10.5.sp,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                    TrackArtworkThumbnail(
+                                        artworkUri = sampleArt,
+                                        accentColor = bucket.accentColor,
+                                        size = 54.dp,
+                                        shape = RoundedCornerShape(14.dp),
+                                        title = bucket.genreName
                                     )
                                 }
                             }
@@ -491,67 +811,9 @@ fun SearchScreen(
                     }
                 }
             }
-
-            if (distinctArtists.isNotEmpty()) {
-                item {
-                    Text(
-                        text = if (lang == AppLanguage.PERSIAN) "هنرمندان برتر" else "Top Artists",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        ),
-                        modifier = Modifier.padding(top = 12.dp)
-                    )
-                }
-
-                item {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        items(distinctArtists) { artist ->
-                            Box(
-                                modifier = Modifier
-                                    .liquidGlass(
-                                        shape = RoundedCornerShape(16.dp),
-                                        thickness = GlassThickness.REGULAR,
-                                        tintColor = palette.primary,
-                                        tintAlpha = 0.16f,
-                                        borderWidth = 1.dp
-                                    )
-                                    .clickable {
-                                        searchQuery = artist
-                                        selectedScope = SearchFilterScope.ARTISTS
-                                    }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Person,
-                                        contentDescription = null,
-                                        tint = palette.accent,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Text(
-                                        text = artist,
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = Color.White
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 
-    // Playlist Details Modal Sheet (if opened)
     selectedDetailPlaylist?.let { pl ->
         PlaylistDetailSheet(
             playlist = pl,
@@ -570,7 +832,6 @@ fun SearchScreen(
         )
     }
 
-    // Track Action Sheet for Search Results
     selectedTrackMenu?.let { trk ->
         TrackActionSheet(
             track = trk,

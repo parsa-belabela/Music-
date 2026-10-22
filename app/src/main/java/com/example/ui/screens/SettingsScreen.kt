@@ -1,6 +1,6 @@
 package com.example.ui.screens
 
-import android.net.Uri
+import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,24 +23,31 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.AuraApplication
 import com.example.audio.AmbientPalette
 import com.example.data.model.*
-import com.example.data.repository.UserBadge
 import com.example.data.repository.UserProfileData
 import com.example.data.repository.UserProfileManager
-import com.example.data.repository.UserQuest
 import com.example.ui.components.*
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
 import com.example.util.Localization
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.OutputStreamWriter
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,38 +73,57 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val app = remember { try { AuraApplication.instance } catch (_: Exception) { null } }
+
     var showFeedbackDialog by remember { mutableStateOf(false) }
     var showFeaturesGuideDialog by remember { mutableStateOf(false) }
-    var showEditProfileDialog by remember { mutableStateOf(false) }
     var showAvatarPickerDialog by remember { mutableStateOf(false) }
-
-    var devTapCount by remember { mutableStateOf(0) }
+    var showClearHistoryConfirm by remember { mutableStateOf(false) }
+    var devTapCount by remember { mutableIntStateOf(0) }
 
     val lang = settings.language
     val isFa = lang == AppLanguage.PERSIAN
 
-    // System File Picker for Export Backup (.json)
-    val exportLauncher = rememberLauncherForActivityResult(
+    val allTracks by (app?.repository?.allTracks ?: kotlinx.coroutines.flow.flowOf(emptyList()))
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val favoriteTracks by (app?.repository?.favoriteTracks ?: kotlinx.coroutines.flow.flowOf(emptyList()))
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+
+    LaunchedEffect(Unit) {
+        UserProfileManager.init(context)
+        if (app != null) {
+            withContext(Dispatchers.IO) {
+                UserProfileManager.refreshProfileWithDatabase(context, app.repository)
+            }
+        }
+    }
+    val userProfile by UserProfileManager.profileFlow.collectAsState()
+
+    // ۱. لانچر رسمی ذخیره فایل واقعی .JSON در حافظه گوشی (Export File)
+    val exportJsonFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
-    ) { uri: Uri? ->
+    ) { uri ->
         if (uri != null) {
             coroutineScope.launch {
                 try {
-                    val json = onExportBackup()
-                    context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                        outputStream.bufferedWriter().use { writer ->
-                            writer.write(json)
+                    val jsonContent = onExportBackup()
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.use { out ->
+                            OutputStreamWriter(out, Charsets.UTF_8).use { writer ->
+                                writer.write(jsonContent)
+                                writer.flush()
+                            }
                         }
                     }
                     Toast.makeText(
                         context,
-                        if (isFa) "پشتیبان با موفقیت در فایل ذخیره شد" else "Backup saved successfully to file",
+                        if (isFa) "فایل پشتیبان (.json) با موفقیت ذخیره شد!" else "Backup .json file saved successfully!",
                         Toast.LENGTH_LONG
                     ).show()
                 } catch (e: Exception) {
                     Toast.makeText(
                         context,
-                        if (isFa) "خطا در ذخیره فایل پشتیبان: ${e.message}" else "Failed to save backup: ${e.message}",
+                        if (isFa) "خطا در ذخیره فایل: ${e.localizedMessage}" else "Export failed: ${e.localizedMessage}",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -105,42 +131,38 @@ fun SettingsScreen(
         }
     }
 
-    // System File Picker for Import Backup (.json)
-    val importLauncher = rememberLauncherForActivityResult(
+    // ۲. لانچر رسمی انتخاب فایل واقعی .JSON از حافظه گوشی (Import File)
+    val importJsonFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
+    ) { uri ->
         if (uri != null) {
             coroutineScope.launch {
                 try {
-                    val json = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                    if (!json.isNullOrBlank()) {
-                        val success = onImportBackup(json)
-                        Toast.makeText(
-                            context,
-                            if (success) {
-                                if (isFa) "اطلاعات با موفقیت بازیابی شد!" else "Backup restored successfully!"
-                            } else {
-                                if (isFa) "فرمت فایل پشتیبان نامعتبر است" else "Invalid backup JSON format"
-                            },
-                            Toast.LENGTH_LONG
-                        ).show()
+                    val rawJson = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use {
+                            it.readText()
+                        } ?: ""
                     }
+                    val ok = if (rawJson.isNotBlank()) onImportBackup(rawJson) else false
+                    Toast.makeText(
+                        context,
+                        if (ok) {
+                            if (isFa) "اطلاعات از فایل JSON با موفقیت بازیابی شد!" else "Backup restored from JSON file!"
+                        } else {
+                            if (isFa) "ساختار فایل JSON معتبر نیست." else "Invalid JSON backup file."
+                        },
+                        Toast.LENGTH_LONG
+                    ).show()
                 } catch (e: Exception) {
                     Toast.makeText(
                         context,
-                        if (isFa) "خطا در خواندن فایل پشتیبان: ${e.message}" else "Failed to read backup: ${e.message}",
+                        if (isFa) "خطا در خواندن فایل: ${e.localizedMessage}" else "Import failed: ${e.localizedMessage}",
                         Toast.LENGTH_LONG
                     ).show()
                 }
             }
         }
     }
-
-    // User Profile Data
-    LaunchedEffect(Unit) {
-        UserProfileManager.init(context)
-    }
-    val userProfile by UserProfileManager.profileFlow.collectAsState()
 
     if (showFeaturesGuideDialog) {
         FeaturesGuideDialog(
@@ -162,243 +184,251 @@ fun SettingsScreen(
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = maxOf(bottomPadding + 20.dp, 120.dp)),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        contentPadding = PaddingValues(top = 16.dp, bottom = maxOf(bottomPadding + 24.dp, 128.dp)),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        // Top Header
+        // =========================================================================
+        // هدر استودیویی تنظیمات
+        // =========================================================================
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = Localization.getString("settings", lang),
-                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold, color = Color.White)
-                )
-
-                IconButton(
-                    onClick = { showFeaturesGuideDialog = true },
-                    modifier = Modifier
-                        .size(40.dp)
-                        .liquidGlass(
-                            shape = CircleShape,
-                            thickness = GlassThickness.THIN,
-                            tintColor = palette.accent,
-                            tintAlpha = 0.15f
+                Column {
+                    Text(
+                        text = if (isFa) "مرکز کنترل و شخصی‌سازی" else "CONTROL CENTER & STUDIO",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = palette.accent,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.6.sp
                         )
-                ) {
-                    Icon(Icons.Default.HelpOutline, contentDescription = "Help Guide", tint = palette.accent)
+                    )
+                    Text(
+                        text = Localization.getString("settings", lang),
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IconButton(
+                        onClick = onOpenAchievements,
+                        modifier = Modifier
+                            .size(42.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = Color(0xFFFFD700),
+                                tintAlpha = 0.20f
+                            )
+                    ) {
+                        Icon(Icons.Default.EmojiEvents, contentDescription = "Achievements", tint = Color(0xFFFFD700))
+                    }
+
+                    IconButton(
+                        onClick = { showFeaturesGuideDialog = true },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = palette.accent,
+                                tintAlpha = 0.18f
+                            )
+                    ) {
+                        Icon(Icons.Default.HelpOutline, contentDescription = "Guide", tint = palette.accent)
+                    }
                 }
             }
         }
 
-        // 1. GORGEOUS USER PROFILE SECTION
+        // =========================================================================
+        // ۱. کارت پروفایل شنیداری زنده کاربر (با آمار واقعی کتابخانه)
+        // =========================================================================
         item {
-            UserProfileCard(
+            AudiophileProfileDashboardCard(
                 profile = userProfile,
+                totalLibraryTracks = allTracks.size,
+                totalFavorites = favoriteTracks.size,
                 palette = palette,
                 isFa = isFa,
-                onEditName = { showEditProfileDialog = true },
                 onEditAvatar = { showAvatarPickerDialog = true }
             )
         }
 
-        // 2. HONOR BADGES & ACHIEVEMENTS SHELF
-        item {
-            BadgesAndHonorsSection(
-                badges = userProfile?.badges ?: emptyList(),
-                palette = palette,
-                isFa = isFa
-            )
-        }
-
-        // 4. SPOTIFY-LIKE MUSIC FLASHBACK MEMORY CARD
+        // =========================================================================
+        // ۲. کپسول واقعی و تعاملی خاطرات موسیقی (با قابلیت پخش مستقیم آهنگ!)
+        // =========================================================================
         item {
             MusicFlashbackCard(
-                currentTrack = null,
+                currentTrack = currentPlayingTrack,
                 palette = palette,
                 language = lang,
                 customInsight = userProfile?.currentInsight,
                 onShareInsight = { text ->
-                    val sendIntent = android.content.Intent().apply {
-                        action = android.content.Intent.ACTION_SEND
-                        putExtra(android.content.Intent.EXTRA_TEXT, text)
+                    val sendIntent = Intent().apply {
+                        action = Intent.ACTION_SEND
+                        putExtra(Intent.EXTRA_TEXT, text)
                         type = "text/plain"
                     }
-                    context.startActivity(android.content.Intent.createChooser(sendIntent, "اشتراک خاطره موسیقی"))
+                    context.startActivity(Intent.createChooser(sendIntent, if (isFa) "اشتراک خاطره موسیقی" else "Share Memory"))
                 }
             )
         }
 
-        // 5. Section: Audio Hardware, DSP & Equalizer
+        // =========================================================================
+        // ۳. استودیو تم‌ها و جلوه‌های بصری ۱۲۰ فریم (Visual & Theme Studio)
+        // =========================================================================
         item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
-                        thickness = GlassThickness.REGULAR,
-                        tintColor = palette.primary,
-                        tintAlpha = 0.12f,
-                        borderWidth = 1.dp,
-                        appTheme = settings.theme
-                    )
+            SettingsGlassSection(
+                title = if (isFa) "استودیو تم و موتور گرافیکی ۱۲۰ هرتز" else "Theme Studio & 120Hz Visual Engine",
+                subtitle = if (isFa) "انتخاب تم نوری، استخراج رنگ کاور و نرخ فریم" else "Select ambient themes, cover color engine & refresh rate",
+                icon = Icons.Default.Palette,
+                palette = palette
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Equalizer, contentDescription = null, tint = palette.accent)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(Localization.getString("audio_hardware", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
-                    }
+                // انتخابگر افقی تم‌های برنامه با پیش‌نمایش زنده
+                Text(
+                    text = if (isFa) "پوسته‌های نوری و شیشه‌ای" else "Liquid Glass Themes",
+                    style = MaterialTheme.typography.labelMedium.copy(color = Color(0xFFC0C6DC), fontWeight = FontWeight.Bold)
+                )
 
-                    // Open Standard Equalizer Button
-                    Button(
-                        onClick = onOpenEqualizer,
-                        colors = ButtonDefaults.buttonColors(containerColor = palette.primary.copy(alpha = 0.35f)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp), tint = palette.accent)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(Localization.getString("equalizer", lang), color = Color.White)
-                    }
-
-                    // Crossfade duration slider
-                    Column {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(Localization.getString("crossfade_duration", lang), style = MaterialTheme.typography.bodySmall.copy(color = Color.White))
-                            Text("${settings.crossfadeDurationSeconds}s", color = palette.accent, style = MaterialTheme.typography.bodySmall)
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(AppTheme.entries) { themeItem ->
+                        val isSelected = settings.theme == themeItem
+                        val previewPalette = remember(themeItem) {
+                            com.example.audio.ArtworkPaletteExtractor.getDefaultPalette(themeItem)
                         }
-                        Slider(
-                            value = settings.crossfadeDurationSeconds.toFloat(),
-                            onValueChange = { onUpdateSettings(settings.copy(crossfadeDurationSeconds = it.toInt())) },
-                            valueRange = 0f..12f,
-                            steps = 11,
-                            colors = SliderDefaults.colors(thumbColor = palette.primary, activeTrackColor = palette.primary)
-                        )
-                    }
 
-                    // Gapless Playback
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(Localization.getString("gapless_playback", lang), style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
-                        Switch(
-                            checked = settings.gaplessEnabled,
-                            onCheckedChange = { onUpdateSettings(settings.copy(gaplessEnabled = it)) }
-                        )
-                    }
+                        Box(
+                            modifier = Modifier
+                                .width(155.dp)
+                                .liquidGlass(
+                                    shape = RoundedCornerShape(18.dp),
+                                    thickness = if (isSelected) GlassThickness.THICK else GlassThickness.THIN,
+                                    tintColor = previewPalette.primary,
+                                    tintAlpha = if (isSelected) 0.32f else 0.12f,
+                                    borderWidth = if (isSelected) 1.8.dp else 0.9.dp
+                                )
+                                .clickable { onUpdateSettings(settings.copy(theme = themeItem)) }
+                                .padding(12.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(22.dp)
+                                                .clip(CircleShape)
+                                                .background(previewPalette.primary)
+                                                .border(1.dp, Color.White.copy(alpha = 0.6f), CircleShape)
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(22.dp)
+                                                .clip(CircleShape)
+                                                .background(previewPalette.secondary)
+                                                .border(1.dp, Color.White.copy(alpha = 0.6f), CircleShape)
+                                        )
+                                    }
 
-                    // Haptic Feedback
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(if (isFa) "لرزش و فیدبک لمسی (Haptics)" else "Haptic Feedback", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White))
-                        Switch(
-                            checked = settings.hapticFeedbackEnabled,
-                            onCheckedChange = { onUpdateSettings(settings.copy(hapticFeedbackEnabled = it)) }
-                        )
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Selected",
+                                            tint = previewPalette.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+
+                                Text(
+                                    text = if (isFa) themeItem.titleFa else themeItem.titleEn,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.5.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                     }
                 }
-            }
-        }
 
-        // 6. Section: Dynamic Atmosphere & Adaptive Colors
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
-                        thickness = GlassThickness.REGULAR,
-                        tintColor = palette.primary,
-                        tintAlpha = 0.12f,
-                        borderWidth = 1.dp,
-                        appTheme = settings.theme
-                    )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Palette, contentDescription = null, tint = palette.accent)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = if (isFa) "رنگ‌آمیزی پویا و هاله نوری" else "Dynamic Atmosphere & Lighting",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White)
-                        )
-                    }
+                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                // استخراج خودکار رنگ از کاور آهنگ
+                SettingsToggleRow(
+                    title = if (isFa) "تطبیق زنده رنگ‌ها با کاور آهنگ" else "Dynamic Cover Color Extraction",
+                    subtitle = if (isFa) "تغییر رنگ کل پلیر و هاله‌های نوری بر اساس کاور آهنگ" else "Sync player & ambient aura with album artwork",
+                    checked = settings.autoColorFromArtwork,
+                    accentColor = palette.accent,
+                    onCheckedChange = { onUpdateSettings(settings.copy(autoColorFromArtwork = it)) }
+                )
 
-                    // Auto Color from Artwork toggle
+                // اسلایدر شدت درخشش هاله نوری
+                Column {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                            Text(
-                                text = if (isFa) "استخراج خودکار تم از کاور آهنگ" else "Dynamic Palette from Artwork",
-                                style = MaterialTheme.typography.bodyMedium.copy(color = Color.White)
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = if (isFa) "ایجاد رنگ زنده برای کاورها و نورپردازی محیطی" else "Generate vibrant colors for covers and ambient glow",
-                                style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8))
-                            )
-                        }
-                        Switch(
-                            checked = settings.autoColorFromArtwork,
-                            onCheckedChange = { onUpdateSettings(settings.copy(autoColorFromArtwork = it)) }
-                        )
-                    }
-                }
-            }
-        }
-
-        // 7. Section: Language Selection
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
-                        thickness = GlassThickness.REGULAR,
-                        tintColor = palette.primary,
-                        tintAlpha = 0.12f,
-                        borderWidth = 1.dp,
-                        appTheme = settings.theme
-                    )
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Language, contentDescription = null, tint = palette.accent)
-                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = Localization.getString("language_settings", lang),
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White)
+                            text = if (isFa) "شدت درخشش هاله نوری پشت کاور" else "Ambient Halo Glow Intensity",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "${(settings.visualizerGlow * 100).toInt()}%",
+                            color = palette.accent,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
+                    Slider(
+                        value = settings.visualizerGlow.coerceIn(0.2f, 1.0f),
+                        onValueChange = { onUpdateSettings(settings.copy(visualizerGlow = it)) },
+                        valueRange = 0.2f..1.0f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = palette.accent,
+                            activeTrackColor = palette.primary
+                        )
+                    )
+                }
 
+                // انتخاب نرخ فریم موتور بصری (60 / 120 FPS)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (isFa) "نرخ نوسازی انیمیشن‌ها (FPS)" else "Motion Refresh Rate",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AppLanguage.values().forEach { l ->
+                        listOf(60 to "60 FPS", 120 to "120 FPS Ultra").forEach { (fpsVal, label) ->
+                            val selected = settings.visualizerFps == fpsVal
                             FilterChip(
-                                selected = settings.language == l,
-                                onClick = { onUpdateSettings(settings.copy(language = l)) },
-                                label = {
-                                    Text(
-                                        text = if (l == AppLanguage.PERSIAN) "فارسی (پیش‌فرض)" else "English",
-                                        fontWeight = if (settings.language == l) FontWeight.Bold else FontWeight.Normal,
-                                        fontSize = 12.sp
-                                    )
-                                },
-                                leadingIcon = if (settings.language == l) {
-                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                                } else null
+                                selected = selected,
+                                onClick = { onUpdateSettings(settings.copy(visualizerFps = fpsVal)) },
+                                label = { Text(label, fontSize = 11.5.sp, fontWeight = FontWeight.Bold) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = palette.primary.copy(alpha = 0.45f),
+                                    selectedLabelColor = Color.White
+                                )
                             )
                         }
                     }
@@ -406,288 +436,328 @@ fun SettingsScreen(
             }
         }
 
-        // 8. Section: Storage & Backup
+        // =========================================================================
+        // ۴. مهندسی صدا، اکولایزر ۱۰ بانده و کالیبراسیون شنوایی (Audio DSP Studio)
+        // =========================================================================
         item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
-                        thickness = GlassThickness.REGULAR,
-                        tintColor = palette.primary,
-                        tintAlpha = 0.12f,
-                        borderWidth = 1.dp,
-                        appTheme = settings.theme
-                    )
+            SettingsGlassSection(
+                title = if (isFa) "مهندسی صدا و پردازشگر استودیویی (DSP)" else "Studio Audio & DSP Engine",
+                subtitle = if (isFa) "اکولایزر ۱۰ بانده، تست شنوایی، کراس‌فید و سرعت پخش" else "10-band EQ, hearing calibration, crossfade & speed",
+                icon = Icons.Default.GraphicEq,
+                palette = palette
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Storage, contentDescription = null, tint = palette.accent)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(Localization.getString("storage_cache", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
-                    }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    SettingsActionTile(
+                        icon = Icons.Default.Tune,
+                        title = if (isFa) "اکولایزر ۱۰ بانده" else "10-Band Equalizer",
+                        subtitle = settings.eqPreset,
+                        accentColor = palette.primary,
+                        onClick = onOpenEqualizer,
+                        modifier = Modifier.weight(1f)
+                    )
 
-                    Button(
-                        onClick = onRescanLibrary,
-                        colors = ButtonDefaults.buttonColors(containerColor = palette.primary.copy(alpha = 0.25f)),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
+                    SettingsActionTile(
+                        icon = Icons.Default.Hearing,
+                        title = if (isFa) "تست شنوایی" else "Hearing Profile",
+                        subtitle = if (isFa) "کالیبراسیون شخصی" else "Personal EQ Test",
+                        accentColor = palette.accent,
+                        onClick = onOpenHearingProfileTest,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                // اسلایدر Crossfade
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, tint = palette.secondary)
+                        Text(
+                            text = Localization.getString("crossfade_duration", lang),
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = if (settings.crossfadeDurationSeconds == 0) {
+                                if (isFa) "خاموش" else "Off"
+                            } else "${settings.crossfadeDurationSeconds}s",
+                            color = palette.accent,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Slider(
+                        value = settings.crossfadeDurationSeconds.toFloat(),
+                        onValueChange = { onUpdateSettings(settings.copy(crossfadeDurationSeconds = it.toInt())) },
+                        valueRange = 0f..12f,
+                        steps = 11,
+                        colors = SliderDefaults.colors(
+                            thumbColor = palette.accent,
+                            activeTrackColor = palette.primary
+                        )
+                    )
+                }
+
+                SettingsToggleRow(
+                    title = Localization.getString("gapless_playback", lang),
+                    subtitle = if (isFa) "پخش پیوسته بدون مکث بین قطعات" else "Seamless transition between tracks",
+                    checked = settings.gaplessEnabled,
+                    accentColor = palette.accent,
+                    onCheckedChange = { onUpdateSettings(settings.copy(gaplessEnabled = it)) }
+                )
+
+                SettingsToggleRow(
+                    title = if (isFa) "توقف خودکار هنگام جداسازی ایرپاد/هدفون" else "Pause on Headphone Disconnect",
+                    subtitle = if (isFa) "جلوگیری از پخش ناگهانی روی اسپیکر گوشی" else "Prevent accidental speaker playback",
+                    checked = settings.pauseOnHeadphoneDisconnect,
+                    accentColor = palette.accent,
+                    onCheckedChange = { onUpdateSettings(settings.copy(pauseOnHeadphoneDisconnect = it)) }
+                )
+
+                SettingsToggleRow(
+                    title = if (isFa) "بازخورد لرزشی ظریف (Haptic Feedback)" else "Tactile Haptic Feedback",
+                    subtitle = if (isFa) "حس لمس فیزیکی دکمه‌ها و اسلایدرها" else "Subtle vibration on controls & scrubbers",
+                    checked = settings.hapticFeedbackEnabled,
+                    accentColor = palette.accent,
+                    onCheckedChange = { onUpdateSettings(settings.copy(hapticFeedbackEnabled = it)) }
+                )
+            }
+        }
+
+        // =========================================================================
+        // ۵. پشتیبان‌گیری با فایل واقعی (.JSON) و مدیریت کتابخانه
+        // =========================================================================
+        item {
+            SettingsGlassSection(
+                title = if (isFa) "پشتیبان‌گیری فایل (.JSON) و مدیریت آرشیو" else "File Backup (.JSON) & Library Manager",
+                subtitle = if (isFa) "ذخیره و بازیابی مستقیم فایل پشتیبان و بهینه‌سازی آهنگ‌ها" else "Export/import real .json backup files & manage storage",
+                icon = Icons.Default.CloudSync,
+                palette = palette
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // دکمه ذخیره مستقیم فایل .json در حافظه گوشی
+                    Button(
+                        onClick = {
+                            val dateTag = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
+                            exportJsonFileLauncher.launch("AuraMusic_Backup_$dateTag.json")
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(Localization.getString("rescan_library", lang), color = Color.White)
+                        Text(
+                            text = if (isFa) "ذخیره فایل JSON" else "Export .JSON File",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
 
+                    // دکمه انتخاب و وارد کردن فایل .json از حافظه گوشی
                     OutlinedButton(
                         onClick = {
-                            onClearPlaybackHistory()
-                            Toast.makeText(context, if (isFa) "تاریخچه پخش پاکسازی شد" else "Playback history cleared", Toast.LENGTH_SHORT).show()
+                            importJsonFileLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
                         },
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = Color(0xFFF43F5E))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(Localization.getString("clear_history", lang), color = Color(0xFFF43F5E))
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                        Button(
-                            onClick = {
-                                exportLauncher.launch("AuraMusic_Backup_${System.currentTimeMillis()}.json")
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(Localization.getString("export_backup", lang), fontSize = 11.sp)
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                importLauncher.launch(arrayOf("application/json", "*/*"))
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(Localization.getString("import_backup", lang), fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
-        }
-
-        // 9. Section: Dedicated Feedback & Support
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
-                        thickness = GlassThickness.REGULAR,
-                        tintColor = palette.primary,
-                        tintAlpha = 0.12f,
-                        borderWidth = 1.dp,
-                        appTheme = settings.theme
-                    )
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Feedback, contentDescription = null, tint = palette.accent)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(Localization.getString("feedback_section", lang), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
-                    }
-
-                    Text(
-                        text = Localization.getString("send_feedback", lang),
-                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0C0))
-                    )
-
-                    Button(
-                        onClick = { showFeedbackDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.2.dp, palette.accent),
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("open_feedback_dialog_button")
+                            .weight(1f)
+                            .height(48.dp)
                     ) {
-                        Icon(Icons.Default.Mail, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(Localization.getString("feedback_dialog_title", lang), fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.UploadFile, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isFa) "دریافت فایل JSON" else "Import .JSON File",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    SettingsActionTile(
+                        icon = Icons.Default.Refresh,
+                        title = if (isFa) "اسکن مجدد حافظه" else "Rescan Storage",
+                        subtitle = if (isFa) "${allTracks.size} آهنگ شناسایی شده" else "${allTracks.size} tracks indexed",
+                        accentColor = Color(0xFF10B981),
+                        onClick = onRescanLibrary,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    SettingsActionTile(
+                        icon = Icons.Default.CleaningServices,
+                        title = if (isFa) "حذف تکراری‌ها" else "Deduplicate",
+                        subtitle = if (isFa) "بهینه‌سازی کیفیت" else "Keep highest bitrate",
+                        accentColor = Color(0xFFF59E0B),
+                        onClick = onOpenDuplicatesReview,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = { showClearHistoryConfirm = true },
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF43F5E).copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = Color(0xFFF43F5E), modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = Localization.getString("clear_history", lang),
+                        color = Color(0xFFF43F5E),
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
         }
 
-        // 10. Footer / About Note
+        // =========================================================================
+        // ۶. زبان برنامه و ارتباط با سازنده
+        // =========================================================================
+        item {
+            SettingsGlassSection(
+                title = if (isFa) "زبان برنامه و پشتیبانی" else "Language & Support",
+                subtitle = if (isFa) "تغییر آنی زبان رابط کاربری و ارسال پیشنهادات" else "Switch interface language & send feedback",
+                icon = Icons.Default.Language,
+                palette = palette
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    AppLanguage.entries.forEach { l ->
+                        val selected = settings.language == l
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    if (selected) palette.primary.copy(alpha = 0.38f)
+                                    else Color.White.copy(alpha = 0.06f)
+                                )
+                                .border(
+                                    width = if (selected) 1.5.dp else 0.8.dp,
+                                    color = if (selected) palette.accent else Color.White.copy(alpha = 0.15f),
+                                    shape = RoundedCornerShape(14.dp)
+                                )
+                                .clickable { onUpdateSettings(settings.copy(language = l)) }
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (l == AppLanguage.ENGLISH) "English (Default)" else "فارسی (Persian)",
+                                color = Color.White,
+                                fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = { showFeedbackDialog = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = palette.primary.copy(alpha = 0.35f)),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("open_feedback_dialog_button")
+                ) {
+                    Icon(Icons.Default.Mail, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = Localization.getString("feedback_dialog_title", lang),
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        // فوتر و فعال‌سازی حالت توسعه‌دهنده
         item {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 16.dp, bottom = 32.dp),
+                    .padding(top = 8.dp, bottom = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = if (isFa) "امیدوارم با لذت بیشتری بتونید آهنگ گوش کنید 💙" else "Hope you enjoy your music with even greater pleasure 💙",
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        color = Color(0xFFC7D7FE),
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 0.4.sp
-                    ),
-                    textAlign = TextAlign.Center
-                )
-                Text(
-                    text = "Aura Music Player v1.0.0",
+                    text = "Aura Music Studio • v2.0 Premium",
                     style = MaterialTheme.typography.labelMedium.copy(
-                        color = if (settings.developerModeEnabled) palette.accent else Color(0xFFA0A0B8),
+                        color = if (settings.developerModeEnabled) palette.accent else Color(0xFFA0A5BA),
                         fontWeight = FontWeight.Bold
                     ),
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(10.dp))
                         .clickable {
                             devTapCount++
-                            if (devTapCount in 3..6) {
-                                val remaining = 7 - devTapCount
+                            if (devTapCount >= 7) {
+                                val nextState = !settings.developerModeEnabled
+                                onUpdateSettings(settings.copy(developerModeEnabled = nextState))
                                 Toast.makeText(
                                     context,
-                                    if (isFa) "$remaining ضربه تا فعال‌سازی حالت توسعه‌دهنده" else "You are $remaining steps away from Developer Mode",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            } else if (devTapCount >= 7) {
-                                val newDevState = !settings.developerModeEnabled
-                                onUpdateSettings(settings.copy(developerModeEnabled = newDevState))
-                                Toast.makeText(
-                                    context,
-                                    if (newDevState) {
-                                        if (isFa) "🚀 ابزار تله‌متری و دولوپر فعال شد!" else "🚀 Developer HUD Activated!"
-                                    } else {
-                                        if (isFa) "حالت توسعه‌دهنده غیرفعال شد" else "Developer Mode Disabled"
-                                    },
+                                    if (nextState) "Developer Telemetry HUD Enabled" else "Developer Mode Disabled",
                                     Toast.LENGTH_SHORT
                                 ).show()
                                 devTapCount = 0
                             }
                         }
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
                 )
                 Text(
-                    text = if (isFa)
-                        "صدای شفاف استودیویی • پردازش بلادرنگ ۱۲۰ فریم • شیشه مایع آئورا"
-                    else "High-Fidelity Audio • 120 FPS Real-Time DSP • Dynamic Aurora",
-                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF707086))
+                    text = if (isFa) "موتور صوتی Hi-Fi • رندر ۱۲۰ فریم بر ثانیه • شیشه مایع" else "120 FPS Liquid Glass Engine • Real-Time Audio DSP",
+                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF70758A))
                 )
             }
         }
     }
 
-    // Edit Name Dialog
-    if (showEditProfileDialog) {
-        var tempName by remember { mutableStateOf(userProfile?.name ?: "") }
-        AlertDialog(
-            onDismissRequest = { showEditProfileDialog = false },
-            title = { Text(if (isFa) "ویرایش نام پروفایل" else "Edit Profile Name") },
-            text = {
-                OutlinedTextField(
-                    value = tempName,
-                    onValueChange = { tempName = it },
-                    singleLine = true,
-                    label = { Text(if (isFa) "نام نمایشی شما" else "Your Display Name") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (tempName.trim().isNotEmpty()) {
-                            UserProfileManager.setUserName(context, tempName)
-                        }
-                        showEditProfileDialog = false
-                    }
-                ) {
-                    Text(if (isFa) "ذخیره" else "Save")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEditProfileDialog = false }) {
-                    Text(if (isFa) "انصراف" else "Cancel")
-                }
-            }
-        )
-    }
 
-    // Emoji Avatar Picker Dialog
+    // دیالوگ انتخاب آواتار
     if (showAvatarPickerDialog) {
-        val emojis = listOf("🎧", "🎵", "✨", "👑", "🎸", "🌌", "❤️", "🦋", "🦁", "💎", "🌙", "🔥", "⚡", "🍀", "🌸")
+        val emojis = listOf("🎧", "🎵", "✨", "👑", "🎸", "🌌", "🔥", "⚡", "💎", "🌙", "🦁", "🦋")
         AlertDialog(
             onDismissRequest = { showAvatarPickerDialog = false },
-            title = { Text(if (isFa) "انتخاب آواتار کاربری" else "Select Profile Avatar") },
+            containerColor = Color(0xFF141726),
+            title = { Text(if (isFa) "انتخاب آواتار" else "Choose Avatar", color = Color.White, fontWeight = FontWeight.Bold) },
             text = {
-                Column {
-                    Text(
-                        text = if (isFa) "آواتار دلخواه خود را برای نمایش در بالای پروفایل انتخاب کنید:" else "Choose your favorite avatar emoji:",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFA0A5BA)
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        emojis.take(5).forEach { emoji ->
-                            Text(
-                                text = emoji,
-                                fontSize = 28.sp,
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .clickable {
-                                        UserProfileManager.setAvatarEmoji(context, emoji)
-                                        showAvatarPickerDialog = false
-                                    }
-                                    .padding(6.dp)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        emojis.drop(5).take(5).forEach { emoji ->
-                            Text(
-                                text = emoji,
-                                fontSize = 28.sp,
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .clickable {
-                                        UserProfileManager.setAvatarEmoji(context, emoji)
-                                        showAvatarPickerDialog = false
-                                    }
-                                    .padding(6.dp)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        emojis.drop(10).forEach { emoji ->
-                            Text(
-                                text = emoji,
-                                fontSize = 28.sp,
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .clickable {
-                                        UserProfileManager.setAvatarEmoji(context, emoji)
-                                        showAvatarPickerDialog = false
-                                    }
-                                    .padding(6.dp)
-                            )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    emojis.chunked(4).forEach { rowEmojis ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            rowEmojis.forEach { emoji ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.08f))
+                                        .clickable {
+                                            UserProfileManager.setAvatarEmoji(context, emoji)
+                                            showAvatarPickerDialog = false
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(text = emoji, fontSize = 24.sp)
+                                }
+                            }
                         }
                     }
                 }
@@ -695,7 +765,40 @@ fun SettingsScreen(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { showAvatarPickerDialog = false }) {
-                    Text(if (isFa) "بستن" else "Close")
+                    Text(if (isFa) "بستن" else "Close", color = Color.White)
+                }
+            }
+        )
+    }
+
+    // دیالوگ تایید پاک‌سازی تاریخچه
+    if (showClearHistoryConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearHistoryConfirm = false },
+            containerColor = Color(0xFF141726),
+            title = { Text(if (isFa) "پاک‌سازی تاریخچه پخش" else "Clear Listening History", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    text = if (isFa) "آیا مطمئن هستید که می‌خواهید تاریخچه شنیداری و آمار Wrapped را پاک کنید؟ (آهنگ‌ها و پلی‌لیست‌های شما حذف نمی‌شوند)"
+                    else "Are you sure you want to clear your playback history? (Your songs and playlists will not be deleted)",
+                    color = Color(0xFFD0D5E8)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onClearPlaybackHistory()
+                        showClearHistoryConfirm = false
+                        Toast.makeText(context, if (isFa) "تاریخچه پاک شد" else "History cleared", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF43F5E))
+                ) {
+                    Text(if (isFa) "پاک کردن" else "Clear", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearHistoryConfirm = false }) {
+                    Text(if (isFa) "انصراف" else "Cancel", color = Color.White)
                 }
             }
         )
@@ -703,15 +806,15 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun UserProfileCard(
+private fun AudiophileProfileDashboardCard(
     profile: UserProfileData?,
+    totalLibraryTracks: Int,
+    totalFavorites: Int,
     palette: AmbientPalette,
     isFa: Boolean,
-    onEditName: () -> Unit,
     onEditAvatar: () -> Unit
 ) {
     val p = profile ?: return
-    val goldColor = Color(0xFFFFD700)
 
     Box(
         modifier = Modifier
@@ -719,13 +822,14 @@ private fun UserProfileCard(
             .liquidGlass(
                 shape = RoundedCornerShape(26.dp),
                 thickness = GlassThickness.THICK,
-                tintColor = if (p.isSupporter) goldColor else palette.primary,
-                tintAlpha = if (p.isSupporter) 0.22f else 0.16f,
-                borderWidth = 1.5.dp
+                tintColor = palette.primary,
+                tintAlpha = 0.22f,
+                borderWidth = 1.4.dp,
+                secondaryAccent = palette.accent
             )
             .padding(18.dp)
     ) {
-        Column {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -735,24 +839,16 @@ private fun UserProfileCard(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
-                    // Avatar with edit badge
                     Box(
                         modifier = Modifier
-                            .size(56.dp)
+                            .size(58.dp)
                             .clip(CircleShape)
                             .background(
                                 Brush.radialGradient(
-                                    listOf(
-                                        if (p.isSupporter) goldColor.copy(alpha = 0.4f) else palette.primary.copy(alpha = 0.35f),
-                                        Color(0xFF141727)
-                                    )
+                                    listOf(palette.primary.copy(alpha = 0.45f), Color(0xFF101322))
                                 )
                             )
-                            .border(
-                                width = 2.dp,
-                                color = if (p.isSupporter) goldColor else palette.accent,
-                                shape = CircleShape
-                            )
+                            .border(2.dp, palette.accent, CircleShape)
                             .clickable { onEditAvatar() },
                         contentAlignment = Alignment.Center
                     ) {
@@ -762,85 +858,54 @@ private fun UserProfileCard(
                     Spacer(modifier = Modifier.width(14.dp))
 
                     Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable { onEditName() }
-                        ) {
-                            Text(
-                                text = p.name,
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = Color.White,
-                                    fontSize = 16.sp
-                                )
+                        Text(
+                            text = if (isFa) "پروفایل آئورا موزیک" else "Aura Music Profile",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                                fontSize = 16.sp
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Edit Name",
-                                tint = Color.White.copy(alpha = 0.6f),
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
+                        )
 
                         Spacer(modifier = Modifier.height(3.dp))
 
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(
-                                        if (p.isSupporter) goldColor.copy(alpha = 0.25f) else palette.primary.copy(alpha = 0.2f)
-                                    )
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = p.supporterTitle,
-                                    color = if (p.isSupporter) goldColor else palette.accent,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(8.dp))
-
-                            Text(
-                                text = if (isFa) "همراه از ${p.joinDays} روز پیش" else "Member for ${p.joinDays}d",
-                                color = Color(0xFFA0A5BA),
-                                fontSize = 11.sp
-                            )
-                        }
+                        Text(
+                            text = if (isFa) "شنونده حرفه‌ای • همراه از ${p.joinDays} روز پیش" else "Audiophile Member • ${p.joinDays} days with Aura",
+                            color = Color(0xFFB0B6CA),
+                            fontSize = 11.5.sp
+                        )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Quick Stats Bar
+            // نوار آمار زنده و واقعی
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0x22000000))
-                    .padding(vertical = 10.dp, horizontal = 12.dp),
-                horizontalArrangement = Arrangement.SpaceAround
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0x28000000))
+                    .padding(vertical = 12.dp, horizontal = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                StatItem(
-                    label = if (isFa) "قطعات پخش‌شده" else "Tracks Played",
-                    value = "${p.totalTracksPlayed} 🎵",
+                ProfileStatColumn(
+                    value = "$totalLibraryTracks",
+                    label = if (isFa) "کل آهنگ‌ها" else "Library",
+                    color = Color.White
+                )
+                ProfileStatColumn(
+                    value = "$totalFavorites",
+                    label = if (isFa) "علاقه‌مندی‌ها" else "Favorites",
+                    color = Color(0xFFFF4081)
+                )
+                ProfileStatColumn(
+                    value = "${p.totalTracksPlayed}",
+                    label = if (isFa) "دفعات پخش" else "Plays",
                     color = palette.accent
                 )
-                Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.White.copy(alpha = 0.1f)))
-                StatItem(
-                    label = if (isFa) "ساعت در موسیقی" else "Listening Hours",
-                    value = "${String.format("%.1f", p.totalListeningHours)} ⏳",
-                    color = Color(0xFF64B5F6)
-                )
-                Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.White.copy(alpha = 0.1f)))
-                StatItem(
-                    label = if (isFa) "نشان‌های کسب‌شده" else "Badges",
-                    value = "${p.badges.count { it.isUnlocked }} / ${p.badges.size} 🏆",
-                    color = goldColor
+                ProfileStatColumn(
+                    value = String.format(Locale.US, "%.1fh", p.totalListeningHours),
+                    label = if (isFa) "ساعت پخش" else "Hours",
+                    color = Color(0xFF38BDF8)
                 )
             }
         }
@@ -848,153 +913,151 @@ private fun UserProfileCard(
 }
 
 @Composable
-private fun StatItem(label: String, value: String, color: Color) {
+private fun ProfileStatColumn(value: String, label: String, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = value, color = color, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
-        Text(text = label, color = Color(0xFFA0A5BA), fontSize = 10.sp)
+        Text(text = value, color = color, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(text = label, color = Color(0xFFA0A5BA), fontSize = 10.5.sp)
     }
 }
 
 @Composable
-private fun BadgesAndHonorsSection(
-    badges: List<UserBadge>,
+private fun SettingsGlassSection(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
     palette: AmbientPalette,
-    isFa: Boolean
+    content: @Composable ColumnScope.() -> Unit
 ) {
-    val unlockedCount = badges.count { it.isUnlocked }
-
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .liquidGlass(
-                shape = RoundedCornerShape(22.dp),
+                shape = RoundedCornerShape(24.dp),
                 thickness = GlassThickness.REGULAR,
                 tintColor = palette.primary,
                 tintAlpha = 0.14f,
-                borderWidth = 1.dp
+                borderWidth = 1.dp,
+                secondaryAccent = palette.accent
             )
-            .padding(16.dp)
+            .padding(18.dp)
     ) {
-        Column {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.EmojiEvents,
-                        contentDescription = null,
-                        tint = Color(0xFFFFD700),
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isFa) "دستاوردهای مخفی موسیقی" else "Secret Music Achievements",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            fontSize = 14.sp
-                        )
-                    )
-                }
-
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(palette.primary.copy(alpha = 0.25f))
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                        .border(1.dp, palette.accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
                 ) {
+                    Icon(imageVector = icon, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
                     Text(
-                        text = "$unlockedCount / ${badges.size} 🏆",
-                        color = Color(0xFFFFD700),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White,
+                            fontSize = 15.5.sp
+                        )
+                    )
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = Color(0xFFA0A6BC),
+                            fontSize = 11.5.sp
+                        )
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
-            Text(
-                text = if (isFa) "با استمرار در گوش دادن به موسیقی، دستاوردهای مخفی به مرور رمزگشایی می‌شوند" else "Keep listening to songs to unlock secret listening milestones",
-                color = Color(0xFFA0A5BA),
-                fontSize = 11.sp
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            badges.forEach { badge ->
-                val isUnlocked = badge.isUnlocked
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(if (isUnlocked) Color(0x28FFFFFF) else Color(0x0CFFFFFF))
-                        .border(
-                            width = 1.dp,
-                            color = if (isUnlocked) Color(0xFFFFD700).copy(alpha = 0.55f) else Color.White.copy(alpha = 0.06f),
-                            shape = RoundedCornerShape(14.dp)
-                        )
-                        .padding(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(
-                                text = if (isUnlocked) badge.emoji else "🔒",
-                                fontSize = 20.sp
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = if (isUnlocked) {
-                                        if (isFa) badge.titleFa else badge.titleEn
-                                    } else {
-                                        "???"
-                                    },
-                                    color = if (isUnlocked) Color.White else Color(0xFF8E93A6),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
-                                )
-                                Text(
-                                    text = if (isUnlocked) {
-                                        if (isFa) badge.descFa else badge.descEn
-                                    } else {
-                                        if (isFa) "دستاورد مخفی - با گوش دادن مداوم به موسیقی کشف کنید" else "Secret achievement - Keep listening to discover"
-                                    },
-                                    color = if (isUnlocked) Color(0xFFC0C5D8) else Color(0xFF63677A),
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
-
-                        if (isUnlocked) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = "Unlocked",
-                                tint = Color(0xFFFFD700),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = "Locked",
-                                tint = Color.White.copy(alpha = 0.25f),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-            }
+            content()
         }
     }
 }
 
+@Composable
+private fun SettingsToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    accentColor: Color,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(text = title, color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(text = subtitle, color = Color(0xFFA0A6BC), fontSize = 11.5.sp)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = accentColor
+            )
+        )
+    }
+}
+
+@Composable
+private fun SettingsActionTile(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    accentColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0x26000000))
+            .border(1.dp, accentColor.copy(alpha = 0.40f), RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(accentColor.copy(alpha = 0.22f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(imageVector = icon, contentDescription = null, tint = accentColor, modifier = Modifier.size(18.dp))
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+                Text(
+                    text = title,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = subtitle,
+                    color = Color(0xFFA5ABC0),
+                    fontSize = 10.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}

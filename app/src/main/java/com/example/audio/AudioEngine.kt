@@ -201,6 +201,22 @@ class AudioEngine(private val context: Context) {
         } catch (_: Exception) {}
     }
 
+    fun setPlaybackSpeed(speed: Float) {
+        val safeSpeed = speed.coerceIn(0.5f, 2.0f)
+        currentPlaybackSpeed = safeSpeed
+        try {
+            mediaPlayer?.let { mp ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && isPlayerPrepared) {
+                    val params = mp.playbackParams
+                    params.speed = safeSpeed
+                    mp.playbackParams = params
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed setting playback speed: ${e.message}")
+        }
+    }
+
     var crossfadeSeconds: Int = 1
     var gaplessEnabled: Boolean = true
     var pauseOnInterruption: Boolean = true
@@ -671,7 +687,10 @@ class AudioEngine(private val context: Context) {
     }
 
     fun seekTo(positionMs: Long) {
-        val safePos = positionMs.coerceIn(0L, _duration.value.coerceAtLeast(positionMs))
+        val maxDur = _duration.value.coerceAtLeast(1L)
+        // جلوگیری از ارسال نقطه ۱۰۰٪ انتهایی در حین کشیدن نوار که باعث پریدن به آهنگ بعدی می‌شود
+        val safeClampMax = if (maxDur > 1500L) maxDur - 800L else maxDur
+        val safePos = positionMs.coerceIn(0L, safeClampMax)
         _currentPosition.value = safePos
         val mp = mediaPlayer
         if (mp != null && isPlayerPrepared) {
@@ -688,21 +707,23 @@ class AudioEngine(private val context: Context) {
 
         try {
             val mpDur = try { mp.duration.toLong() } catch (_: Exception) { -1L }
-            val clampedPos = if (mpDur > 0) safePos.coerceIn(0L, mpDur) else safePos
+            val maxAllowed = if (mpDur > 1200L) mpDur - 600L else mpDur.coerceAtLeast(1L)
+            val clampedPos = if (mpDur > 0) safePos.coerceIn(0L, maxAllowed) else safePos
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 mp.seekTo(clampedPos, android.media.MediaPlayer.SEEK_CLOSEST)
             } else {
                 mp.seekTo(clampedPos.toInt())
             }
-            if (_isPlayWhenReady.value) {
-                if (!mp.isPlaying) {
-                    try { mp.start() } catch (_: Exception) {}
-                }
+            seekWatchdogJob = engineScope.launch {
+                delay(450L)
+                isSeekingInProgress = false
+            }
+            if (_isPlayWhenReady.value && mp.isPlaying) {
                 startProgressTracker()
             }
         } catch (e: Exception) {
-            Log.e(tag, "Error seeking to $safePos", e)
             isSeekingInProgress = false
+            Log.e(tag, "Error seeking to $safePos", e)
         }
     }
 
@@ -711,19 +732,16 @@ class AudioEngine(private val context: Context) {
         applyVolume()
     }
 
+    private var loudnessEnhancer: android.media.audiofx.LoudnessEnhancer? = null
+
     /**
-     * Calculates audiophile headroom attenuation to prevent digital clipping when EQ or BassBoost are boosted.
-     * When any band is raised above 0dB, attenuation is applied smoothly so the DAC never clips.
+     * حفظ قدرت و پانچ واقعی صدا بدون تضعیف خودکار بیس
+     * فقط در صورت بوست بسیار شدید (+10dB به بالا) یک محافظ نرم اعمال میشود تا صدا دیستورت نشود
      */
     private fun getHeadroomScale(): Float {
         if (!isEqEnabled) return 1.0f
-        val maxBandBoostDb = currentEqBands.maxOrNull()?.coerceAtLeast(0f) ?: 0f
-        val bbBoostDb = if (currentBassBoostStrength > 0) (currentBassBoostStrength / 1000f) * 6.0f else 0f
-        val totalPeakBoost = maxOf(maxBandBoostDb, bbBoostDb)
-        if (totalPeakBoost <= 0.5f) return 1.0f
-
-        val attenuationDb = totalPeakBoost * 0.85f
-        return (10.0.pow(-attenuationDb.toDouble() / 20.0)).toFloat().coerceIn(0.25f, 1.0f)
+        val avgBoost = currentEqBands.filter { it > 0f }.average().toFloat().let { if (it.isNaN()) 0f else it }
+        return if (avgBoost > 9.5f) 0.92f else 1.0f
     }
 
     private fun applyVolume() {
@@ -763,37 +781,46 @@ class AudioEngine(private val context: Context) {
     private fun initAudioEffects(sessionId: Int) {
         if (sessionId <= 0) return
         try {
-            equalizer = Equalizer(0, sessionId).apply {
+            equalizer = Equalizer(100, sessionId).apply {
                 enabled = isEqEnabled
             }
-            bassBoost = BassBoost(0, sessionId).apply {
-                enabled = true
-            }
-            try {
-                virtualizer = Virtualizer(0, sessionId).apply {
-                    enabled = true
-                }
-            } catch (ve: Exception) {
-                Log.w(tag, "Virtualizer not supported on device: ${ve.message}")
-            }
-            applyCurrentEffects()
-            Log.d(tag, "Initialized Equalizer, BassBoost, and Virtualizer on session $sessionId")
         } catch (e: Exception) {
-            Log.w(tag, "Audio effects not supported on this session: ${e.message}")
+            Log.w(tag, "Equalizer init warning: ${e.message}")
         }
+
+        try {
+            bassBoost = BassBoost(100, sessionId).apply {
+                enabled = isEqEnabled && currentBassBoostStrength > 0
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "BassBoost init warning: ${e.message}")
+        }
+
+        try {
+            loudnessEnhancer = android.media.audiofx.LoudnessEnhancer(sessionId).apply {
+                enabled = isEqEnabled
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "LoudnessEnhancer init warning: ${e.message}")
+        }
+
+        try {
+            virtualizer = Virtualizer(100, sessionId).apply {
+                enabled = isEqEnabled
+            }
+        } catch (_: Exception) {}
+
+        applyCurrentEffects()
     }
 
     fun applyEqualizerSettings(enabled: Boolean, bands: List<Float>, bassBoostStrength: Int) {
         isEqEnabled = enabled
         currentEqBands = bands
-        currentBassBoostStrength = bassBoostStrength
+        currentBassBoostStrength = bassBoostStrength.coerceIn(0, 1000)
         applyCurrentEffects()
         applyVolume()
     }
 
-    /**
-     * Maps user 10-band graphic EQ (-12dB to +12dB) to hardware bands using logarithmic frequency interpolation.
-     */
     private fun calculateGainForFreq(freqHz: Float, gains: List<Float>): Float {
         if (gains.isEmpty()) return 0f
         val nominalFreqs = floatArrayOf(31f, 62f, 125f, 250f, 500f, 1000f, 2000f, 4000f, 8000f, 16000f)
@@ -816,11 +843,17 @@ class AudioEngine(private val context: Context) {
         return gains.last()
     }
 
+    /**
+     * اعمال واقعی و قدرتمند اکولایزر ۱۰ بانده + تقویت سابووفر (Sub-Bass Shelf) + Loudness DSP
+     */
     private fun applyCurrentEffects() {
+        val bassNormalized = (currentBassBoostStrength / 1000f).coerceIn(0f, 1f)
+
+        // ۱. اعمال سختافزاری BassBoost با حداکثر اولویت
         try {
             bassBoost?.let { bb ->
+                bb.enabled = isEqEnabled && currentBassBoostStrength > 0
                 if (bb.strengthSupported) {
-                    bb.enabled = isEqEnabled && currentBassBoostStrength > 0
                     bb.setStrength(currentBassBoostStrength.toShort().coerceIn(0, 1000))
                 }
             }
@@ -828,20 +861,30 @@ class AudioEngine(private val context: Context) {
             Log.w(tag, "Failed applying bass boost: ${e.message}")
         }
 
+        // ۲. اعمال باندهای اکولایزر + تزریق Sub-Bass Shelf واقعی روی فرکانسهای زیر 160Hz
         try {
             equalizer?.let { eq ->
                 eq.enabled = isEqEnabled
                 val numBands = eq.numberOfBands.toInt()
                 if (numBands > 0) {
                     val range = eq.bandLevelRange
-                    val minLevel = range[0]
-                    val maxLevel = range[1]
+                    val minLevel = range[0].toInt()
+                    val maxLevel = range[1].toInt()
 
                     for (band in 0 until numBands) {
                         val centerFreqMilliHz = eq.getCenterFreq(band.toShort())
                         val centerFreqHz = (centerFreqMilliHz / 1000f).coerceAtLeast(20f)
-                        val gainDb = calculateGainForFreq(centerFreqHz, currentEqBands)
-                        val targetMilliBels = (gainDb * 100).roundToInt().coerceIn(minLevel.toInt(), maxLevel.toInt())
+                        var gainDb = calculateGainForFreq(centerFreqHz, currentEqBands)
+
+                        // وقتی کاربر اسلایدر Bass Boost را بالا میبرد، علاوه بر BassBoost سختافزاری،
+                        // فرکانسهای ساببیس (31Hz تا 150Hz) نیز با منحنی Shelf تقویت میشوند تا بیس کاملاً کوبنده و عمیق شود
+                        if (isEqEnabled && bassNormalized > 0f && centerFreqHz <= 180f) {
+                            val subBassShelfFactor = ((180f - centerFreqHz) / 150f).coerceIn(0f, 1f)
+                            gainDb += (bassNormalized * 9.5f * subBassShelfFactor)
+                        }
+
+                        // مقیاسدهی دقیق به میلیبل سختافزار
+                        val targetMilliBels = (gainDb * 125f).roundToInt().coerceIn(minLevel, maxLevel)
                         eq.setBandLevel(band.toShort(), targetMilliBels.toShort())
                     }
                 }
@@ -849,63 +892,43 @@ class AudioEngine(private val context: Context) {
         } catch (e: Exception) {
             Log.w(tag, "Failed applying equalizer bands: ${e.message}")
         }
-    }
 
-    fun setPlaybackSpeed(speed: Float) {
-        val targetSpeed = speed.coerceIn(0.5f, 2.0f)
-        // If speed has not changed, do nothing!
-        if (targetSpeed == currentPlaybackSpeed) {
-            return
-        }
-        currentPlaybackSpeed = targetSpeed
-        val mp = mediaPlayer
+        // ۳. اعمال LoudnessEnhancer برای جبران افت انرژی و ایجاد پانچ استودیویی
         try {
-            if (mp != null && isPlayerPrepared) {
-                val wasPlaying = _isPlayWhenReady.value && mp.isPlaying
-                val params = mp.playbackParams
-                params.speed = currentPlaybackSpeed
-                mp.playbackParams = params
-                // MediaPlayer.setPlaybackParams() in Android inherently resumes/starts playback.
-                // If playback was stopped/paused, restore paused state immediately!
-                if (!wasPlaying) {
-                    mp.pause()
+            loudnessEnhancer?.let { le ->
+                le.enabled = isEqEnabled
+                if (isEqEnabled) {
+                    val positiveEqBoost = currentEqBands.filter { it > 0f }.maxOrNull() ?: 0f
+                    // محاسبه گین بر حسب میلیبل (mB) برای تفکیک و قدرت صدای خروجی
+                    val targetGainMb = ((bassNormalized * 450f) + (positiveEqBoost * 35f)).roundToInt().coerceIn(0, 900)
+                    le.setTargetGain(targetGainMb)
+                } else {
+                    le.setTargetGain(0)
                 }
             }
         } catch (e: Exception) {
-            Log.e(tag, "Failed setting playback speed: ${e.message}", e)
+            Log.w(tag, "LoudnessEnhancer error: ${e.message}")
         }
-    }
 
-    fun setBassBoost(strength: Int) { // 0..1000
-        currentBassBoostStrength = strength
-        applyCurrentEffects()
-        applyVolume()
-    }
-
-    fun setEqBand(bandIndex: Int, levelMilliBels: Int) {
+        // ۴. ایجاد فضای سهبعدی ملایم متناسب با بیس
         try {
-            equalizer?.let {
-                if (bandIndex in 0 until it.numberOfBands) {
-                    it.setBandLevel(bandIndex.toShort(), levelMilliBels.toShort())
+            virtualizer?.let { virt ->
+                virt.enabled = isEqEnabled && currentBassBoostStrength > 100
+                if (virt.strengthSupported) {
+                    virt.setStrength((bassNormalized * 650f).toInt().toShort().coerceIn(0, 1000))
                 }
             }
-        } catch (e: Exception) {
-            Log.e(tag, "Failed to set EQ band", e)
-        }
+        } catch (_: Exception) {}
     }
 
     private fun releaseEffects() {
-        try {
-            equalizer?.release()
-        } catch (_: Exception) {}
-        try {
-            bassBoost?.release()
-        } catch (_: Exception) {}
-        try {
-            virtualizer?.release()
-        } catch (_: Exception) {}
+        try { equalizer?.release() } catch (_: Exception) {}
+        try { bassBoost?.release() } catch (_: Exception) {}
+        try { loudnessEnhancer?.release() } catch (_: Exception) {}
+        try { virtualizer?.release() } catch (_: Exception) {}
         equalizer = null
         bassBoost = null
+        loudnessEnhancer = null
         virtualizer = null
     }
 
