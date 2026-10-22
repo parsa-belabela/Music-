@@ -58,6 +58,7 @@ fun MainScreen(
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val currentLyrics by viewModel.currentLyrics.collectAsStateWithLifecycle()
     val currentAudioProfile by viewModel.currentTrackAudioProfile.collectAsStateWithLifecycle()
+    val livePositionMs by viewModel.currentPositionMs.collectAsStateWithLifecycle()
 
     // 15 Features States
     val timeSlotTracks by viewModel.timeSlotTracks.collectAsStateWithLifecycle()
@@ -139,7 +140,20 @@ fun MainScreen(
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 bottomBar = {
                     if (!isNowPlayingExpanded) {
-                        Column(modifier = Modifier.navigationBarsPadding()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            Color.Transparent,
+                                            Color(0xB3060812),
+                                            Color(0xF5060812)
+                                        )
+                                    )
+                                )
+                                .navigationBarsPadding()
+                        ) {
                             if (playbackState.currentTrack != null) {
                                 MiniPlayer(
                                     playbackState = playbackState,
@@ -322,9 +336,6 @@ fun MainScreen(
                             didRestoreSession = didRestoreSession,
                             duplicateCount = duplicateGroups.sumOf { it.losers.size },
                             onOpenDuplicatesReview = { viewModel.showDuplicatesReview.value = true },
-                            onToggleFocusMode = {
-                                viewModel.updateSettings(appSettings.copy(focusModeEnabled = !appSettings.focusModeEnabled))
-                            },
                             currentPositionProvider = { viewModel.currentPositionMs.value },
                             onSeekTo = { viewModel.seekTo(it) },
                             bottomPadding = bottomBarPadding,
@@ -454,7 +465,8 @@ fun MainScreen(
                         currentLyrics = currentLyrics,
                         appSettings = appSettings,
                         analysisDataProvider = { viewModel.analysisData.value },
-                        currentPositionProvider = { viewModel.currentPositionMs.value },
+                        currentPositionProvider = { livePositionMs },
+                        currentPositionMs = livePositionMs,
                         audioProfile = currentAudioProfile,
                         onCollapse = { viewModel.isNowPlayingExpanded.value = false },
                         onTogglePlay = { viewModel.togglePlayPause() },
@@ -584,56 +596,7 @@ fun MainScreen(
             )
         }
 
-        var showFirstLaunchGiftNotice by remember {
-            mutableStateOf(!sharedPrefs.getBoolean("first_launch_gift_shown", false))
-        }
 
-        if (showFirstLaunchGiftNotice) {
-            AlertDialog(
-                onDismissRequest = {
-                    sharedPrefs.edit().putBoolean("first_launch_gift_shown", true).apply()
-                    showFirstLaunchGiftNotice = false
-                },
-                containerColor = Color(0xF00D1322),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(text = "💙", fontSize = 24.sp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (lang == AppLanguage.PERSIAN) "تقدیم با مهر" else "Gift for You",
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-                },
-                text = {
-                    Text(
-                        text = if (lang == AppLanguage.PERSIAN)
-                            "این برنامه رایگانه چون تو با ارزشی:)"
-                        else
-                            "This app is completely free with all features unlocked, because you are truly valuable:)",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = Color(0xFFD0D6E8)
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            sharedPrefs.edit().putBoolean("first_launch_gift_shown", true).apply()
-                            showFirstLaunchGiftNotice = false
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = palette.primary)
-                    ) {
-                        Text(
-                            text = if (lang == AppLanguage.PERSIAN) "متشکرم 🎵" else "Enjoy 🎵",
-                            color = Color.White,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                        )
-                    }
-                }
-            )
-        }
 
         if (showAchievementsDialog) {
             AchievementsDialog(

@@ -76,7 +76,7 @@ object UserProfileManager {
     }
 
     fun getUserName(context: Context): String {
-        return prefs(context).getString(KEY_USER_NAME, "کاربر مهربون و موزیک‌باز") ?: "کاربر مهربون و موزیک‌باز"
+        return prefs(context).getString(KEY_USER_NAME, "شنونده موسیقی") ?: "شنونده موسیقی"
     }
 
     fun setUserName(context: Context, name: String) {
@@ -161,105 +161,158 @@ object UserProfileManager {
         return insights.random()
     }
 
+    private fun createMilestoneBadges(
+        totalPlays: Int,
+        totalHours: Float,
+        nightPlaysCount: Int,
+        favoritesCount: Int,
+        joinDays: Int
+    ): List<UserBadge> {
+        return listOf(
+            UserBadge(
+                id = "badge_track_1",
+                titleFa = "نخستین نوا 🎵",
+                titleEn = "First Melody 🎵",
+                descFa = "شنیدن اولین قطعه موسیقی در آئورا",
+                descEn = "Listened to your first track in Aura",
+                emoji = "🎵",
+                isUnlocked = totalPlays >= 1
+            ),
+            UserBadge(
+                id = "badge_track_50",
+                titleFa = "همراه آهنگ‌ها 🎶",
+                titleEn = "Melody Explorer 🎶",
+                descFa = "شنیدن بیش از ۵۰ قطعه موسیقی",
+                descEn = "Listened to over 50 tracks",
+                emoji = "🎶",
+                isUnlocked = totalPlays >= 50
+            ),
+            UserBadge(
+                id = "badge_track_200",
+                titleFa = "شیفته موسیقی 🎼",
+                titleEn = "Music Devotee 🎼",
+                descFa = "شنیدن بیش از ۲۰۰ قطعه موسیقی",
+                descEn = "Listened to over 200 tracks",
+                emoji = "🎼",
+                isUnlocked = totalPlays >= 200
+            ),
+            UserBadge(
+                id = "badge_track_500",
+                titleFa = "استاد ریتم 🎻",
+                titleEn = "Rhythm Maestro 🎻",
+                descFa = "شنیدن بیش از ۵۰۰ قطعه موسیقی",
+                descEn = "Listened to over 500 tracks",
+                emoji = "🎻",
+                isUnlocked = totalPlays >= 500
+            ),
+            UserBadge(
+                id = "badge_track_1000",
+                titleFa = "افسانه ۱۰۰۰ نوا 👑",
+                titleEn = "1,000 Melodies Legend 👑",
+                descFa = "ثبت رکورد شگفت‌انگیز شنیدن ۱۰۰۰ قطعه موسیقی",
+                descEn = "Reached an astounding milestone of 1,000 tracks",
+                emoji = "👑",
+                isUnlocked = totalPlays >= 1000
+            ),
+            UserBadge(
+                id = "badge_hour_1",
+                titleFa = "ساعت نخست ⏱️",
+                titleEn = "First Hour ⏱️",
+                descFa = "۱ ساعت غرق در دنیای موسیقی",
+                descEn = "1 full hour spent enjoying music",
+                emoji = "⏱️",
+                isUnlocked = totalHours >= 1f
+            ),
+            UserBadge(
+                id = "badge_hour_10",
+                titleFa = "۱۰ ساعت هم‌نوایی ⏳",
+                titleEn = "10 Hours Symphony ⏳",
+                descFa = "سپری کردن بیش از ۱۰ ساعت با قطعات دلخواه",
+                descEn = "Over 10 hours of music journey",
+                emoji = "⏳",
+                isUnlocked = totalHours >= 10f
+            ),
+            UserBadge(
+                id = "badge_hour_50",
+                titleFa = "۵۰ ساعت زندگی با صدا 🌌",
+                titleEn = "50 Hours Milestone 🌌",
+                descFa = "بیش از ۵۰ ساعت پخش مداوم صدا و موسیقی",
+                descEn = "Over 50 hours of audio immersion",
+                emoji = "🌌",
+                isUnlocked = totalHours >= 50f
+            ),
+            UserBadge(
+                id = "badge_hour_100",
+                titleFa = "۱۰۰ ساعت سمفونی بی‌پایان 🪐",
+                titleEn = "100 Hours Symphony 🪐",
+                descFa = "دستیابی به رکورد کم‌نظیر ۱۰۰ ساعت شنیدن موسیقی",
+                descEn = "Achieved the legendary 100-hour listening milestone",
+                emoji = "🪐",
+                isUnlocked = totalHours >= 100f
+            ),
+            UserBadge(
+                id = "badge_night_owl",
+                titleFa = "همدم نیمه‌شب 🌙",
+                titleEn = "Night Owl 🌙",
+                descFa = "شنیدن موسیقی در سکوت و آرامش نیمه‌شب (۱۲ شب تا ۶ صبح)",
+                descEn = "Listened to music during peaceful midnight hours",
+                emoji = "🌙",
+                isUnlocked = nightPlaysCount > 0
+            ),
+            UserBadge(
+                id = "badge_fav_10",
+                titleFa = "گزینش‌گر ملودی 💖",
+                titleEn = "Melody Curator 💖",
+                descFa = "افزودن ۱۰ قطعه به لیست علاقه‌مندی‌ها",
+                descEn = "Added 10 tracks to Favorites",
+                emoji = "💖",
+                isUnlocked = favoritesCount >= 10
+            ),
+            UserBadge(
+                id = "badge_fav_25",
+                titleFa = "گنجینه طلایی 💎",
+                titleEn = "Golden Treasury 💎",
+                descFa = "افزودن ۲۵ قطعه به گنجینه علاقه‌مندی‌ها",
+                descEn = "Curated a treasury of 25 favorite tracks",
+                emoji = "💎",
+                isUnlocked = favoritesCount >= 25
+            ),
+            UserBadge(
+                id = "badge_active_7d",
+                titleFa = "همراهی هفتگی 🌟",
+                titleEn = "Weekly Companion 🌟",
+                descFa = "بیش از ۱ هفته همراهی مداوم با برنامه",
+                descEn = "Over 1 week of companionship with Aura",
+                emoji = "🌟",
+                isUnlocked = joinDays >= 7
+            ),
+            UserBadge(
+                id = "badge_active_30d",
+                titleFa = "همسفر صمیمی 🏆",
+                titleEn = "Monthly Loyal 🏆",
+                descFa = "بیش از ۳۰ روز حضور و همراهی با موسیقی",
+                descEn = "Over 30 days of active music listening",
+                emoji = "🏆",
+                isUnlocked = joinDays >= 30
+            )
+        )
+    }
+
     fun refreshProfile(context: Context) {
         val joinDays = getJoinDays(context)
         val supporter = true
         val totalPlays = prefs(context).getInt(KEY_TOTAL_PLAYS, 0)
         val totalHours = (totalPlays * 3.5f / 60f)
 
-        val badges = listOf(
-            UserBadge(
-                id = "badge_kind_user",
-                titleFa = "کاربر ارزشمند 💙",
-                titleEn = "Valued User 💙",
-                descFa = "برنامه برای شما کاملاً رایگان است چون شما باارزش هستید:)💙",
-                descEn = "The app is completely free for you because you are valuable:)💙",
-                emoji = "💙",
-                isUnlocked = true,
-                isKindBadge = true
-            ),
-            UserBadge(
-                id = "badge_secret_dev_gratitude",
-                titleFa = "همراه صمیمی آئورا ✨",
-                titleEn = "Aura Close Companion ✨",
-                descFa = "از طرف برنامه‌نویس: خوشحالم که همراه مایی و از شنیدن موسیقی لذت می‌بری:)💙",
-                descEn = "From developer: Happy to have you enjoying music with Aura:)💙",
-                emoji = "✨",
-                isUnlocked = true,
-                isKindBadge = true
-            ),
-            UserBadge(
-                id = "badge_lovely_user",
-                titleFa = "کاربر دوست‌داشتنی ✨",
-                titleEn = "Lovely User ✨",
-                descFa = "شنیدن بیش از ۲۰ قطعه موسیقی",
-                descEn = "Listened to 20+ tracks",
-                emoji = "✨",
-                isUnlocked = totalPlays >= 20
-            ),
-            UserBadge(
-                id = "badge_loyal_user",
-                titleFa = "کاربر وفادار 🌟",
-                titleEn = "Loyal User 🌟",
-                descFa = "همراهی با برنامه به مدت بیش از ۱ هفته",
-                descEn = "Continuous presence in the app for 1+ week",
-                emoji = "🌟",
-                isUnlocked = joinDays >= 7
-            ),
-            UserBadge(
-                id = "badge_music_addict",
-                titleFa = "غرق در ملودی 🎧",
-                titleEn = "Melody Devotee 🎧",
-                descFa = "بیش از ۱۰ ساعت پخش موسیقی",
-                descEn = "Over 10 hours of music streaming",
-                emoji = "🎧",
-                isUnlocked = totalHours >= 10f || totalPlays >= 100
-            ),
-            UserBadge(
-                id = "badge_night_owl",
-                titleFa = "شب‌زنده‌دار موسیقی 🌙",
-                titleEn = "Night Owl 🌙",
-                descFa = "شنیدن موسیقی در ساعات آرامش‌بخش نیمه‌شب (۱۲ شب تا ۶ صبح)",
-                descEn = "Enjoying music during midnight hours",
-                emoji = "🌙",
-                isUnlocked = false
-            )
+        val badges = createMilestoneBadges(
+            totalPlays = totalPlays,
+            totalHours = totalHours,
+            nightPlaysCount = 0,
+            favoritesCount = 0,
+            joinDays = joinDays
         )
 
-        val quests = listOf(
-            UserQuest(
-                id = "quest_weekly_listening",
-                titleFa = "شنیدن ۵ روز موسیقی در هفته",
-                titleEn = "Listen 5 days this week",
-                descFa = "حضور فعال و شنیدن موسیقی در روزهای هفته",
-                current = joinDays.coerceAtMost(5),
-                target = 5,
-                emoji = "🎵",
-                isCompleted = joinDays >= 5
-            ),
-            UserQuest(
-                id = "quest_support_dev",
-                titleFa = "حمایت معنوی یا مالی از سازنده",
-                titleEn = "Support the Developer",
-                descFa = "یک حمایت شیرین برای دلگرمی و ارتقای برنامه",
-                current = if (supporter) 1 else 0,
-                target = 1,
-                emoji = "🎁",
-                isCompleted = supporter
-            ),
-            UserQuest(
-                id = "quest_favorite_songs",
-                titleFa = "افزودن ۵ آهنگ به علاقه‌مندی‌ها",
-                titleEn = "Favorite 5 tracks",
-                descFa = "قلب زدن روی آهنگ‌های خاطره‌انگیز",
-                current = 0,
-                target = 5,
-                emoji = "💖",
-                isCompleted = false
-            )
-        )
-
-        val supporterTitle = if (supporter) "حامی ویژه و کاربر مهربون ✨" else "شنونده مشتاق موسیقی"
+        val supporterTitle = if (supporter) "شنونده ویژه ✨" else "شنونده موسیقی"
 
         _profileFlow.value = UserProfileData(
             name = getUserName(context),
@@ -270,7 +323,7 @@ object UserProfileManager {
             totalTracksPlayed = totalPlays,
             totalListeningHours = totalHours,
             badges = badges,
-            quests = quests,
+            quests = emptyList(),
             currentInsight = null
         )
     }
@@ -293,107 +346,14 @@ object UserProfileManager {
             cal.get(java.util.Calendar.HOUR_OF_DAY) in 0..5
         }
 
-        val nowMs = System.currentTimeMillis()
-        val activeDaysThisWeek = allEvents
-            .filter { (nowMs - it.timestamp) <= 7 * 24 * 3600 * 1000L }
-            .map { ev ->
-                java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date(ev.timestamp))
-            }
-            .distinct()
-            .size
-
         val favoritesCount = favorites.size
 
-        val badges = listOf(
-            UserBadge(
-                id = "badge_kind_user",
-                titleFa = "کاربر ارزشمند 💙",
-                titleEn = "Valued User 💙",
-                descFa = "برنامه برای شما کاملاً رایگان است چون شما باارزش هستید:)💙",
-                descEn = "The app is completely free for you because you are valuable:)💙",
-                emoji = "💙",
-                isUnlocked = true,
-                isKindBadge = true
-            ),
-            UserBadge(
-                id = "badge_secret_dev_gratitude",
-                titleFa = "همراه صمیمی آئورا ✨",
-                titleEn = "Aura Close Companion ✨",
-                descFa = "از طرف برنامه‌نویس: خوشحالم که همراه مایی و از شنیدن موسیقی لذت می‌بری:)💙",
-                descEn = "From developer: Happy to have you enjoying music with Aura:)💙",
-                emoji = "✨",
-                isUnlocked = true,
-                isKindBadge = true
-            ),
-            UserBadge(
-                id = "badge_lovely_user",
-                titleFa = "کاربر دوست‌داشتنی ✨",
-                titleEn = "Lovely User ✨",
-                descFa = "شنیدن بیش از ۲۰ قطعه موسیقی",
-                descEn = "Listened to 20+ tracks",
-                emoji = "✨",
-                isUnlocked = totalPlays >= 20
-            ),
-            UserBadge(
-                id = "badge_loyal_user",
-                titleFa = "کاربر وفادار 🌟",
-                titleEn = "Loyal User 🌟",
-                descFa = "همراهی با برنامه به مدت بیش از ۱ هفته",
-                descEn = "Continuous presence in the app for 1+ week",
-                emoji = "🌟",
-                isUnlocked = joinDays >= 7
-            ),
-            UserBadge(
-                id = "badge_music_addict",
-                titleFa = "غرق در ملودی 🎧",
-                titleEn = "Melody Devotee 🎧",
-                descFa = "بیش از ۱۰ ساعت پخش موسیقی",
-                descEn = "Over 10 hours of music streaming",
-                emoji = "🎧",
-                isUnlocked = totalHours >= 10f || totalPlays >= 100
-            ),
-            UserBadge(
-                id = "badge_night_owl",
-                titleFa = "شب‌زنده‌دار موسیقی 🌙",
-                titleEn = "Night Owl 🌙",
-                descFa = "شنیدن موسیقی در ساعات آرامش‌بخش نیمه‌شب (۱۲ شب تا ۶ صبح)",
-                descEn = "Enjoying nocturnal listening sessions",
-                emoji = "🌙",
-                isUnlocked = nightPlaysCount > 0
-            )
-        )
-
-        val quests = listOf(
-            UserQuest(
-                id = "quest_weekly_listening",
-                titleFa = "شنیدن ۵ روز موسیقی در هفته",
-                titleEn = "Listen 5 days this week",
-                descFa = "حضور فعال و شنیدن موسیقی در روزهای هفته",
-                current = activeDaysThisWeek.coerceAtMost(5),
-                target = 5,
-                emoji = "🎵",
-                isCompleted = activeDaysThisWeek >= 5
-            ),
-            UserQuest(
-                id = "quest_support_dev",
-                titleFa = "حمایت معنوی یا مالی از سازنده",
-                titleEn = "Support the Developer",
-                descFa = "یک حمایت شیرین برای دلگرمی و ارتقای برنامه",
-                current = if (supporter) 1 else 0,
-                target = 1,
-                emoji = "🎁",
-                isCompleted = supporter
-            ),
-            UserQuest(
-                id = "quest_favorite_songs",
-                titleFa = "افزودن ۵ آهنگ به علاقه‌مندی‌ها",
-                titleEn = "Favorite 5 tracks",
-                descFa = "قلب زدن روی آهنگ‌های خاطره‌انگیز",
-                current = favoritesCount.coerceAtMost(5),
-                target = 5,
-                emoji = "💖",
-                isCompleted = favoritesCount >= 5
-            )
+        val badges = createMilestoneBadges(
+            totalPlays = totalPlays,
+            totalHours = totalHours,
+            nightPlaysCount = nightPlaysCount,
+            favoritesCount = favoritesCount,
+            joinDays = joinDays
         )
 
         val realInsight: FunMusicInsight = if (allEvents.isEmpty()) {
@@ -448,7 +408,7 @@ object UserProfileManager {
             }
         }
 
-        val supporterTitle = if (supporter) "حامی ویژه و کاربر مهربون ✨" else "شنونده مشتاق موسیقی"
+        val supporterTitle = if (supporter) "شنونده ویژه ✨" else "شنونده موسیقی"
 
         _profileFlow.value = UserProfileData(
             name = getUserName(context),
@@ -459,7 +419,7 @@ object UserProfileManager {
             totalTracksPlayed = totalPlays,
             totalListeningHours = totalHours,
             badges = badges,
-            quests = quests,
+            quests = emptyList(),
             currentInsight = realInsight
         )
     }

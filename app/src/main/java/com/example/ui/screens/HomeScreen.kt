@@ -81,7 +81,6 @@ fun HomeScreen(
 ) {
     val lang = appSettings.language
     val context = LocalContext.current
-    var showFocusInfoDialog by remember { mutableStateOf(false) }
 
     val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
     val timeSlotGreeting = when (currentHour) {
@@ -124,44 +123,6 @@ fun HomeScreen(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Focus Mode Pill
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(if (appSettings.focusModeEnabled) palette.accent.copy(alpha = 0.30f) else Color(0x18FFFFFF))
-                            .border(1.dp, if (appSettings.focusModeEnabled) palette.accent else Color(0x30FFFFFF), RoundedCornerShape(16.dp))
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            modifier = Modifier.clickable { onToggleFocusMode() },
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.SelfImprovement,
-                                contentDescription = "Focus",
-                                tint = if (appSettings.focusModeEnabled) palette.accent else Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (lang == AppLanguage.PERSIAN) "تمرکز" else "Focus",
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = "Focus Info",
-                            tint = Color.White.copy(alpha = 0.7f),
-                            modifier = Modifier
-                                .size(15.dp)
-                                .clickable { showFocusInfoDialog = true }
-                        )
-                    }
-
                     Box(
                         modifier = Modifier
                             .size(38.dp)
@@ -644,14 +605,6 @@ fun HomeScreen(
             }
         }
     }
-
-    if (showFocusInfoDialog) {
-        FocusModeExplainerDialog(
-            lang = lang,
-            palette = palette,
-            onDismiss = { showFocusInfoDialog = false }
-        )
-    }
 }
 
 @Composable
@@ -980,88 +933,4 @@ private fun formatHeroDuration(ms: Long): String {
     val min = totalSec / 60
     val sec = totalSec % 60
     return "%d:%02d".format(min, sec)
-}
-
-@Composable
-private fun FocusModeExplainerDialog(
-    lang: AppLanguage,
-    palette: AmbientPalette,
-    onDismiss: () -> Unit
-) {
-    val isFa = lang == AppLanguage.PERSIAN
-    androidx.compose.ui.window.Dialog(
-        onDismissRequest = onDismiss
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .liquidGlass(
-                    shape = RoundedCornerShape(26.dp),
-                    thickness = GlassThickness.THICK,
-                    tintColor = palette.primary,
-                    tintAlpha = 0.22f,
-                    borderWidth = 1.2.dp
-                )
-                .padding(22.dp)
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(palette.accent.copy(alpha = 0.25f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.SelfImprovement,
-                        contentDescription = null,
-                        tint = palette.accent,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Text(
-                    text = if (isFa) "حالت تمرکز و مطالعه (Focus Mode) 🎧" else "Focus & Deep Study Mode 🎧",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                        fontSize = 16.sp
-                    ),
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = if (isFa)
-                        "حالت تمرکز برای اوقاتی طراحی شده که می‌خواهید مطالعه کنید، برنامه‌نویسی کنید، کار کنید یا عمیقاً تمرکز داشته باشید.\n\nبا فعال کردن این گزینه، اعلان‌ها و شلوغی‌های اضافه برنامه کنار رفته و ریتم‌های آرامش‌بخش، فرکانس‌های آلفا و ابزارهای تمرکز برای افزایش بهره‌وری شما اماده می‌شوند."
-                    else
-                        "Focus Mode is designed for study sessions, coding, deep work, or relaxation.\n\nWhen activated, unnecessary visual distractions are reduced and calming ambient flows keep you centered and productive.",
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        color = Color(0xFFD1D5DB),
-                        fontSize = 12.5.sp,
-                        lineHeight = 20.sp
-                    ),
-                    textAlign = TextAlign.Justify
-                )
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Button(
-                    onClick = onDismiss,
-                    colors = ButtonDefaults.buttonColors(containerColor = palette.accent),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = if (isFa) "متوجه شدم 👍" else "Got It 👍",
-                        color = Color.Black,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-    }
 }

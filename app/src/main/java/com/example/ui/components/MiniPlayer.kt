@@ -108,27 +108,31 @@ fun MiniPlayer(
                 modifier = Modifier
                     .fillMaxWidth()
                     .shadow(
-                        elevation = 12.dp,
-                        shape = RoundedCornerShape(20.dp),
-                        ambientColor = animatedPrimary.copy(alpha = 0.55f),
-                        spotColor = Color.Black
+                        elevation = 14.dp,
+                        shape = RoundedCornerShape(22.dp),
+                        ambientColor = animatedPrimary.copy(alpha = 0.45f),
+                        spotColor = Color(0xFF000000)
                     )
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(22.dp))
+                    // پایه کاملاً مات برای ممانعت کامل از همپوشانی و دیده شدن متن لیست آهنگ‌ها
+                    .background(Color(0xFF0D0F1C))
+                    // لایه رنگی لطیف و زنده هماهنگ با کاور و تم آهنگ در حال پخش
                     .background(
                         brush = Brush.verticalGradient(
                             colors = listOf(
-                                animatedPrimary.copy(alpha = 0.32f),
-                                Color(0xF50B0E1C),
-                                Color(0xFE070912)
+                                animatedPrimary.copy(alpha = 0.45f),
+                                animatedAccent.copy(alpha = 0.18f),
+                                Color(0xFF0A0C16)
                             )
                         )
                     )
                     .liquidGlass(
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(22.dp),
+                        cornerRadius = 22.dp,
                         thickness = GlassThickness.REGULAR,
                         tintColor = animatedPrimary,
-                        tintAlpha = 0.35f,
-                        borderWidth = 1.2.dp
+                        tintAlpha = 0.28f,
+                        borderWidth = 1.dp
                     )
                     .clickable { onExpandNowPlaying() }
                     .testTag("mini_player_container")

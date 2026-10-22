@@ -1,29 +1,259 @@
 package com.example.ui.components
 
+import android.graphics.BlurMaskFilter
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.withTransform
 import com.example.audio.AmbientPalette
 import com.example.data.model.AppTheme
+import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
+@Composable
+fun ModernAuroraMotionBackground(
+    dominantColor: Color = Color(0xFF9D4EDD),
+    secondaryColor: Color = Color(0xFF00E5FF),
+    tertiaryColor: Color = Color(0xFFFF2A85),
+    isPlaying: Boolean = true,
+    audioIntensity: Float = 0.65f,
+    modifier: Modifier = Modifier
+) {
+    // تغییر نرم رنگهای نور پسزمینه هماهنگ با کاور آهنگ
+    val color1 by animateColorAsState(
+        targetValue = dominantColor,
+        animationSpec = tween(1100, easing = FastOutSlowInEasing),
+        label = "AuroraC1"
+    )
+    val color2 by animateColorAsState(
+        targetValue = secondaryColor,
+        animationSpec = tween(1100, easing = FastOutSlowInEasing),
+        label = "AuroraC2"
+    )
+    val color3 by animateColorAsState(
+        targetValue = tertiaryColor,
+        animationSpec = tween(1100, easing = FastOutSlowInEasing),
+        label = "AuroraC3"
+    )
+
+    val infiniteTransition = rememberInfiniteTransition(label = "MotionBlurAurora")
+
+    // موجهای آرام و لوکس برای حرکت باوقار و آرام در پس‌زمینه (Slow, Calm & Elegant Ambient Waves)
+    val verticalWave1 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2f * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = if (isPlaying) 18000 else 28000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "VWave1"
+    )
+
+    val verticalWave2 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2f * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = if (isPlaying) 24000 else 36000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "VWave2"
+    )
+
+    val verticalWave3 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2f * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = if (isPlaying) 20000 else 32000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "VWave3"
+    )
+
+    // تنفس نرم و آرام نورها (Gentle Organic Breathing Pulse)
+    val beatPulse by infiniteTransition.animateFloat(
+        initialValue = 0.92f,
+        targetValue = if (isPlaying) 1.10f else 0.98f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = if (isPlaying) 4600 else 6400,
+                easing = FastOutSlowInEasing
+            ),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "BeatPulse"
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color(0xFF05050B))
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val energy = if (isPlaying) (0.85f + audioIntensity * 0.35f) * beatPulse else 0.75f
+
+            // تابع کمکی برای رسم گوی نوری بلر شده به همراه دنباله موشنبلر (Motion Blur Trail) در جهت حرکت بالا/پایین
+            fun drawMotionBlurredLightOrb(
+                centerX: Float,
+                centerY: Float,
+                velocityY: Float,
+                baseRadius: Float,
+                orbColor: Color,
+                coreAlpha: Float
+            ) {
+                // کشیدگی عمودی بر اساس سرعت بالا و پایین رفتن (ایجاد حس واقعی Motion Blur)
+                val stretchY = (1f + kotlin.math.abs(velocityY) * 0.55f).coerceIn(1f, 1.85f)
+
+                // رسم ۳ لایه دنباله نوری بلر شده (Motion Trail)
+                for (trailIndex in 2 downTo 0) {
+                    val trailFactor = trailIndex.toFloat() * 0.14f
+                    val trailY = centerY - (velocityY * h * 0.08f * trailIndex)
+                    val trailRadius = baseRadius * (1f - trailFactor * 0.4f)
+                    val layerAlpha = (coreAlpha * (1f - trailIndex * 0.28f)).coerceIn(0.05f, 0.9f)
+
+                    withTransform({
+                        scale(
+                            scaleX = 1f,
+                            scaleY = stretchY,
+                            pivot = Offset(centerX, trailY)
+                        )
+                    }) {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colorStops = arrayOf(
+                                    0.00f to orbColor.copy(alpha = layerAlpha),
+                                    0.22f to orbColor.copy(alpha = layerAlpha * 0.88f),
+                                    0.45f to orbColor.copy(alpha = layerAlpha * 0.58f),
+                                    0.68f to orbColor.copy(alpha = layerAlpha * 0.28f),
+                                    0.88f to orbColor.copy(alpha = layerAlpha * 0.08f),
+                                    1.00f to Color.Transparent
+                                ),
+                                center = Offset(centerX, trailY),
+                                radius = trailRadius
+                            ),
+                            radius = trailRadius,
+                            center = Offset(centerX, trailY),
+                            blendMode = BlendMode.Screen
+                        )
+                    }
+                }
+            }
+
+            // ۱. موج نوری اول (رنگ اصلی کاور - حرکت عمیق بالا و پایین در سمت چپ)
+            val y1 = h * (0.28f + 0.26f * sin(verticalWave1))
+            val vel1 = cos(verticalWave1)
+            drawMotionBlurredLightOrb(
+                centerX = w * (0.25f + 0.12f * cos(verticalWave3)),
+                centerY = y1,
+                velocityY = vel1,
+                baseRadius = w * 0.72f * energy,
+                orbColor = color1,
+                coreAlpha = 0.62f
+            )
+
+            // ۲. موج نوری دوم (رنگ دوم کاور/فیروزهای نئون - حرکت پرسرعت بالا و پایین در سمت راست)
+            val y2 = h * (0.62f - 0.30f * sin(verticalWave2))
+            val vel2 = -cos(verticalWave2)
+            drawMotionBlurredLightOrb(
+                centerX = w * (0.78f - 0.14f * sin(verticalWave1)),
+                centerY = y2,
+                velocityY = vel2,
+                baseRadius = w * 0.68f * energy,
+                orbColor = color2,
+                coreAlpha = 0.58f
+            )
+
+            // ۳. موج نوری سوم (مخمل سرخابی/نئون - حرکت نوسانی در مرکز برای زنده کردن پشت کاور)
+            val y3 = h * (0.45f + 0.28f * cos(verticalWave2 + 1.2f))
+            val vel3 = -sin(verticalWave2 + 1.2f)
+            drawMotionBlurredLightOrb(
+                centerX = w * (0.50f + 0.18f * sin(verticalWave3)),
+                centerY = y3,
+                velocityY = vel3,
+                baseRadius = w * 0.60f * energy,
+                orbColor = color3,
+                coreAlpha = 0.48f
+            )
+
+            // ۴. موج نوری چهارم (نور مکمل در بخش پایینی صفحه که زیر دکمههای پلیر بالا و پایین میرود)
+            val y4 = h * (0.82f + 0.16f * sin(verticalWave1 + 2.4f))
+            val vel4 = cos(verticalWave1 + 2.4f)
+            drawMotionBlurredLightOrb(
+                centerX = w * (0.35f + 0.25f * cos(verticalWave2)),
+                centerY = y4,
+                velocityY = vel4,
+                baseRadius = w * 0.75f * energy,
+                orbColor = color1.copy(
+                    red = (color1.red * 0.6f + color2.red * 0.4f).coerceIn(0f, 1f),
+                    green = (color1.green * 0.5f + color3.green * 0.5f).coerceIn(0f, 1f),
+                    blue = (color1.blue * 0.4f + color2.blue * 0.6f).coerceIn(0f, 1f)
+                ),
+                coreAlpha = 0.52f
+            )
+
+            // ۵. گویهای نوری سریعتر (Fast Floating Bokeh Light Orbs) برای حس عمق و هیجان موزیک
+            val y5 = h * (0.20f + 0.65f * ((sin(verticalWave2 * 1.5f) + 1f) * 0.5f))
+            drawMotionBlurredLightOrb(
+                centerX = w * (0.18f + 0.10f * sin(verticalWave1)),
+                centerY = y5,
+                velocityY = cos(verticalWave2 * 1.5f) * 1.4f,
+                baseRadius = w * 0.38f * beatPulse,
+                orbColor = color2,
+                coreAlpha = 0.42f
+            )
+
+            val y6 = h * (0.85f - 0.65f * ((cos(verticalWave1 * 1.3f) + 1f) * 0.5f))
+            drawMotionBlurredLightOrb(
+                centerX = w * (0.84f - 0.10f * cos(verticalWave2)),
+                centerY = y6,
+                velocityY = sin(verticalWave1 * 1.3f) * 1.4f,
+                baseRadius = w * 0.40f * beatPulse,
+                orbColor = color3,
+                coreAlpha = 0.40f
+            )
+
+            // ۶. لایه چندلایه اتمسفریک و بافت کریستالی مات (Frosted Micro-Grain & Multi-Stop Obsidian Veil)
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0.00f to Color(0xFF04050A).copy(alpha = 0.35f),
+                        0.25f to Color.Transparent,
+                        0.55f to color1.copy(alpha = 0.04f),
+                        0.80f to Color(0xFF04050A).copy(alpha = 0.40f),
+                        1.00f to Color(0xFF030307).copy(alpha = 0.75f)
+                    )
+                )
+            )
+
+            // لایه تکسچر بازتاب منشوری (Specular Edge Refraction)
+            drawRect(
+                brush = Brush.radialGradient(
+                    colorStops = arrayOf(
+                        0.00f to Color.Transparent,
+                        0.70f to Color.Transparent,
+                        0.92f to color2.copy(alpha = 0.05f),
+                        1.00f to Color(0xFF030307).copy(alpha = 0.55f)
+                    ),
+                    center = Offset(w * 0.5f, h * 0.5f),
+                    radius = (w * 0.85f).coerceAtLeast(h * 0.55f)
+                )
+            )
+        }
+    }
+}
+
 /**
- * Modern Apple/iOS-style RGB Motion Graphic Aurora Fluid Glow Background.
- * - Multi-node chromatic orbs shifting in harmonic Lissajous orbital waves
- * - Dynamic color morphing between theme & album artwork palette
- * - Deep fluid blur with rich saturation and vivid luminescence
- * - Subtle audio energy reactivity
+ * Overload for ModernAuroraMotionBackground to seamlessly bind with MainScreen palette and theme
  */
 @Composable
 fun ModernAuroraMotionBackground(
@@ -33,281 +263,12 @@ fun ModernAuroraMotionBackground(
     energyBoostProvider: () -> Float = { 0f },
     intensity: Float = 1.0f
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "iosAuroraMotion")
-
-    // Slow, serene orbital cycles with seamless mathematical continuity (no popping or sudden spawning)
-    val angle1 by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 26000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "auroraOrb1"
-    )
-
-    val angle2 by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 34000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "auroraOrb2"
-    )
-
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.95f,
-        targetValue = 1.14f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 8000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "auroraPulse"
-    )
-
-    // Base background tone according to the selected AppTheme
-    val baseBackgroundColor = when (appTheme) {
-        AppTheme.PURE_LIQUID_GLASS -> Color(0xFF060812)
-        AppTheme.CYBER_NIGHTS -> Color(0xFF030712)
-        AppTheme.Y2K_CHROME -> Color(0xFF080B10)
-        AppTheme.VELVET_NOIR -> Color(0xFF0B020E)
-        AppTheme.SUNSET_RAVE -> Color(0xFF130314)
-        AppTheme.DIGITAL_ACID -> Color(0xFF000000)
-        AppTheme.MONOCHROME_NOIR -> Color(0xFF050508)
-    }
-
-    Box(
+    ModernAuroraMotionBackground(
+        dominantColor = palette.primary,
+        secondaryColor = palette.secondary,
+        tertiaryColor = palette.accent,
+        isPlaying = true,
+        audioIntensity = (energyBoostProvider() * intensity).coerceIn(0f, 1.5f),
         modifier = modifier
-            .fillMaxSize()
-            .background(baseBackgroundColor)
-    ) {
-
-        // Multi-node dynamic RGB mesh layer with high-energy vibrancy and living light nodes
-        // Rendered via smooth hardware-accelerated radial gradient falls for 120 FPS performance
-        Canvas(
-            modifier = Modifier.fillMaxSize()
-        ) {
-            val width = size.width
-            val height = size.height
-            if (width <= 0 || height <= 0) return@Canvas
-
-            val rad1 = Math.toRadians(angle1.toDouble())
-            val rad2 = Math.toRadians(angle2.toDouble())
-
-            val currentBoost = energyBoostProvider()
-            val effectiveScale = pulseScale * (1f + currentBoost * 0.35f) * intensity
-
-            val isMono = palette.isMonochrome || appTheme == AppTheme.MONOCHROME_NOIR
-
-            if (isMono) {
-                // High-Contrast Monochrome Aesthetic: Pure Diamond White Highlights with Swirling Rich Obsidian Black Shadows
-                // Node 1: Diamond White Light Core (Seamless, soft orbital drift across upper screen)
-                val orb1X = width * 0.50f + (cos(rad1).toFloat() * width * 0.28f)
-                val orb1Y = height * 0.30f + (sin(rad1).toFloat() * height * 0.18f)
-                val orb1Radius = (width * 0.62f) * effectiveScale
-
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFFFFFFFF).copy(alpha = 0.85f * intensity),
-                            Color(0xFFE2E8F0).copy(alpha = 0.40f * intensity),
-                            Color(0x00FFFFFF)
-                        ),
-                        center = Offset(orb1X, orb1Y),
-                        radius = orb1Radius
-                    ),
-                    center = Offset(orb1X, orb1Y),
-                    radius = orb1Radius
-                )
-
-                // Node 2: Swirling Rich Obsidian Jet Black Shadow Orb (Soft lower drift)
-                val orb2X = width * 0.48f + (sin(rad2).toFloat() * width * 0.26f)
-                val orb2Y = height * 0.65f + (cos(rad2).toFloat() * height * 0.18f)
-                val orb2Radius = (width * 0.70f) * effectiveScale
-
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF000000).copy(alpha = 0.95f * intensity),
-                            Color(0xFF080A12).copy(alpha = 0.70f * intensity),
-                            Color(0x00000000)
-                        ),
-                        center = Offset(orb2X, orb2Y),
-                        radius = orb2Radius
-                    ),
-                    center = Offset(orb2X, orb2Y),
-                    radius = orb2Radius
-                )
-
-                // Node 3: Platinum Silver & Graphite Node (Middle drift)
-                val orb3X = width * 0.46f + (cos(rad2).toFloat() * width * 0.25f)
-                val orb3Y = height * 0.48f + (sin(rad1).toFloat() * height * 0.20f)
-                val orb3Radius = (width * 0.56f) * effectiveScale
-
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF94A3B8).copy(alpha = 0.55f * intensity),
-                            Color(0xFF334155).copy(alpha = 0.30f * intensity),
-                            Color(0x00000000)
-                        ),
-                        center = Offset(orb3X, orb3Y),
-                        radius = orb3Radius
-                    ),
-                    center = Offset(orb3X, orb3Y),
-                    radius = orb3Radius
-                )
-
-                // Node 4: Dynamic Center Obsidian Core (Swirling Deep Velvet Shadow)
-                val orb4X = width * 0.50f + (sin(rad1).toFloat() * width * 0.14f)
-                val orb4Y = height * 0.44f + (cos(rad2).toFloat() * height * 0.12f)
-                val orb4Radius = (width * 0.50f) * effectiveScale
-
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF020306).copy(alpha = 0.88f * intensity),
-                            Color(0xFF0E111C).copy(alpha = 0.40f * intensity),
-                            Color(0x00000000)
-                        ),
-                        center = Offset(orb4X, orb4Y),
-                        radius = orb4Radius
-                    ),
-                    center = Offset(orb4X, orb4Y),
-                    radius = orb4Radius
-                )
-
-                // Node 5: Pure Obsidian Pitch Floor (Bottom screen anchor)
-                val orb5X = width * 0.52f + (cos(rad1).toFloat() * width * 0.22f)
-                val orb5Y = height * 0.82f + (sin(rad2).toFloat() * height * 0.08f)
-                val orb5Radius = (width * 0.64f) * effectiveScale
-
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF000000).copy(alpha = 0.92f * intensity),
-                            Color(0xFF06070E).copy(alpha = 0.50f * intensity),
-                            Color(0x00000000)
-                        ),
-                        center = Offset(orb5X, orb5Y),
-                        radius = orb5Radius
-                    ),
-                    center = Offset(orb5X, orb5Y),
-                    radius = orb5Radius
-                )
-            } else {
-                // Multi-node dynamic chromatic mesh layer with seamless fluid continuous flow
-                // Node 1: Primary Radiant Living Orb (Harmonic upper orbit)
-                val orb1X = width * 0.50f + (cos(rad1).toFloat() * width * 0.28f)
-                val orb1Y = height * 0.30f + (sin(rad1).toFloat() * height * 0.18f)
-                val orb1Radius = (width * 0.68f) * effectiveScale
-
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            palette.primary.copy(alpha = 0.85f * intensity),
-                            palette.primary.copy(alpha = 0.42f * intensity),
-                            palette.primary.copy(alpha = 0f)
-                        ),
-                        center = Offset(orb1X, orb1Y),
-                        radius = orb1Radius
-                    ),
-                    center = Offset(orb1X, orb1Y),
-                    radius = orb1Radius
-                )
-
-                // Node 2: Secondary Fluid Orb (Harmonic lower orbit)
-                val orb2X = width * 0.48f + (sin(rad2).toFloat() * width * 0.26f)
-                val orb2Y = height * 0.65f + (cos(rad2).toFloat() * height * 0.18f)
-                val orb2Radius = (width * 0.72f) * effectiveScale
-
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            palette.secondary.copy(alpha = 0.80f * intensity),
-                            palette.secondary.copy(alpha = 0.38f * intensity),
-                            palette.secondary.copy(alpha = 0f)
-                        ),
-                        center = Offset(orb2X, orb2Y),
-                        radius = orb2Radius
-                    ),
-                    center = Offset(orb2X, orb2Y),
-                    radius = orb2Radius
-                )
-
-                // Node 3: Vivid Accent / Neon Electric Glow Orb (Mid-screen gentle drift)
-                val orb3X = width * 0.46f + (cos(rad2).toFloat() * width * 0.25f)
-                val orb3Y = height * 0.48f + (sin(rad1).toFloat() * height * 0.20f)
-                val orb3Radius = (width * 0.60f) * effectiveScale
-
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            palette.accent.copy(alpha = 0.85f * intensity),
-                            palette.accent.copy(alpha = 0.35f * intensity),
-                            palette.accent.copy(alpha = 0f)
-                        ),
-                        center = Offset(orb3X, orb3Y),
-                        radius = orb3Radius
-                    ),
-                    center = Offset(orb3X, orb3Y),
-                    radius = orb3Radius
-                )
-
-                // Node 4: Dynamic Center Fusion Core
-                val orb4X = width * 0.50f + (sin(rad1).toFloat() * width * 0.14f)
-                val orb4Y = height * 0.44f + (cos(rad2).toFloat() * height * 0.12f)
-                val orb4Radius = (width * 0.52f) * effectiveScale
-
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            palette.accent.copy(alpha = 0.60f * intensity),
-                            palette.primary.copy(alpha = 0.22f * intensity),
-                            palette.primary.copy(alpha = 0f)
-                        ),
-                        center = Offset(orb4X, orb4Y),
-                        radius = orb4Radius
-                    ),
-                    center = Offset(orb4X, orb4Y),
-                    radius = orb4Radius
-                )
-
-                // Node 5: Deep Atmosphere Floor (Bottom depth motion)
-                val orb5X = width * 0.52f + (cos(rad1).toFloat() * width * 0.22f)
-                val orb5Y = height * 0.82f + (sin(rad2).toFloat() * height * 0.08f)
-                val orb5Radius = (width * 0.64f) * effectiveScale
-
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            palette.deepAtmosphere.copy(alpha = 0.80f * intensity),
-                            palette.primary.copy(alpha = 0.32f * intensity),
-                            palette.primary.copy(alpha = 0f)
-                        ),
-                        center = Offset(orb5X, orb5Y),
-                        radius = orb5Radius
-                    ),
-                    center = Offset(orb5X, orb5Y),
-                    radius = orb5Radius
-                )
-            }
-        }
-
-        // Ambient contrast gradient overlay: leaves lights alive while ensuring crisp text readability
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            baseBackgroundColor.copy(alpha = 0.15f),
-                            Color.Transparent,
-                            baseBackgroundColor.copy(alpha = 0.55f)
-                        )
-                    )
-                )
-        )
-    }
+    )
 }

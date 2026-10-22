@@ -131,17 +131,18 @@ fun CinematicAtmosphereBackground(
             }
         }
 
-        // Layer 2: Radiant Atmospheric Depth Gradient
+        // Layer 2: Multi-Stop Radiant Atmospheric Depth Gradient
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(
-                            animatedDeep.copy(alpha = 0.32f),
-                            Color(0x20000000),
-                            animatedPrimary.copy(alpha = 0.18f),
-                            Color(0x90080914)
+                        colorStops = arrayOf(
+                            0.00f to animatedDeep.copy(alpha = 0.45f),
+                            0.20f to Color(0x18000000),
+                            0.50f to animatedPrimary.copy(alpha = 0.16f),
+                            0.78f to Color(0x6004050A),
+                            1.00f to Color(0xF0020306)
                         )
                     )
                 )
@@ -228,17 +229,18 @@ fun CinematicAtmosphereBackground(
             }
         }
 
-        // Layer 4: Physical iOS Liquid Glass frosted reflection sheen
+        // Layer 4: Physical iOS Liquid Glass frosted reflection sheen & micro-grain
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.linearGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.07f),
-                            Color.Transparent,
-                            Color(0x0600E5FF),
-                            Color.Transparent
+                        colorStops = arrayOf(
+                            0.00f to Color.White.copy(alpha = 0.08f),
+                            0.25f to Color.Transparent,
+                            0.50f to animatedSecondary.copy(alpha = 0.05f),
+                            0.75f to Color.Transparent,
+                            1.00f to Color.White.copy(alpha = 0.04f)
                         ),
                         start = Offset(0f, 0f),
                         end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)

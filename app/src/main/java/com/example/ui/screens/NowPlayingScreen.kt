@@ -62,6 +62,7 @@ fun NowPlayingScreen(
     isFavorite: Boolean = false,
     dominantColor: Color? = null,
     secondaryColor: Color? = null,
+    connectedDevice: ConnectedAudioDevice? = null,
     onTogglePlay: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
@@ -126,12 +127,30 @@ fun NowPlayingScreen(
         label = "ArtworkScale"
     )
 
-    val infiniteTransition = rememberInfiniteTransition(label = "AmbientPulse")
-    val auraPulse by infiniteTransition.animateFloat(
-        initialValue = 0.85f,
-        targetValue = 1.15f,
+    val infiniteTransition = rememberInfiniteTransition(label = "NowPlayingAurora")
+    val auroraAngle1 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2f * Math.PI).toFloat(),
         animationSpec = infiniteRepeatable(
-            animation = tween(3200, easing = FastOutSlowInEasing),
+            animation = tween(durationMillis = if (isPlaying) 16000 else 24000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "AuroraAngle1"
+    )
+    val auroraAngle2 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2f * Math.PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = if (isPlaying) 21000 else 30000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "AuroraAngle2"
+    )
+    val auraPulse by infiniteTransition.animateFloat(
+        initialValue = 0.90f,
+        targetValue = if (isPlaying) 1.18f else 1.02f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3800, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "AuraPulse"
@@ -143,29 +162,67 @@ fun NowPlayingScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF07070E))
+            .background(Color(0xFF05060D))
             .drawBehind {
-                // نورپردازی اتمسفریک پس‌زمینه هماهنگ با رنگ آهنگ (حفظ کامل نورهای ثابت و عمیق)
+                val w = size.width
+                val h = size.height
+
+                // مدار ۱: شفق قطبی بالایی (نور نئونی عمیق منطبق بر رنگ اصلی کاور)
+                val orb1X = w * (0.5f + 0.35f * kotlin.math.cos(auroraAngle1.toDouble()).toFloat())
+                val orb1Y = h * (0.30f + 0.15f * kotlin.math.sin(auroraAngle1.toDouble()).toFloat())
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            activePrimary.copy(alpha = 0.42f),
-                            activeSecondary.copy(alpha = 0.16f),
+                            activePrimary.copy(alpha = 0.72f),
+                            activePrimary.copy(alpha = 0.35f),
                             Color.Transparent
                         ),
-                        center = Offset(size.width * 0.5f, size.height * 0.28f),
-                        radius = size.width * 0.85f * auraPulse
+                        center = Offset(orb1X, orb1Y),
+                        radius = (w * 0.95f) * auraPulse
                     )
                 )
+
+                // مدار ۲: نور فرعی متضاد RGB شفق (سیان / فیروزه‌ای / یاقوتی)
+                val orb2X = w * (0.5f - 0.38f * kotlin.math.cos(auroraAngle2.toDouble()).toFloat())
+                val orb2Y = h * (0.45f + 0.20f * kotlin.math.sin(auroraAngle2.toDouble()).toFloat())
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            activeSecondary.copy(alpha = 0.32f),
-                            activePrimary.copy(alpha = 0.14f),
+                            activeSecondary.copy(alpha = 0.65f),
+                            activeSecondary.copy(alpha = 0.25f),
                             Color.Transparent
                         ),
-                        center = Offset(size.width * 0.5f, size.height * 0.82f),
-                        radius = size.width * 0.90f
+                        center = Offset(orb2X, orb2Y),
+                        radius = (w * 0.90f) * auraPulse
+                    )
+                )
+
+                // مدار ۳: پرتو متحرک گرم/بنفش در نیمه پایینی صفحه برای عمق چندبعدی
+                val orb3X = w * (0.5f + 0.25f * kotlin.math.sin(auroraAngle1.toDouble()).toFloat())
+                val orb3Y = h * (0.75f + 0.12f * kotlin.math.cos(auroraAngle2.toDouble()).toFloat())
+                val warmColor = Color(0xFFFF2A85)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            warmColor.copy(alpha = 0.40f),
+                            activePrimary.copy(alpha = 0.20f),
+                            Color.Transparent
+                        ),
+                        center = Offset(orb3X, orb3Y),
+                        radius = (w * 0.85f) * auraPulse
+                    )
+                )
+
+                // لایه تیره ابسیدین موضعی برای تضمین ۱۰۰٪ خوانایی و کنتراست اطلاعات و کنترل‌ها
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.00f to Color(0xCC05060D),
+                            0.20f to Color.Transparent,
+                            0.65f to Color.Transparent,
+                            0.90f to Color(0xE605060D),
+                            1.00f to Color(0xF805060D)
+                        )
                     )
                 )
             }
@@ -207,8 +264,9 @@ fun NowPlayingScreen(
                         onClick = onClose
                     )
 
-                    // نمایشگر گرافیکی ایرپاد یا اسپیکر متصل در مرکز هدر
+                    // نمایشگر هوشمند و موشن‌گرافیک ایرپاد/اسپیکر در مرکز هدر (فقط در زمان اتصال نمایش داده می‌شود)
                     AudioDeviceIndicator(
+                        device = connectedDevice,
                         accentColor = activeSecondary,
                         compact = false
                     )
@@ -257,13 +315,26 @@ fun NowPlayingScreen(
                             )
                         }
                         .drawBehind {
-                            // هاله نئونی دور قاب کاور آهنگ
+                            // هاله نوری شناور و گرادیان شعاعی نرم زیر کاور آهنگ
+                            drawRoundRect(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        activePrimary.copy(alpha = if (isPlaying) 0.65f else 0.35f),
+                                        activeSecondary.copy(alpha = if (isPlaying) 0.40f else 0.20f),
+                                        Color.Transparent
+                                    ),
+                                    center = Offset(size.width / 2f, size.height / 2f),
+                                    radius = size.width * 0.72f
+                                ),
+                                cornerRadius = CornerRadius(36.dp.toPx(), 36.dp.toPx())
+                            )
+                            // کادر نوری نئونی دور کاور
                             drawRoundRect(
                                 brush = Brush.linearGradient(
                                     colors = listOf(
-                                        activePrimary.copy(alpha = 0.55f),
-                                        activeSecondary.copy(alpha = 0.50f),
-                                        activePrimary.copy(alpha = 0.55f)
+                                        activePrimary.copy(alpha = 0.60f),
+                                        activeSecondary.copy(alpha = 0.55f),
+                                        activePrimary.copy(alpha = 0.60f)
                                     )
                                 ),
                                 cornerRadius = CornerRadius(34.dp.toPx(), 34.dp.toPx()),
@@ -271,18 +342,18 @@ fun NowPlayingScreen(
                             )
                         }
                         .shadow(
-                            elevation = if (isPlaying) 32.dp else 14.dp,
+                            elevation = if (isPlaying) 40.dp else 20.dp,
                             shape = RoundedCornerShape(32.dp),
-                            ambientColor = activePrimary,
-                            spotColor = activeSecondary
+                            ambientColor = activePrimary.copy(alpha = 0.85f),
+                            spotColor = activeSecondary.copy(alpha = 0.90f)
                         )
                         .border(
                             width = 2.dp,
                             brush = Brush.linearGradient(
                                 colors = listOf(
-                                    Color.White.copy(alpha = 0.85f),
-                                    activePrimary,
+                                    Color.White.copy(alpha = 0.90f),
                                     activeSecondary,
+                                    activePrimary,
                                     Color.White.copy(alpha = 0.70f)
                                 )
                             ),
@@ -324,26 +395,14 @@ fun NowPlayingScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = currentTrack.title,
-                                color = Color.White,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-
-                            // نشانگر گرافیکی ایرپاد/اسپیکر دقیقاً کنار اسم آهنگ داخل داک پایینی
-                            AudioDeviceIndicator(
-                                accentColor = activeSecondary,
-                                compact = true
-                            )
-                        }
+                        Text(
+                            text = currentTrack.title,
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
 
                         Spacer(modifier = Modifier.height(4.dp))
 
@@ -368,7 +427,7 @@ fun NowPlayingScreen(
                     )
                 }
 
-                // ب) نوار پیشرفت (Seekbar) حساس به رنگ آهنگ + زمان و نشانگر کیفیت صدا
+                // ب) نوار پیشرفت (Seekbar) حساس به رنگ آهنگ + زمان و نشانگر هوشمند ایرپاد/اسپیکر
                 Column(modifier = Modifier.fillMaxWidth()) {
                     LiquidGlassProgressBar(
                         progress = progress,
@@ -391,26 +450,12 @@ fun NowPlayingScreen(
                             fontWeight = FontWeight.Medium
                         )
 
-                        // بج کیفیت صدا که رنگش با آهنگ عوض می‌شود
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(activePrimary.copy(alpha = 0.22f))
-                                .border(
-                                    width = 0.8.dp,
-                                    color = activeSecondary.copy(alpha = 0.55f),
-                                    shape = RoundedCornerShape(50)
-                                )
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "LOSSLESS • HI-RES",
-                                color = Color.White.copy(alpha = 0.92f),
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.8.sp
-                            )
-                        }
+                        // نشانگر هوشمند و موشن‌گرافیک ایرپاد و اسپیکر متصل (جایگزین نشانگر قبلی کیفیت صدا)
+                        AudioDeviceIndicator(
+                            device = connectedDevice,
+                            accentColor = activeSecondary,
+                            compact = true
+                        )
 
                         Text(
                             text = formatDurationMs(safeDuration),
@@ -523,6 +568,7 @@ fun NowPlayingScreen(
     appSettings: AppSettings? = null,
     analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() },
     currentPositionProvider: () -> Long = { playbackState.currentPositionMs },
+    currentPositionMs: Long? = null,
     audioProfile: TrackAudioProfile? = null,
     onCollapse: () -> Unit = {},
     onTogglePlay: () -> Unit = {},
@@ -549,16 +595,18 @@ fun NowPlayingScreen(
     modifier: Modifier = Modifier
 ) {
     val curTrack = playbackState.currentTrack
+    val effectivePositionMs = currentPositionMs ?: currentPositionProvider()
     NowPlayingScreen(
         currentTrack = curTrack,
         isPlaying = playbackState.isPlaying,
-        currentPositionMs = currentPositionProvider(),
+        currentPositionMs = effectivePositionMs,
         durationMs = playbackState.durationMs,
         isShuffleEnabled = playbackState.isShuffle,
         repeatMode = playbackState.repeatMode.ordinal,
         isFavorite = curTrack?.isFavorite ?: false,
         dominantColor = palette.primary,
         secondaryColor = palette.accent,
+        connectedDevice = connectedDevice,
         onTogglePlay = onTogglePlay,
         onNext = onNext,
         onPrevious = onPrevious,
@@ -598,30 +646,32 @@ private fun DynamicChameleonPlayOrb(
 
     Box(
         modifier = Modifier
-            .size(72.dp)
+            .size(74.dp)
             .scale(scale)
             .shadow(
-                elevation = 20.dp,
+                elevation = 24.dp,
                 shape = CircleShape,
-                ambientColor = primaryColor,
-                spotColor = secondaryColor
+                ambientColor = primaryColor.copy(alpha = 0.85f),
+                spotColor = Color.Black
             )
             .clip(CircleShape)
+            // رینگ تیره اوبسیدین ضد سفیدی برای تضمین کنتراست در هر شرایط
+            .background(Color(0xFF060710))
             .background(
                 brush = Brush.linearGradient(
                     colors = listOf(
                         primaryColor,
                         secondaryColor,
-                        primaryColor.copy(alpha = 0.9f)
+                        primaryColor.copy(alpha = 0.95f)
                     )
                 )
             )
             .border(
-                width = 1.8.dp,
+                width = 2.dp,
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.90f),
-                        Color.White.copy(alpha = 0.25f)
+                        Color.White.copy(alpha = 0.95f),
+                        Color.White.copy(alpha = 0.30f)
                     )
                 ),
                 shape = CircleShape
@@ -637,13 +687,13 @@ private fun DynamicChameleonPlayOrb(
             imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
             contentDescription = if (isPlaying) "Pause" else "Play",
             tint = Color.White,
-            modifier = Modifier.size(36.dp)
+            modifier = Modifier.size(38.dp)
         )
     }
 }
 
 /**
- * دکمه شیشه‌ای کوچک بدون باگ، با فرم کاملاً دایره‌ای و واکنش فنری
+ * دکمه شیشه‌ای کوچک با کنتراست ۱۰۰٪ تضمین‌شده، ضد ناپدید شدن در پس‌زمینه سفید
  */
 @Composable
 private fun SmallGlassIconButton(
@@ -658,8 +708,11 @@ private fun SmallGlassIconButton(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.91f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        targetValue = if (isPressed) 0.88f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
         label = "SmallBtnScale"
     )
 
@@ -667,10 +720,31 @@ private fun SmallGlassIconButton(
         modifier = Modifier
             .size(size)
             .scale(scale)
+            .shadow(
+                elevation = 12.dp,
+                shape = CircleShape,
+                ambientColor = Color.Black,
+                spotColor = accentColor.copy(alpha = 0.5f)
+            )
+            .clip(CircleShape)
+            // پایه تیره اوبسیدین برای ممانعت از محو شدن آیکون‌های سفید روی پس‌زمینه‌های روشن
+            .background(Color(0xE60A0C16))
             .liquidGlass(
                 shape = CircleShape,
                 accentColor = accentColor,
                 secondaryAccent = secondaryColor
+            )
+            .border(
+                width = 1.4.dp,
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.80f),
+                        secondaryColor.copy(alpha = 0.50f),
+                        accentColor.copy(alpha = 0.35f),
+                        Color.White.copy(alpha = 0.20f)
+                    )
+                ),
+                shape = CircleShape
             )
             .clickable(
                 interactionSource = interactionSource,
@@ -682,14 +756,14 @@ private fun SmallGlassIconButton(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = iconTint,
+            tint = if (iconTint != Color.White) iconTint else Color(0xFFF2F5FD),
             modifier = Modifier.size(iconSize)
         )
     }
 }
 
 /**
- * کپسول‌های شیشه‌ای پایین پلیر (متن آهنگ، صف پخش، اشتراک‌گذاری)
+ * کپسول‌های شیشه‌ای پایین پلیر با کنتراست تقویت‌شده و مرز کریستالی
  */
 @Composable
 private fun BottomUtilityPill(
@@ -701,10 +775,23 @@ private fun BottomUtilityPill(
 ) {
     Row(
         modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(Color(0xCC0A0C16))
             .liquidGlass(
                 shape = RoundedCornerShape(50),
                 accentColor = accentColor,
                 secondaryAccent = secondaryColor
+            )
+            .border(
+                width = 1.dp,
+                brush = Brush.horizontalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.40f),
+                        secondaryColor.copy(alpha = 0.30f),
+                        Color.White.copy(alpha = 0.12f)
+                    )
+                ),
+                shape = RoundedCornerShape(50)
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 7.dp),
@@ -719,7 +806,7 @@ private fun BottomUtilityPill(
         )
         Text(
             text = label,
-            color = Color.White.copy(alpha = 0.90f),
+            color = Color.White.copy(alpha = 0.95f),
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold
         )

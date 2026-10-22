@@ -899,8 +899,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun loadPersistedSettings(): AppSettings {
         val prefs = app.getSharedPreferences("aura_settings", Context.MODE_PRIVATE)
-        val langStr = prefs.getString("language", AppLanguage.PERSIAN.name) ?: AppLanguage.PERSIAN.name
-        val lang = try { AppLanguage.valueOf(langStr) } catch (e: Exception) { AppLanguage.PERSIAN }
+        val langStr = prefs.getString("language", AppLanguage.ENGLISH.name) ?: AppLanguage.ENGLISH.name
+        val lang = try { AppLanguage.valueOf(langStr) } catch (e: Exception) { AppLanguage.ENGLISH }
         val themeStr = prefs.getString("theme", AppTheme.PURE_LIQUID_GLASS.name) ?: AppTheme.PURE_LIQUID_GLASS.name
         val theme = try { AppTheme.valueOf(themeStr) } catch (e: Exception) { AppTheme.PURE_LIQUID_GLASS }
         val modeStr = prefs.getString("viz_mode", VisualizerMode.AMBIENT_HALO.name) ?: VisualizerMode.AMBIENT_HALO.name

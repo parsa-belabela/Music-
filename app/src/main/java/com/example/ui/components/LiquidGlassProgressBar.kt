@@ -1,31 +1,29 @@
 package com.example.ui.components
 
+import android.graphics.BlurMaskFilter
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
+import kotlinx.coroutines.delay
+import kotlin.math.abs
 
 @Composable
 fun LiquidGlassProgressBar(
@@ -35,131 +33,190 @@ fun LiquidGlassProgressBar(
     primaryColor: Color = Color(0xFF9D4EDD),
     secondaryColor: Color = Color(0xFF00E5FF)
 ) {
-    var isDragging by remember { mutableStateOf(false) }
-    var dragProgress by remember { mutableFloatStateOf(progress) }
+    val safeExternalProgress = progress.coerceIn(0f, 1f)
 
-    val activeProgress = if (isDragging) dragProgress else progress.coerceIn(0f, 1f)
+    var isScrubbing by remember { mutableStateOf(false) }
+    var scrubPosition by remember { mutableFloatStateOf(safeExternalProgress) }
+    var pendingSeekTarget by remember { mutableStateOf<Float?>(null) }
 
+    LaunchedEffect(safeExternalProgress, pendingSeekTarget) {
+        val target = pendingSeekTarget
+        if (target != null) {
+            if (abs(safeExternalProgress - target) < 0.02f) {
+                pendingSeekTarget = null
+            } else {
+                delay(400)
+                pendingSeekTarget = null
+            }
+        }
+    }
+
+    val displayedProgress = when {
+        isScrubbing -> scrubPosition
+        pendingSeekTarget != null -> pendingSeekTarget!!
+        else -> safeExternalProgress
+    }.coerceIn(0f, 1f)
+
+    // انیمیشن نرم فقط برای رنگ‌ها
     val animatedPrimary by animateColorAsState(
         targetValue = primaryColor,
-        animationSpec = tween(600),
-        label = "SeekPrimaryColor"
+        animationSpec = tween(500),
+        label = "BarPrimary"
     )
     val animatedSecondary by animateColorAsState(
         targetValue = secondaryColor,
-        animationSpec = tween(600),
-        label = "SeekSecondaryColor"
+        animationSpec = tween(500),
+        label = "BarSecondary"
     )
 
-    // بزرگ شدن ضخامت نوار هنگام لمس (مشابه Apple Music iOS 18)
     val barHeight by animateDpAsState(
-        targetValue = if (isDragging) 12.dp else 6.dp,
+        targetValue = if (isScrubbing) 11.dp else 6.dp,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "BarHeightAnim"
+    )
+
+    val thumbScale by animateFloatAsState(
+        targetValue = if (isScrubbing) 1.45f else 1f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium
         ),
-        label = "BarHeight"
+        label = "ThumbScale"
     )
 
-    val glowAlpha by animateFloatAsState(
-        targetValue = if (isDragging) 0.85f else 0.45f,
-        animationSpec = tween(250),
-        label = "BarGlow"
-    )
+    // قفل کردن جهت نوار روی چپبهراست (LTR) تا در محیط فارسی هرگز مختصات لمس برعکس نشود
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(36.dp)
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val widthPx = size.width.toFloat().coerceAtLeast(1f)
 
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(28.dp)
-            .pointerInput(Unit) {
-                detectTapGestures { offset ->
-                    val newPos = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                    onSeek(newPos)
-                }
-            }
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragStart = { offset ->
-                        isDragging = true
-                        dragProgress = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                    },
-                    onHorizontalDrag = { change, _ ->
-                        change.consume()
-                        dragProgress = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
-                    },
-                    onDragEnd = {
-                        onSeek(dragProgress)
-                        isDragging = false
-                    },
-                    onDragCancel = {
-                        isDragging = false
+                        isScrubbing = true
+                        // محاسبه موقعیت دقیق نقطه لمس اولیه
+                        scrubPosition = (down.position.x / widthPx).coerceIn(0f, 1f)
+
+                        var pointerId = down.id
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val dragChange = event.changes.firstOrNull { it.id == pointerId }
+                                ?: event.changes.firstOrNull()
+
+                            if (dragChange == null || !dragChange.pressed) {
+                                break
+                            }
+
+                            pointerId = dragChange.id
+                            if (dragChange.positionChange() != Offset.Zero) {
+                                dragChange.consume()
+                            }
+
+                            // حرکت ۱۰۰٪ دقیق همراه با انگشت بدون پرش ناگهانی
+                            scrubPosition = (dragChange.position.x / widthPx).coerceIn(0f, 1f)
+                        }
+
+                        // ثبت نهایی زمان جدید و قفل موقت برای جلوگیری از پرش به عقب
+                        val finalTarget = scrubPosition.coerceIn(0f, 1f)
+                        pendingSeekTarget = finalTarget
+                        isScrubbing = false
+                        onSeek(finalTarget)
                     }
-                )
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-            val trackH = barHeight.toPx()
-            val topY = (h - trackH) / 2f
-            val corner = CornerRadius(trackH / 2f, trackH / 2f)
-            val filledWidth = (w * activeProgress).coerceIn(trackH, w)
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width
+                val h = size.height
+                val trackH = barHeight.toPx()
+                val topY = (h - trackH) / 2f
+                val corner = CornerRadius(trackH / 2f, trackH / 2f)
+                val activeW = (w * displayedProgress).coerceIn(0f, w)
 
-            // ۱. پس‌زمینه شیشه‌ای مسیر نوار پیشرفت
-            drawRoundRect(
-                color = Color.White.copy(alpha = 0.14f),
-                topLeft = Offset(0f, topY),
-                size = Size(w, trackH),
-                cornerRadius = corner
-            )
-
-            // ۲. هاله نوری زیر نوار پرشده (هماهنگ با رنگ کاور آهنگ)
-            if (activeProgress > 0.005f) {
+                // ۱. شیار شیشه‌ای پس‌زمینه با عمق ملایم
                 drawRoundRect(
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(
-                            animatedPrimary.copy(alpha = glowAlpha * 0.55f),
-                            animatedSecondary.copy(alpha = glowAlpha * 0.70f)
-                        ),
-                        startX = 0f,
-                        endX = filledWidth
-                    ),
-                    topLeft = Offset(0f, topY - 3.dp.toPx()),
-                    size = Size(filledWidth, trackH + 6.dp.toPx()),
-                    cornerRadius = CornerRadius((trackH + 6.dp.toPx()) / 2f)
-                )
-
-                // ۳. نوار اصلی پرشده با گرادیانت زنده رنگ آهنگ و سرِ درخشان سفید
-                drawRoundRect(
-                    brush = Brush.horizontalGradient(
-                        colorStops = arrayOf(
-                            0.0f to animatedPrimary,
-                            0.75f to animatedSecondary,
-                            1.0f to Color.White
-                        ),
-                        startX = 0f,
-                        endX = filledWidth
-                    ),
+                    color = Color.White.copy(alpha = 0.12f),
                     topLeft = Offset(0f, topY),
-                    size = Size(filledWidth, trackH),
+                    size = Size(w, trackH),
                     cornerRadius = corner
                 )
 
-                // ۴. گوی نوری سر نوار (Thumb) هنگام لمس یا پخش
-                val thumbRadius = if (isDragging) 9.dp.toPx() else 5.5.dp.toPx()
-                val thumbCenter = Offset(filledWidth.coerceIn(thumbRadius, w - thumbRadius), h / 2f)
+                // ۲. هاله نوری بلر شده (Real Blurred Glow) در زیر نوار پیشرفت
+                if (displayedProgress > 0.002f) {
+                    drawIntoCanvas { canvas ->
+                        val glowPaint = Paint().apply {
+                            asFrameworkPaint().apply {
+                                isAntiAlias = true
+                                maskFilter = BlurMaskFilter(
+                                    if (isScrubbing) 28f else 16f,
+                                    BlurMaskFilter.Blur.NORMAL
+                                )
+                                shader = LinearGradientShader(
+                                    from = Offset(0f, h / 2f),
+                                    to = Offset(activeW, h / 2f),
+                                    colors = listOf(
+                                        animatedPrimary.copy(alpha = 0.75f),
+                                        animatedSecondary.copy(alpha = 0.85f)
+                                    )
+                                )
+                            }
+                        }
+                        canvas.drawRoundRect(
+                            left = 0f,
+                            top = topY - 4f,
+                            right = activeW,
+                            bottom = topY + trackH + 4f,
+                            radiusX = trackH,
+                            radiusY = trackH,
+                            paint = glowPaint
+                        )
+                    }
 
-                drawCircle(
-                    color = animatedSecondary.copy(alpha = 0.55f),
-                    radius = thumbRadius * 1.6f,
-                    center = thumbCenter
-                )
-                drawCircle(
-                    color = Color.White,
-                    radius = thumbRadius,
-                    center = thumbCenter
-                )
+                    // ۳. نوار اصلی با گرادیانت زنده و بافت نوری نرم
+                    drawRoundRect(
+                        brush = Brush.horizontalGradient(
+                            colorStops = arrayOf(
+                                0.0f to animatedPrimary,
+                                0.70f to animatedSecondary,
+                                1.0f to Color.White
+                            ),
+                            startX = 0f,
+                            endX = activeW
+                        ),
+                        topLeft = Offset(0f, topY),
+                        size = Size(activeW, trackH),
+                        cornerRadius = corner
+                    )
+
+                    // ۴. گوی نوری سر نوار (Glowing Liquid Thumb)
+                    val baseRadius = 6.dp.toPx() * thumbScale
+                    val thumbCenter = Offset(activeW.coerceIn(baseRadius, w - baseRadius), h / 2f)
+
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color.White,
+                                animatedSecondary.copy(alpha = 0.65f),
+                                Color.Transparent
+                            ),
+                            center = thumbCenter,
+                            radius = baseRadius * 2.4f
+                        ),
+                        radius = baseRadius * 2.4f,
+                        center = thumbCenter
+                    )
+
+                    drawCircle(
+                        color = Color.White,
+                        radius = baseRadius,
+                        center = thumbCenter
+                    )
+                }
             }
         }
     }

@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -63,18 +66,75 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    var showBackupDialog by remember { mutableStateOf(false) }
     var showFeedbackDialog by remember { mutableStateOf(false) }
     var showFeaturesGuideDialog by remember { mutableStateOf(false) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var showAvatarPickerDialog by remember { mutableStateOf(false) }
-    var backupJsonText by remember { mutableStateOf("") }
-    var isExportMode by remember { mutableStateOf(true) }
 
     var devTapCount by remember { mutableStateOf(0) }
 
     val lang = settings.language
     val isFa = lang == AppLanguage.PERSIAN
+
+    // System File Picker for Export Backup (.json)
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            coroutineScope.launch {
+                try {
+                    val json = onExportBackup()
+                    context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                        outputStream.bufferedWriter().use { writer ->
+                            writer.write(json)
+                        }
+                    }
+                    Toast.makeText(
+                        context,
+                        if (isFa) "پشتیبان با موفقیت در فایل ذخیره شد" else "Backup saved successfully to file",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        context,
+                        if (isFa) "خطا در ذخیره فایل پشتیبان: ${e.message}" else "Failed to save backup: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    // System File Picker for Import Backup (.json)
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            coroutineScope.launch {
+                try {
+                    val json = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    if (!json.isNullOrBlank()) {
+                        val success = onImportBackup(json)
+                        Toast.makeText(
+                            context,
+                            if (success) {
+                                if (isFa) "اطلاعات با موفقیت بازیابی شد!" else "Backup restored successfully!"
+                            } else {
+                                if (isFa) "فرمت فایل پشتیبان نامعتبر است" else "Invalid backup JSON format"
+                            },
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        context,
+                        if (isFa) "خطا در خواندن فایل پشتیبان: ${e.message}" else "Failed to read backup: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
 
     // User Profile Data
     LaunchedEffect(Unit) {
@@ -148,15 +208,6 @@ fun SettingsScreen(
         item {
             BadgesAndHonorsSection(
                 badges = userProfile?.badges ?: emptyList(),
-                palette = palette,
-                isFa = isFa
-            )
-        }
-
-        // 3. WEEKLY MISSIONS & QUESTS
-        item {
-            QuestsMissionsSection(
-                quests = userProfile?.quests ?: emptyList(),
                 palette = palette,
                 isFa = isFa
             )
@@ -403,11 +454,7 @@ fun SettingsScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         Button(
                             onClick = {
-                                coroutineScope.launch {
-                                    backupJsonText = onExportBackup()
-                                    isExportMode = true
-                                    showBackupDialog = true
-                                }
+                                exportLauncher.launch("AuraMusic_Backup_${System.currentTimeMillis()}.json")
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
                             shape = RoundedCornerShape(10.dp),
@@ -420,9 +467,7 @@ fun SettingsScreen(
 
                         OutlinedButton(
                             onClick = {
-                                backupJsonText = ""
-                                isExportMode = false
-                                showBackupDialog = true
+                                importLauncher.launch(arrayOf("application/json", "*/*"))
                             },
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.weight(1f)
@@ -655,82 +700,6 @@ fun SettingsScreen(
             }
         )
     }
-
-    // Backup Dialog
-    if (showBackupDialog) {
-        AlertDialog(
-            onDismissRequest = { showBackupDialog = false },
-            title = {
-                Text(
-                    if (isExportMode) {
-                        if (isFa) "خروجی فایل پشتیبان JSON" else "Export Backup JSON"
-                    } else {
-                        if (isFa) "بازیابی از فایل پشتیبان JSON" else "Import Backup JSON"
-                    }
-                )
-            },
-            text = {
-                Column {
-                    Text(
-                        text = if (isExportMode) {
-                            if (isFa)
-                                "این متن JSON را کپی کنید تا از لیست‌های پخش، علاقه‌مندی‌ها و تنظیمات پشتیبان داشته باشید:"
-                            else "Copy this JSON to backup your playlists, favorites and settings:"
-                        } else {
-                            if (isFa)
-                                "متن JSON پشتیبان را در کادر زیر جای‌گذاری کنید:"
-                            else "Paste your backup JSON below:"
-                        },
-                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B0))
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = backupJsonText,
-                        onValueChange = { backupJsonText = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp)
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (!isExportMode) {
-                            coroutineScope.launch {
-                                val success = onImportBackup(backupJsonText)
-                                Toast.makeText(
-                                    context,
-                                    if (success) {
-                                        if (isFa) "اطلاعات با موفقیت بازیابی شد!" else "Restored successfully!"
-                                    } else {
-                                        if (isFa) "فرمت فایل پشتیبان نامعتبر است" else "Invalid backup JSON"
-                                    },
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                showBackupDialog = false
-                            }
-                        } else {
-                            showBackupDialog = false
-                        }
-                    }
-                ) {
-                    Text(
-                        if (isExportMode) {
-                            if (isFa) "بستن" else "Close"
-                        } else {
-                            if (isFa) "بازیابی" else "Restore"
-                        }
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showBackupDialog = false }) {
-                    Text(if (isFa) "انصراف" else "Cancel")
-                }
-            }
-        )
-    }
 }
 
 @Composable
@@ -892,6 +861,8 @@ private fun BadgesAndHonorsSection(
     palette: AmbientPalette,
     isFa: Boolean
 ) {
+    val unlockedCount = badges.count { it.isUnlocked }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -919,7 +890,7 @@ private fun BadgesAndHonorsSection(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isFa) "نشان‌ها و دستاوردهای افتخاری" else "Honor Badges & Achievements",
+                        text = if (isFa) "دستاوردهای مخفی موسیقی" else "Secret Music Achievements",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
@@ -928,28 +899,42 @@ private fun BadgesAndHonorsSection(
                     )
                 }
 
-                Text(
-                    text = if (isFa) "برای شما" else "For You",
-                    color = palette.accent,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(palette.primary.copy(alpha = 0.25f))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "$unlockedCount / ${badges.size} 🏆",
+                        color = Color(0xFFFFD700),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = if (isFa) "با استمرار در گوش دادن به موسیقی، دستاوردهای مخفی به مرور رمزگشایی می‌شوند" else "Keep listening to songs to unlock secret listening milestones",
+                color = Color(0xFFA0A5BA),
+                fontSize = 11.sp
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
 
             badges.forEach { badge ->
+                val isUnlocked = badge.isUnlocked
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .background(if (badge.isUnlocked) Color(0x2BFFFFFF) else Color(0x11FFFFFF))
+                        .background(if (isUnlocked) Color(0x28FFFFFF) else Color(0x0CFFFFFF))
                         .border(
                             width = 1.dp,
-                            color = if (badge.isUnlocked) {
-                                if (badge.isKindBadge) Color(0xFFFF4081).copy(alpha = 0.6f) else Color(0xFFFFD700).copy(alpha = 0.5f)
-                            } else Color.White.copy(alpha = 0.06f),
+                            color = if (isUnlocked) Color(0xFFFFD700).copy(alpha = 0.55f) else Color.White.copy(alpha = 0.06f),
                             shape = RoundedCornerShape(14.dp)
                         )
                         .padding(12.dp)
@@ -963,35 +948,46 @@ private fun BadgesAndHonorsSection(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text(text = badge.emoji, fontSize = 22.sp)
+                            Text(
+                                text = if (isUnlocked) badge.emoji else "🔒",
+                                fontSize = 20.sp
+                            )
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
-                                    text = if (isFa) badge.titleFa else badge.titleEn,
-                                    color = if (badge.isUnlocked) Color.White else Color(0xFFA0A5BA),
+                                    text = if (isUnlocked) {
+                                        if (isFa) badge.titleFa else badge.titleEn
+                                    } else {
+                                        "???"
+                                    },
+                                    color = if (isUnlocked) Color.White else Color(0xFF8E93A6),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
                                 Text(
-                                    text = if (isFa) badge.descFa else badge.descEn,
-                                    color = if (badge.isUnlocked) Color(0xFFC0C5D8) else Color(0xFF707588),
+                                    text = if (isUnlocked) {
+                                        if (isFa) badge.descFa else badge.descEn
+                                    } else {
+                                        if (isFa) "دستاورد مخفی - با گوش دادن مداوم به موسیقی کشف کنید" else "Secret achievement - Keep listening to discover"
+                                    },
+                                    color = if (isUnlocked) Color(0xFFC0C5D8) else Color(0xFF63677A),
                                     fontSize = 11.sp
                                 )
                             }
                         }
 
-                        if (badge.isUnlocked) {
+                        if (isUnlocked) {
                             Icon(
                                 imageVector = Icons.Default.CheckCircle,
                                 contentDescription = "Unlocked",
-                                tint = if (badge.isKindBadge) Color(0xFFFF4081) else Color(0xFFFFD700),
+                                tint = Color(0xFFFFD700),
                                 modifier = Modifier.size(20.dp)
                             )
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Lock,
                                 contentDescription = "Locked",
-                                tint = Color.White.copy(alpha = 0.3f),
+                                tint = Color.White.copy(alpha = 0.25f),
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -1002,114 +998,3 @@ private fun BadgesAndHonorsSection(
     }
 }
 
-@Composable
-private fun QuestsMissionsSection(
-    quests: List<UserQuest>,
-    palette: AmbientPalette,
-    isFa: Boolean
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .liquidGlass(
-                shape = RoundedCornerShape(22.dp),
-                thickness = GlassThickness.REGULAR,
-                tintColor = palette.primary,
-                tintAlpha = 0.14f,
-                borderWidth = 1.dp
-            )
-            .padding(16.dp)
-    ) {
-        Column {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.TaskAlt,
-                        contentDescription = null,
-                        tint = palette.accent,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isFa) "ماموریت‌ها و چالش‌های هفتگی" else "Weekly Quests & Missions",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            fontSize = 14.sp
-                        )
-                    )
-                }
-
-                Text(
-                    text = if (isFa) "پیشرفت شما" else "Your Progress",
-                    color = palette.accent,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            quests.forEach { quest ->
-                val progress = (quest.current.toFloat() / quest.target.toFloat()).coerceIn(0f, 1f)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0x22000000))
-                        .padding(12.dp)
-                ) {
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(text = quest.emoji, fontSize = 18.sp)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column {
-                                    Text(
-                                        text = if (isFa) quest.titleFa else quest.titleEn,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp
-                                    )
-                                    Text(
-                                        text = quest.descFa,
-                                        color = Color(0xFFA0A5BA),
-                                        fontSize = 10.sp
-                                    )
-                                }
-                            }
-
-                            Text(
-                                text = "${quest.current} / ${quest.target}",
-                                color = if (quest.isCompleted) Color(0xFF81C784) else palette.accent,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        LinearProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp)),
-                            color = if (quest.isCompleted) Color(0xFF81C784) else palette.primary,
-                            trackColor = Color.White.copy(alpha = 0.1f)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}

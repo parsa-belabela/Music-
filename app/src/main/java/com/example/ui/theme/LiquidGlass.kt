@@ -105,10 +105,10 @@ fun Modifier.liquidGlass(
     var windowY by remember { mutableFloatStateOf(0f) }
 
     val smoothScrollRatio by animateFloatAsState(
-        targetValue = (windowY / screenHeightPx).coerceIn(-0.4f, 1.4f),
+        targetValue = (windowY / screenHeightPx).coerceIn(0f, 1f),
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow
+            stiffness = Spring.StiffnessLow
         ),
         label = "AdaptiveLiquidScroll"
     )
@@ -122,13 +122,25 @@ fun Modifier.liquidGlass(
             val w = size.width
             val h = size.height
             val minDim = min(w, h)
+            val strokePx = borderWidth.toPx().coerceAtLeast(1f)
+            val halfStroke = strokePx / 2f
 
-            // تشخیص خودکار دکمه‌های کوچک (کمتر از 64dp) برای جلوگیری از شلوغی و به‌هم‌ریختگی
-            val isSmallButton = minDim < 64.dp.toPx()
+            val isSmallButton = minDim < 60.dp.toPx()
 
-            // استخراج دقیق فرم واقعی کامپوننت (چه دایره باشد، چه کپسول، چه مستطیل گرد)
+            // فرم دقیق و اینست‌شده برای حاشیه جهت جلوگیری از بیرون‌زدگی یا کات‌شدن
+            val crPx = cornerRadius.toPx().coerceAtLeast(0f)
+            val insetCr = CornerRadius((crPx - halfStroke).coerceAtLeast(0f), (crPx - halfStroke).coerceAtLeast(0f))
+            val insetRect = RoundRect(
+                left = halfStroke,
+                top = halfStroke,
+                right = (w - halfStroke).coerceAtLeast(halfStroke),
+                bottom = (h - halfStroke).coerceAtLeast(halfStroke),
+                cornerRadius = insetCr
+            )
+            val insetPath = Path().apply { addRoundRect(insetRect) }
+
             val outline = shape.createOutline(size, layoutDirection, this)
-            val outlinePath = Path().apply {
+            val fillPath = Path().apply {
                 when (outline) {
                     is Outline.Generic -> addPath(outline.path)
                     is Outline.Rounded -> addRoundRect(outline.roundRect)
@@ -138,111 +150,113 @@ fun Modifier.liquidGlass(
 
             if (isSmallButton) {
                 // =========================================================================
-                // حالت ویژه دکمه‌های کوچک: ظریف، براق، بدون خطوط اضافه و کاملاً تمیز
+                // دکمه‌های کوچک: کاملاً شفاف، سبک، کریستالی با رفلکس نرم بالای دکمه
                 // =========================================================================
                 val buttonGlassBrush = Brush.verticalGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = (effectiveGlassAlpha * 1.35f).coerceAtMost(0.32f)),
-                        effectiveAccent.copy(alpha = (effectiveGlassAlpha * 0.45f).coerceAtMost(0.18f)),
-                        Color(0xFF10101C).copy(alpha = 0.65f)
+                        Color.White.copy(alpha = (effectiveGlassAlpha * 1.1f).coerceIn(0.12f, 0.25f)),
+                        effectiveAccent.copy(alpha = (effectiveGlassAlpha * 0.40f).coerceAtMost(0.14f)),
+                        Color(0xFF0F111E).copy(alpha = 0.72f)
                     )
-                )
-
-                val buttonTopLensBrush = Brush.radialGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.22f),
-                        Color.Transparent
-                    ),
-                    center = Offset(w * 0.35f, h * 0.25f),
-                    radius = (minDim * 0.75f).coerceAtLeast(1f)
                 )
 
                 val buttonBorderBrush = Brush.linearGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = (strokeAlpha * 1.1f).coerceAtMost(0.65f)),
-                        secondaryAccent.copy(alpha = strokeAlpha * 0.7f),
-                        effectiveAccent.copy(alpha = strokeAlpha * 0.75f),
-                        Color.White.copy(alpha = strokeAlpha * 0.25f)
+                        Color.White.copy(alpha = 0.45f),
+                        effectiveAccent.copy(alpha = 0.30f),
+                        Color.White.copy(alpha = 0.12f)
                     ),
                     start = Offset(0f, 0f),
                     end = Offset(w, h)
                 )
 
                 onDrawWithContent {
-                    drawPath(path = outlinePath, brush = buttonGlassBrush)
-                    drawPath(path = outlinePath, brush = buttonTopLensBrush, blendMode = BlendMode.Plus)
+                    drawPath(path = fillPath, brush = buttonGlassBrush)
                     drawContent()
                     drawPath(
-                        path = outlinePath,
+                        path = insetPath,
                         brush = buttonBorderBrush,
-                        style = Stroke(width = 0.95.dp.toPx())
+                        style = Stroke(width = strokePx)
                     )
                 }
             } else {
                 // =========================================================================
-                // حالت ویژه کارت‌ها و پنل‌های بزرگ: انعکاس نور اسکرول + عمق سه‌بعدی
+                // کارت‌ها و پنل‌های بزرگ: چندلایه، بافت شیشه کریستالی مات و رفلکس لبه‌ای
                 // =========================================================================
-                val sweepProgress = (1f - smoothScrollRatio) * 1.5f - 0.25f
-                val beamCenterX = w * sweepProgress
-                val beamCenterY = h * (0.25f + smoothScrollRatio * 0.5f)
-                val beamWidth = (w * 0.45f).coerceAtLeast(140f)
+                val baseGlassBrush = Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0.00f to Color(0xFF1E2238).copy(alpha = 0.88f),
+                        0.18f to Color(0xFF141728).copy(alpha = 0.84f),
+                        0.50f to effectiveAccent.copy(alpha = (effectiveGlassAlpha * 0.35f).coerceAtMost(0.16f)),
+                        0.78f to Color(0xFF0C0E1A).copy(alpha = 0.92f),
+                        1.00f to Color(0xFF06070E).copy(alpha = 0.96f)
+                    )
+                )
 
-                val baseGlassBrush = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFF1A1A2E).copy(alpha = 0.76f),
-                        effectiveAccent.copy(alpha = effectiveGlassAlpha * 0.55f),
-                        Color(0xFF0B0B14).copy(alpha = 0.85f)
+                // انعکاس نرم و طبیعی افقی منطبق بر اسکرول
+                val shimmerX = w * (0.15f + smoothScrollRatio * 0.70f)
+                val shimmerRadius = (w * 0.65f).coerceAtLeast(180f)
+                val naturalGleamBrush = Brush.radialGradient(
+                    colorStops = arrayOf(
+                        0.00f to Color.White.copy(alpha = 0.12f),
+                        0.25f to secondaryAccent.copy(alpha = 0.08f),
+                        0.55f to effectiveAccent.copy(alpha = 0.05f),
+                        0.85f to Color.Transparent,
+                        1.00f to Color.Transparent
+                    ),
+                    center = Offset(shimmerX, h * 0.20f),
+                    radius = shimmerRadius
+                )
+
+                // پخ نوری لبه بالا برای ایجاد عمق سه‌بعدی شیشه (Specular Top Bevel Light)
+                val topBevelBrush = Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0.00f to Color.White.copy(alpha = 0.22f),
+                        0.06f to Color.White.copy(alpha = 0.08f),
+                        0.35f to Color.Transparent,
+                        0.85f to Color.Transparent,
+                        1.00f to Color.Black.copy(alpha = 0.35f)
+                    )
+                )
+
+                // تکسچر ظریف شیشه مات کریستالی (Frosted Micro-Grain & Specular Edge Refraction)
+                val frostedGrainSheen = Brush.linearGradient(
+                    colorStops = arrayOf(
+                        0.00f to Color.White.copy(alpha = 0.06f),
+                        0.30f to Color.Transparent,
+                        0.60f to secondaryAccent.copy(alpha = 0.04f),
+                        0.80f to Color.Transparent,
+                        1.00f to Color.White.copy(alpha = 0.03f)
+                    ),
+                    start = Offset(0f, h),
+                    end = Offset(w, 0f)
+                )
+
+                // حاشیه کریستالی منشوری اینست‌شده
+                val crystalRimBrush = Brush.linearGradient(
+                    colorStops = arrayOf(
+                        0.00f to Color.White.copy(alpha = 0.55f),
+                        0.25f to secondaryAccent.copy(alpha = 0.35f),
+                        0.50f to Color.White.copy(alpha = 0.20f),
+                        0.75f to effectiveAccent.copy(alpha = 0.38f),
+                        1.00f to Color.White.copy(alpha = 0.14f)
                     ),
                     start = Offset(0f, 0f),
                     end = Offset(w, h)
                 )
 
-                val specularSweepBrush = Brush.linearGradient(
-                    colorStops = arrayOf(
-                        0.00f to Color.Transparent,
-                        0.34f to secondaryAccent.copy(alpha = 0.04f),
-                        0.45f to Color.White.copy(alpha = 0.12f),
-                        0.50f to Color.White.copy(alpha = 0.26f),
-                        0.55f to effectiveAccent.copy(alpha = 0.12f),
-                        0.66f to Color.Transparent,
-                        1.00f to Color.Transparent
-                    ),
-                    start = Offset(beamCenterX - beamWidth, beamCenterY - beamWidth * 0.65f),
-                    end = Offset(beamCenterX + beamWidth, beamCenterY + beamWidth * 0.65f)
-                )
-
-                val topLightIntensity = (1f - (smoothScrollRatio * 0.5f)).coerceIn(0.3f, 0.95f)
-                val innerBevelBrush = Brush.verticalGradient(
-                    colorStops = arrayOf(
-                        0.00f to Color.White.copy(alpha = 0.24f * topLightIntensity),
-                        0.10f to Color.White.copy(alpha = 0.04f),
-                        0.85f to Color.Transparent,
-                        1.00f to Color.Black.copy(alpha = 0.38f)
-                    )
-                )
-
-                val dynamicRimBrush = Brush.linearGradient(
-                    colorStops = arrayOf(
-                        0.0f to Color.White.copy(alpha = strokeAlpha * 0.90f),
-                        0.35f to secondaryAccent.copy(alpha = strokeAlpha * 0.85f),
-                        0.65f to effectiveAccent.copy(alpha = strokeAlpha * 0.90f),
-                        1.0f to Color.White.copy(alpha = strokeAlpha * 0.35f)
-                    ),
-                    start = Offset(w * (1f - smoothScrollRatio), 0f),
-                    end = Offset(w * smoothScrollRatio, h)
-                )
-
                 onDrawWithContent {
-                    clipPath(outlinePath) {
+                    clipPath(fillPath) {
                         drawRect(brush = baseGlassBrush)
-                        drawRect(brush = specularSweepBrush, blendMode = BlendMode.Plus)
-                        drawRect(brush = innerBevelBrush)
+                        drawRect(brush = naturalGleamBrush)
+                        drawRect(brush = topBevelBrush)
+                        drawRect(brush = frostedGrainSheen)
                     }
                     drawContent()
                     drawPath(
-                        path = outlinePath,
-                        brush = dynamicRimBrush,
-                        style = Stroke(width = 1.25.dp.toPx())
+                        path = insetPath,
+                        brush = crystalRimBrush,
+                        style = Stroke(width = strokePx)
                     )
                 }
             }
@@ -291,98 +305,78 @@ fun Modifier.premiumTrackGlowingBorder(
     val shape = RoundedCornerShape(cornerRadius)
 
     this
+        .clip(shape)
         .onGloballyPositioned { coordinates ->
             windowY = coordinates.positionInWindow().y
         }
         .drawWithCache {
             val w = size.width
             val h = size.height
-            val cr = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx())
+            val strokePx = borderWidth.toPx().coerceAtLeast(1f)
+            val halfStroke = strokePx / 2f
+            val crPx = cornerRadius.toPx().coerceAtLeast(0f)
+            val insetCr = CornerRadius((crPx - halfStroke).coerceAtLeast(0f), (crPx - halfStroke).coerceAtLeast(0f))
+
             val clipRoundPath = Path().apply {
-                addRoundRect(RoundRect(0f, 0f, w, h, cr))
+                addRoundRect(RoundRect(0f, 0f, w, h, CornerRadius(crPx, crPx)))
             }
 
-            val reflectionX = w * ((1f - smoothScrollRatio) * 1.4f - 0.2f)
-            val reflectionWidth = (w * 0.45f).coerceAtLeast(140f)
-
-            val outerGlowBrush = Brush.linearGradient(
-                colors = listOf(
-                    primaryColor.copy(alpha = glowAlpha * 0.35f),
-                    secondaryColor.copy(alpha = glowAlpha * 0.28f),
-                    primaryColor.copy(alpha = glowAlpha * 0.35f)
-                ),
-                start = Offset(0f, 0f),
-                end = Offset(w, h)
-            )
-
-            val deepSurfaceBrush = Brush.linearGradient(
-                colors = listOf(
-                    Color(0xFF151524).copy(alpha = 0.78f),
-                    primaryColor.copy(alpha = if (isPlaying) 0.22f else 0.10f),
-                    Color(0xFF0C0C16).copy(alpha = 0.86f)
-                ),
-                start = Offset(0f, 0f),
-                end = Offset(w, h)
-            )
-
-            val glassSweepBrush = Brush.linearGradient(
+            val deepSurfaceBrush = Brush.verticalGradient(
                 colorStops = arrayOf(
-                    0.00f to Color.Transparent,
-                    0.36f to secondaryColor.copy(alpha = 0.04f),
-                    0.46f to Color.White.copy(alpha = 0.13f),
-                    0.50f to Color.White.copy(alpha = 0.24f),
-                    0.54f to primaryColor.copy(alpha = 0.12f),
-                    0.64f to Color.Transparent,
+                    0.00f to Color(0xFF1E2238).copy(alpha = 0.88f),
+                    0.20f to Color(0xFF141728).copy(alpha = 0.84f),
+                    0.52f to primaryColor.copy(alpha = if (isPlaying) 0.22f else 0.10f),
+                    0.80f to Color(0xFF0C0E1A).copy(alpha = 0.92f),
+                    1.00f to Color(0xFF06070E).copy(alpha = 0.96f)
+                )
+            )
+
+            // انعکاس نرم نوری چندلایه
+            val shimmerX = w * (0.20f + smoothScrollRatio * 0.60f)
+            val glassSweepBrush = Brush.radialGradient(
+                colorStops = arrayOf(
+                    0.00f to Color.White.copy(alpha = if (isPlaying) 0.15f else 0.08f),
+                    0.30f to secondaryColor.copy(alpha = 0.07f),
+                    0.60f to primaryColor.copy(alpha = 0.04f),
+                    0.85f to Color.Transparent,
                     1.00f to Color.Transparent
                 ),
-                start = Offset(reflectionX - reflectionWidth, -h * 0.3f),
-                end = Offset(reflectionX + reflectionWidth, h * 1.3f)
-            )
-
-            val rimAngleRad = (smoothScrollRatio * PI).toFloat()
-            val rimStart = Offset(
-                x = (w * 0.5f) + cos(rimAngleRad) * w * 0.6f,
-                y = (h * 0.5f) + sin(rimAngleRad) * h * 0.6f
-            )
-            val rimEnd = Offset(
-                x = (w * 0.5f) - cos(rimAngleRad) * w * 0.6f,
-                y = (h * 0.5f) - sin(rimAngleRad) * h * 0.6f
+                center = Offset(shimmerX, h * 0.25f),
+                radius = (w * 0.60f).coerceAtLeast(160f)
             )
 
             val rimBorderBrush = Brush.linearGradient(
                 colorStops = arrayOf(
-                    0.00f to primaryColor.copy(alpha = glowAlpha),
-                    0.35f to secondaryColor.copy(alpha = glowAlpha * 0.92f),
-                    0.50f to Color.White.copy(alpha = 0.85f),
-                    0.65f to secondaryColor.copy(alpha = glowAlpha * 0.88f),
-                    1.00f to primaryColor.copy(alpha = glowAlpha)
+                    0.00f to Color.White.copy(alpha = 0.65f),
+                    0.25f to secondaryColor.copy(alpha = glowAlpha * 0.55f),
+                    0.50f to Color.White.copy(alpha = 0.25f),
+                    0.75f to primaryColor.copy(alpha = glowAlpha * 0.60f),
+                    1.00f to Color.White.copy(alpha = 0.18f)
                 ),
-                start = rimStart,
-                end = rimEnd
+                start = Offset(0f, 0f),
+                end = Offset(w, h)
             )
 
             onDrawWithContent {
-                drawRoundRect(
-                    brush = outerGlowBrush,
-                    cornerRadius = cr,
-                    style = Stroke(width = (borderWidth + 2.5.dp).toPx())
-                )
-
                 clipPath(clipRoundPath) {
                     drawRect(brush = deepSurfaceBrush)
-                    drawRect(brush = glassSweepBrush, blendMode = BlendMode.Plus)
+                    drawRect(brush = glassSweepBrush)
                 }
 
                 drawContent()
 
                 drawRoundRect(
                     brush = rimBorderBrush,
-                    cornerRadius = cr,
-                    style = Stroke(width = borderWidth.toPx())
+                    topLeft = Offset(halfStroke, halfStroke),
+                    size = androidx.compose.ui.geometry.Size(
+                        (w - strokePx).coerceAtLeast(0f),
+                        (h - strokePx).coerceAtLeast(0f)
+                    ),
+                    cornerRadius = insetCr,
+                    style = Stroke(width = strokePx)
                 )
             }
         }
-        .clip(shape)
 }
 
 fun Modifier.neonParallelRim(

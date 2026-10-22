@@ -682,7 +682,7 @@ class AudioEngine(private val context: Context) {
     private fun dispatchSeek(safePos: Long) {
         val mp = mediaPlayer ?: return
         if (!isPlayerPrepared) return
-        isSeekingInProgress = false
+        isSeekingInProgress = true
         lastSeekTimestamp = System.currentTimeMillis()
         seekWatchdogJob?.cancel()
 
@@ -694,11 +694,15 @@ class AudioEngine(private val context: Context) {
             } else {
                 mp.seekTo(clampedPos.toInt())
             }
-            if (_isPlayWhenReady.value && mp.isPlaying) {
+            if (_isPlayWhenReady.value) {
+                if (!mp.isPlaying) {
+                    try { mp.start() } catch (_: Exception) {}
+                }
                 startProgressTracker()
             }
         } catch (e: Exception) {
             Log.e(tag, "Error seeking to $safePos", e)
+            isSeekingInProgress = false
         }
     }
 
@@ -908,57 +912,27 @@ class AudioEngine(private val context: Context) {
     private fun startProgressTracker() {
         stopProgressTracker()
         progressJob = engineScope.launch {
-            var anchorPos = _currentPosition.value
-            var anchorNano = System.nanoTime()
-            var lastRealSyncMs = System.currentTimeMillis()
-
             while (isActive) {
                 val currentMp = mediaPlayer
                 if (currentMp != null && isPlayerPrepared && _isPlayWhenReady.value) {
                     try {
-                        val nowNano = System.nanoTime()
                         val nowMs = System.currentTimeMillis()
-
-                        // Check if a seek is currently in flight
-                        val inSeekWindow = isSeekingInProgress && (nowMs - lastSeekTimestamp < 600L)
-                        if (inSeekWindow) {
-                            // Hold the target seek position as anchor without jumping back
-                            anchorPos = _currentPosition.value
-                            anchorNano = nowNano
-                            lastRealSyncMs = nowMs
-                        } else {
-                            if (isSeekingInProgress && (nowMs - lastSeekTimestamp >= 600L)) {
+                        val inSeekWindow = isSeekingInProgress && (nowMs - lastSeekTimestamp < 500L)
+                        if (!inSeekWindow) {
+                            if (isSeekingInProgress && (nowMs - lastSeekTimestamp >= 500L)) {
                                 isSeekingInProgress = false
-                                pendingSeekPos = null
                             }
-                            // Poll real MediaPlayer position every 60ms with smooth anti-drift convergence
-                            if (nowMs - lastRealSyncMs >= 60L) {
-                                if (currentMp.isPlaying) {
-                                    val realPos = currentMp.currentPosition.toLong()
-                                    val currentEstimated = (anchorPos + ((nowNano - anchorNano) / 1_000_000L * currentPlaybackSpeed).toLong())
-                                    val drift = realPos - currentEstimated
-
-                                    // If drift is large (> 300ms like seek or stall), snap immediately
-                                    if (kotlin.math.abs(drift) > 300L) {
-                                        anchorPos = realPos
-                                    } else {
-                                        // Softly blend 40% towards real hardware position to eliminate any micro-stutter
-                                        anchorPos = (currentEstimated + (drift * 0.4f).toLong())
-                                    }
-                                    anchorNano = nowNano
-                                    lastRealSyncMs = nowMs
-                                    _currentPosition.value = anchorPos.coerceIn(0L, _duration.value.coerceAtLeast(anchorPos))
+                            if (currentMp.isPlaying) {
+                                val realPos = currentMp.currentPosition.toLong()
+                                if (realPos >= 0L) {
+                                    val safeMax = _duration.value.coerceAtLeast(realPos)
+                                    _currentPosition.value = realPos.coerceIn(0L, safeMax)
                                 }
-                            } else {
-                                // Sub-millisecond smooth interpolation between MediaPlayer polls
-                                val elapsedSinceAnchor = ((nowNano - anchorNano) / 1_000_000L * currentPlaybackSpeed).toLong()
-                                val interpolatedPos = (anchorPos + elapsedSinceAnchor).coerceIn(0L, _duration.value.coerceAtLeast(anchorPos))
-                                _currentPosition.value = interpolatedPos
                             }
                         }
                     } catch (_: Exception) {}
                 }
-                delay(16L)
+                delay(35L)
             }
         }
     }

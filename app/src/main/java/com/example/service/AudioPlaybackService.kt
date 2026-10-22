@@ -171,7 +171,8 @@ class AudioPlaybackService : Service() {
 
         // 4. Pending Intents for system notifications
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("EXPAND_NOW_PLAYING", true)
         }
         val openAppPendingIntent = PendingIntent.getActivity(
             this, 0, openAppIntent,

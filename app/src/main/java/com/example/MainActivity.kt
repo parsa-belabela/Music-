@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity() {
             splashScreenView.remove()
         }
         super.onCreate(savedInstanceState)
+        handleNotificationIntent(intent)
         
         // Configure complete edge-to-edge rendering with transparent system UI overlays
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -110,6 +111,17 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleNotificationIntent(intent)
+    }
+
+    private fun handleNotificationIntent(intent: android.content.Intent?) {
+        if (intent?.getBooleanExtra("EXPAND_NOW_PLAYING", false) == true) {
+            viewModel.isNowPlayingExpanded.value = true
         }
     }
 

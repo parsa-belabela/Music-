@@ -253,26 +253,27 @@ object ArtworkPaletteExtractor {
             val rawAccent = dominantColors.getOrNull(2) ?: Color(0xFFFF9100)
 
             // Dynamic high-energy cinematic color grading: maximize saturation and luminosity for vibrant neon glow
-            val primary = enhanceCinematicVibrance(rawPrimary, boostSat = 1.40f, boostVal = 1.30f)
-            val secondary = enhanceCinematicVibrance(rawSecondary, boostSat = 1.35f, boostVal = 1.25f)
-            val accent = enhanceCinematicVibrance(rawAccent, boostSat = 1.45f, boostVal = 1.35f)
+            val primary = enhanceCinematicVibrance(rawPrimary, boostSat = 1.45f, boostVal = 1.35f)
+            val secondary = enhanceCinematicVibrance(rawSecondary, boostSat = 1.40f, boostVal = 1.30f)
+            val accent = enhanceCinematicVibrance(rawAccent, boostSat = 1.50f, boostVal = 1.40f)
 
             // Compute perceived luminance (Rec. 709 / W3C formula)
             val perceivedLuminance = (0.299f * primary.red + 0.587f * primary.green + 0.114f * primary.blue)
             val isLightLuminance = perceivedLuminance > 0.62f
 
-            // Deep background atmosphere derived cleanly and richly from primary color hue
+            // Deep background atmosphere derived cleanly and richly with Deep Chromatic Obsidian
             val deepHsv = FloatArray(3)
             android.graphics.Color.colorToHSV(primary.toArgb(), deepHsv)
-            val deepRgb = android.graphics.Color.HSVToColor(floatArrayOf(deepHsv[0], 0.85f, 0.09f))
-            val deepAtmosphere = Color(deepRgb)
+            val deepAtmosphere = Color(android.graphics.Color.HSVToColor(floatArrayOf(deepHsv[0], 0.85f, 0.05f)))
+            val richBlack = Color(android.graphics.Color.HSVToColor(floatArrayOf(deepHsv[0], 0.92f, 0.022f)))
 
             val rawPalette = AmbientPalette(
                 primary = primary,
                 secondary = secondary,
-                haloGlow = primary.copy(alpha = 0.80f),
+                haloGlow = primary.copy(alpha = 0.85f),
                 accent = accent,
                 deepAtmosphere = deepAtmosphere,
+                richBlack = richBlack,
                 isLightLuminance = isLightLuminance
             )
             applyThemeGrade(rawPalette, theme)
@@ -335,11 +336,11 @@ object ArtworkPaletteExtractor {
             )
             AppTheme.PURE_LIQUID_GLASS -> AmbientPalette(
                 primary = raw.primary,
-                secondary = blendColors(raw.secondary, raw.primary, 0.30f),
-                haloGlow = raw.primary.copy(alpha = 0.65f),
-                accent = if (raw.isMonochrome) Color(0xFFFFFFFF) else raw.primary,
+                secondary = blendColors(raw.secondary, raw.primary, 0.25f),
+                haloGlow = raw.primary.copy(alpha = 0.78f),
+                accent = if (raw.isMonochrome) Color(0xFFFFFFFF) else raw.secondary,
                 deepAtmosphere = raw.deepAtmosphere,
-                richBlack = Color(0xFF04050A),
+                richBlack = raw.richBlack,
                 isLightLuminance = raw.isLightLuminance,
                 isMonochrome = raw.isMonochrome
             )
@@ -356,8 +357,8 @@ object ArtworkPaletteExtractor {
     private fun enhanceCinematicVibrance(color: Color, boostSat: Float, boostVal: Float): Color {
         val hsv = FloatArray(3)
         android.graphics.Color.colorToHSV(color.toArgb(), hsv)
-        hsv[1] = (hsv[1] * boostSat).coerceIn(0.45f, 1.0f)
-        hsv[2] = (hsv[2] * boostVal).coerceIn(0.70f, 1.0f)
+        hsv[1] = (hsv[1] * boostSat + 0.16f).coerceIn(0.68f, 1.0f)
+        hsv[2] = (hsv[2] * boostVal + 0.12f).coerceIn(0.85f, 1.0f)
         return Color(android.graphics.Color.HSVToColor(hsv))
     }
 
