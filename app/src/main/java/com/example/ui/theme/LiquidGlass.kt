@@ -1,6 +1,8 @@
 package com.example.ui.theme
 
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -47,100 +49,136 @@ object LiquidGlassDesign {
         accentColor: Color = Color.White,
         theme: AppTheme = AppTheme.PURE_LIQUID_GLASS
     ): LiquidGlassSpec {
-        val baseAlpha = when (thickness) {
-            GlassThickness.THIN -> 0.12f
-            GlassThickness.REGULAR -> 0.18f
-            GlassThickness.THICK -> 0.25f
+        val primaryTint = if (accentColor != Color.Transparent && accentColor != Color.Unspecified) {
+            accentColor
+        } else {
+            Color(0xFF00E5FF)
         }
-        return LiquidGlassSpec(
-            surfaceGradient = Brush.verticalGradient(
-                listOf(
-                    Color(0xFF141829).copy(alpha = 0.88f),
-                    accentColor.copy(alpha = baseAlpha * 0.45f),
-                    Color(0xFF070913).copy(alpha = 0.94f)
-                )
-            ),
-            borderGradient = Brush.linearGradient(
-                listOf(
-                    Color.White.copy(alpha = 0.35f),
-                    Color(0xFF00E5FF).copy(alpha = 0.25f),
-                    Color(0xFF9D4EDD).copy(alpha = 0.20f),
-                    Color.White.copy(alpha = 0.12f)
-                )
-            ),
-            shadowElevation = if (thickness == GlassThickness.THICK) 8.dp else 4.dp,
-            shadowColor = Color.Black.copy(alpha = 0.45f),
-            specularReflectionAlpha = 0.3f
-        )
+
+        return when (thickness) {
+            GlassThickness.THIN -> LiquidGlassSpec(
+                surfaceGradient = Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.16f),
+                        primaryTint.copy(alpha = 0.10f),
+                        Color(0xFF0C101D).copy(alpha = 0.65f)
+                    )
+                ),
+                borderGradient = Brush.linearGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.55f),
+                        primaryTint.copy(alpha = 0.40f),
+                        Color.White.copy(alpha = 0.15f)
+                    )
+                ),
+                shadowElevation = 0.dp,
+                shadowColor = Color.Transparent,
+                specularReflectionAlpha = 0.25f
+            )
+
+            GlassThickness.REGULAR -> LiquidGlassSpec(
+                surfaceGradient = Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF1A2035).copy(alpha = 0.72f),
+                        primaryTint.copy(alpha = 0.14f),
+                        Color(0xFF0A0D18).copy(alpha = 0.84f)
+                    )
+                ),
+                borderGradient = Brush.linearGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.70f),
+                        primaryTint.copy(alpha = 0.65f),
+                        Color.White.copy(alpha = 0.20f)
+                    )
+                ),
+                shadowElevation = 8.dp,
+                shadowColor = Color.Black.copy(alpha = 0.45f),
+                specularReflectionAlpha = 0.55f
+            )
+
+            GlassThickness.THICK -> LiquidGlassSpec(
+                surfaceGradient = Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF181E32).copy(alpha = 0.86f),
+                        primaryTint.copy(alpha = 0.18f),
+                        Color(0xFF070A14).copy(alpha = 0.92f)
+                    )
+                ),
+                borderGradient = Brush.linearGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.75f),
+                        primaryTint.copy(alpha = 0.70f),
+                        Color.White.copy(alpha = 0.25f)
+                    )
+                ),
+                shadowElevation = 16.dp,
+                shadowColor = Color.Black.copy(alpha = 0.60f),
+                specularReflectionAlpha = 0.65f
+            )
+        }
     }
 }
 
 /**
- * موتور شیشه‌ای هوشمند (Size-Adaptive Liquid Glass):
- * - روی دکمه‌های کوچک: شیشه کریستالی بسیار تمیز، بدون خطوط اضافه و منطبق با فرم دایره/کپسول
- * - روی کارت‌ها و پنل‌های بزرگ: انعکاس نور منشوری حساس به اسکرول + عمق سه‌بعدی
+ * شیشه مایع (Liquid Glass) با انعکاس نور زنده و پویا هنگام اسکرول بالا و پایین
+ * - بدون هیچ تکسچر یا خط اضافی روی دکمههای کوچک
+ * - دارای پرتو انعکاس نوری ابریشمی و لبههای براق حساس به اسکرول روی کارتها
  */
 fun Modifier.liquidGlass(
     shape: Shape = RoundedCornerShape(20.dp),
     cornerRadius: Dp = 20.dp,
-    glassAlpha: Float = 0.16f,
-    strokeAlpha: Float = 0.45f,
-    accentColor: Color = Color(0xFF9D4EDD),
-    secondaryAccent: Color = Color(0xFF00E5FF),
     thickness: GlassThickness = GlassThickness.REGULAR,
     tintColor: Color = Color.Transparent,
-    tintAlpha: Float = 0.12f,
+    tintAlpha: Float = 0.14f,
     borderWidth: Dp = 1.dp,
-    appTheme: AppTheme? = null
+    appTheme: AppTheme? = null,
+    accentColor: Color = tintColor,
+    secondaryAccent: Color = Color(0xFF00E5FF)
 ): Modifier = composed {
+    val effectiveShape = if (shape == RoundedCornerShape(20.dp) && cornerRadius != 20.dp) {
+        RoundedCornerShape(cornerRadius)
+    } else {
+        shape
+    }
+    val activeTint = if (tintColor != Color.Transparent && tintColor != Color.Unspecified) {
+        tintColor
+    } else if (accentColor != Color.Transparent && accentColor != Color.Unspecified) {
+        accentColor
+    } else {
+        Color(0xFF8B5CF6)
+    }
+
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val screenHeightPx = remember(configuration) {
         with(density) { configuration.screenHeightDp.dp.toPx().coerceAtLeast(1f) }
     }
 
-    val effectiveAccent = if (tintColor != Color.Transparent) tintColor else accentColor
-    val effectiveGlassAlpha = if (tintColor != Color.Transparent) tintAlpha.coerceAtLeast(0.12f) else glassAlpha
-
     var windowY by remember { mutableFloatStateOf(0f) }
 
+    // واکنش نرم و سیال انعکاس نور هنگام بالا و پایین کردن صفحه
     val smoothScrollRatio by animateFloatAsState(
-        targetValue = (windowY / screenHeightPx).coerceIn(0f, 1f),
+        targetValue = (windowY / screenHeightPx).coerceIn(-0.3f, 1.3f),
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessLow
+            stiffness = Spring.StiffnessMediumLow
         ),
-        label = "AdaptiveLiquidScroll"
+        label = "ScrollLightReflection"
     )
 
     this
         .onGloballyPositioned { coordinates ->
             windowY = coordinates.positionInWindow().y
         }
-        .clip(shape)
+        .clip(effectiveShape)
         .drawWithCache {
             val w = size.width
             val h = size.height
             val minDim = min(w, h)
-            val strokePx = borderWidth.toPx().coerceAtLeast(1f)
-            val halfStroke = strokePx / 2f
+            val isSmallButton = minDim < 56.dp.toPx() || w < 72.dp.toPx()
 
-            val isSmallButton = minDim < 60.dp.toPx()
-
-            // فرم دقیق و اینست‌شده برای حاشیه جهت جلوگیری از بیرون‌زدگی یا کات‌شدن
-            val crPx = cornerRadius.toPx().coerceAtLeast(0f)
-            val insetCr = CornerRadius((crPx - halfStroke).coerceAtLeast(0f), (crPx - halfStroke).coerceAtLeast(0f))
-            val insetRect = RoundRect(
-                left = halfStroke,
-                top = halfStroke,
-                right = (w - halfStroke).coerceAtLeast(halfStroke),
-                bottom = (h - halfStroke).coerceAtLeast(halfStroke),
-                cornerRadius = insetCr
-            )
-            val insetPath = Path().apply { addRoundRect(insetRect) }
-
-            val outline = shape.createOutline(size, layoutDirection, this)
-            val fillPath = Path().apply {
+            val outline = effectiveShape.createOutline(size, layoutDirection, this)
+            val outlinePath = Path().apply {
                 when (outline) {
                     is Outline.Generic -> addPath(outline.path)
                     is Outline.Rounded -> addRoundRect(outline.roundRect)
@@ -149,247 +187,135 @@ fun Modifier.liquidGlass(
             }
 
             if (isSmallButton) {
-                // =========================================================================
-                // دکمه‌های کوچک: کاملاً شفاف، سبک، کریستالی با رفلکس نرم بالای دکمه
-                // =========================================================================
-                val buttonGlassBrush = Brush.verticalGradient(
+                // حالت دکمههای کوچک: کریستالی، تمیز و بدون هیچ خط یا تکسچر مزاحم
+                val btnFill = Brush.verticalGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = (effectiveGlassAlpha * 1.1f).coerceIn(0.12f, 0.25f)),
-                        effectiveAccent.copy(alpha = (effectiveGlassAlpha * 0.40f).coerceAtMost(0.14f)),
-                        Color(0xFF0F111E).copy(alpha = 0.72f)
+                        Color.White.copy(alpha = 0.18f),
+                        activeTint.copy(alpha = (tintAlpha * 1.1f).coerceIn(0.08f, 0.30f)),
+                        Color(0xFF0B0E1A).copy(alpha = 0.70f)
                     )
                 )
-
-                val buttonBorderBrush = Brush.linearGradient(
+                val btnRim = Brush.linearGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.45f),
-                        effectiveAccent.copy(alpha = 0.30f),
-                        Color.White.copy(alpha = 0.12f)
+                        Color.White.copy(alpha = 0.60f),
+                        activeTint.copy(alpha = 0.50f),
+                        Color.White.copy(alpha = 0.20f)
                     ),
                     start = Offset(0f, 0f),
                     end = Offset(w, h)
                 )
 
                 onDrawWithContent {
-                    drawPath(path = fillPath, brush = buttonGlassBrush)
+                    drawPath(path = outlinePath, brush = btnFill)
                     drawContent()
                     drawPath(
-                        path = insetPath,
-                        brush = buttonBorderBrush,
-                        style = Stroke(width = strokePx)
+                        path = outlinePath,
+                        brush = btnRim,
+                        style = Stroke(width = borderWidth.toPx())
                     )
                 }
             } else {
-                // =========================================================================
-                // کارت‌ها و پنل‌های بزرگ: چندلایه، بافت شیشه کریستالی مات و رفلکس لبه‌ای
-                // =========================================================================
-                val baseGlassBrush = Brush.verticalGradient(
-                    colorStops = arrayOf(
-                        0.00f to Color(0xFF1E2238).copy(alpha = 0.88f),
-                        0.18f to Color(0xFF141728).copy(alpha = 0.84f),
-                        0.50f to effectiveAccent.copy(alpha = (effectiveGlassAlpha * 0.35f).coerceAtMost(0.16f)),
-                        0.78f to Color(0xFF0C0E1A).copy(alpha = 0.92f),
-                        1.00f to Color(0xFF06070E).copy(alpha = 0.96f)
-                    )
+                // حالت کارتها و پنلها: انعکاس نور زنده هنگام اسکرول + عمق سهبعدی
+                val sweepProgress = (1f - smoothScrollRatio) * 1.55f - 0.25f
+                val beamCenterX = w * sweepProgress
+                val beamCenterY = h * (0.2f + smoothScrollRatio * 0.6f)
+                val beamWidth = (w * 0.52f).coerceAtLeast(160f)
+
+                val baseAlpha = when (thickness) {
+                    GlassThickness.THIN -> 0.68f
+                    GlassThickness.REGULAR -> 0.78f
+                    GlassThickness.THICK -> 0.88f
+                }
+
+                val glassBodyBrush = Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFF171C2E).copy(alpha = baseAlpha),
+                        activeTint.copy(alpha = (tintAlpha * 1.35f).coerceIn(0.10f, 0.38f)),
+                        Color(0xFF090C16).copy(alpha = (baseAlpha + 0.08f).coerceAtMost(0.95f))
+                    ),
+                    start = Offset(0f, 0f),
+                    end = Offset(w, h)
                 )
 
-                // انعکاس نرم و طبیعی افقی منطبق بر اسکرول
-                val shimmerX = w * (0.15f + smoothScrollRatio * 0.70f)
-                val shimmerRadius = (w * 0.65f).coerceAtLeast(180f)
-                val naturalGleamBrush = Brush.radialGradient(
+                // پرتو نور منشوری که با اسکرول کردن صفحه به نرمی روی شیشه حرکت میکند
+                val specularReflectionBrush = Brush.linearGradient(
                     colorStops = arrayOf(
-                        0.00f to Color.White.copy(alpha = 0.12f),
-                        0.25f to secondaryAccent.copy(alpha = 0.08f),
-                        0.55f to effectiveAccent.copy(alpha = 0.05f),
-                        0.85f to Color.Transparent,
+                        0.00f to Color.Transparent,
+                        0.32f to activeTint.copy(alpha = 0.06f),
+                        0.45f to Color.White.copy(alpha = 0.14f),
+                        0.50f to Color.White.copy(alpha = 0.28f),
+                        0.55f to secondaryAccent.copy(alpha = 0.10f),
+                        0.68f to Color.Transparent,
                         1.00f to Color.Transparent
                     ),
-                    center = Offset(shimmerX, h * 0.20f),
-                    radius = shimmerRadius
+                    start = Offset(beamCenterX - beamWidth, beamCenterY - beamWidth * 0.7f),
+                    end = Offset(beamCenterX + beamWidth, beamCenterY + beamWidth * 0.7f)
                 )
 
-                // پخ نوری لبه بالا برای ایجاد عمق سه‌بعدی شیشه (Specular Top Bevel Light)
-                val topBevelBrush = Brush.verticalGradient(
+                // پخ نوری سهبعدی سقف و کف شیشه
+                val topLightFactor = (1f - smoothScrollRatio * 0.5f).coerceIn(0.35f, 1f)
+                val innerBevelBrush = Brush.verticalGradient(
                     colorStops = arrayOf(
-                        0.00f to Color.White.copy(alpha = 0.22f),
-                        0.06f to Color.White.copy(alpha = 0.08f),
-                        0.35f to Color.Transparent,
+                        0.00f to Color.White.copy(alpha = 0.24f * topLightFactor),
+                        0.12f to Color.White.copy(alpha = 0.03f),
                         0.85f to Color.Transparent,
                         1.00f to Color.Black.copy(alpha = 0.35f)
                     )
                 )
 
-                // تکسچر ظریف شیشه مات کریستالی (Frosted Micro-Grain & Specular Edge Refraction)
-                val frostedGrainSheen = Brush.linearGradient(
-                    colorStops = arrayOf(
-                        0.00f to Color.White.copy(alpha = 0.06f),
-                        0.30f to Color.Transparent,
-                        0.60f to secondaryAccent.copy(alpha = 0.04f),
-                        0.80f to Color.Transparent,
-                        1.00f to Color.White.copy(alpha = 0.03f)
-                    ),
-                    start = Offset(0f, h),
-                    end = Offset(w, 0f)
+                // چرخش نقطه درخشش کادر دور کارت هماهنگ با اسکرول
+                val rimAngle = (smoothScrollRatio * PI).toFloat()
+                val rimStart = Offset(
+                    x = (w * 0.5f) + cos(rimAngle) * w * 0.6f,
+                    y = (h * 0.5f) + sin(rimAngle) * h * 0.6f
+                )
+                val rimEnd = Offset(
+                    x = (w * 0.5f) - cos(rimAngle) * w * 0.6f,
+                    y = (h * 0.5f) - sin(rimAngle) * h * 0.6f
                 )
 
-                // حاشیه کریستالی منشوری اینست‌شده
-                val crystalRimBrush = Brush.linearGradient(
+                val dynamicBorderBrush = Brush.linearGradient(
                     colorStops = arrayOf(
-                        0.00f to Color.White.copy(alpha = 0.55f),
-                        0.25f to secondaryAccent.copy(alpha = 0.35f),
-                        0.50f to Color.White.copy(alpha = 0.20f),
-                        0.75f to effectiveAccent.copy(alpha = 0.38f),
-                        1.00f to Color.White.copy(alpha = 0.14f)
+                        0.00f to activeTint.copy(alpha = 0.80f),
+                        0.35f to Color.White.copy(alpha = 0.85f),
+                        0.65f to secondaryAccent.copy(alpha = 0.70f),
+                        1.00f to activeTint.copy(alpha = 0.55f)
                     ),
-                    start = Offset(0f, 0f),
-                    end = Offset(w, h)
+                    start = rimStart,
+                    end = rimEnd
                 )
 
                 onDrawWithContent {
-                    clipPath(fillPath) {
-                        drawRect(brush = baseGlassBrush)
-                        drawRect(brush = naturalGleamBrush)
-                        drawRect(brush = topBevelBrush)
-                        drawRect(brush = frostedGrainSheen)
+                    clipPath(outlinePath) {
+                        drawRect(brush = glassBodyBrush)
+                        drawRect(brush = specularReflectionBrush, blendMode = BlendMode.Plus)
+                        drawRect(brush = innerBevelBrush)
                     }
                     drawContent()
                     drawPath(
-                        path = insetPath,
-                        brush = crystalRimBrush,
-                        style = Stroke(width = strokePx)
+                        path = outlinePath,
+                        brush = dynamicBorderBrush,
+                        style = Stroke(width = borderWidth.toPx())
                     )
                 }
             }
         }
 }
 
-/**
- * کادر مستطیلی موازی با خط رنگی درخشان و انعکاس نور اسکرول مخصوص کارت‌های آهنگ و پنل پلیر
- */
 @Composable
 fun Modifier.premiumTrackGlowingBorder(
     primaryColor: Color = Color(0xFF9D4EDD),
     secondaryColor: Color = Color(0xFF00E5FF),
     isPlaying: Boolean = false,
-    cornerRadius: Dp = 18.dp,
+    cornerRadius: Dp = 20.dp,
     borderWidth: Dp = if (isPlaying) 1.8.dp else 1.25.dp
 ): Modifier = composed {
-    val density = LocalDensity.current
-    val configuration = LocalConfiguration.current
-    val screenHeightPx = remember(configuration) {
-        with(density) { configuration.screenHeightDp.dp.toPx().coerceAtLeast(1f) }
-    }
-
-    var windowY by remember { mutableFloatStateOf(0f) }
-
-    val smoothScrollRatio by animateFloatAsState(
-        targetValue = (windowY / screenHeightPx).coerceIn(-0.4f, 1.4f),
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "TrackCardScrollReflection"
-    )
-
-    val infiniteTransition = rememberInfiniteTransition(label = "CardRimGlow")
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = if (isPlaying) 0.72f else 0.52f,
-        targetValue = if (isPlaying) 1.0f else 0.85f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "RimAlpha"
-    )
-
-    val shape = RoundedCornerShape(cornerRadius)
-
-    this
-        .clip(shape)
-        .onGloballyPositioned { coordinates ->
-            windowY = coordinates.positionInWindow().y
-        }
-        .drawWithCache {
-            val w = size.width
-            val h = size.height
-            val strokePx = borderWidth.toPx().coerceAtLeast(1f)
-            val halfStroke = strokePx / 2f
-            val crPx = cornerRadius.toPx().coerceAtLeast(0f)
-            val insetCr = CornerRadius((crPx - halfStroke).coerceAtLeast(0f), (crPx - halfStroke).coerceAtLeast(0f))
-
-            val clipRoundPath = Path().apply {
-                addRoundRect(RoundRect(0f, 0f, w, h, CornerRadius(crPx, crPx)))
-            }
-
-            val deepSurfaceBrush = Brush.verticalGradient(
-                colorStops = arrayOf(
-                    0.00f to Color(0xFF1E2238).copy(alpha = 0.88f),
-                    0.20f to Color(0xFF141728).copy(alpha = 0.84f),
-                    0.52f to primaryColor.copy(alpha = if (isPlaying) 0.22f else 0.10f),
-                    0.80f to Color(0xFF0C0E1A).copy(alpha = 0.92f),
-                    1.00f to Color(0xFF06070E).copy(alpha = 0.96f)
-                )
-            )
-
-            // انعکاس نرم نوری چندلایه
-            val shimmerX = w * (0.20f + smoothScrollRatio * 0.60f)
-            val glassSweepBrush = Brush.radialGradient(
-                colorStops = arrayOf(
-                    0.00f to Color.White.copy(alpha = if (isPlaying) 0.15f else 0.08f),
-                    0.30f to secondaryColor.copy(alpha = 0.07f),
-                    0.60f to primaryColor.copy(alpha = 0.04f),
-                    0.85f to Color.Transparent,
-                    1.00f to Color.Transparent
-                ),
-                center = Offset(shimmerX, h * 0.25f),
-                radius = (w * 0.60f).coerceAtLeast(160f)
-            )
-
-            val rimBorderBrush = Brush.linearGradient(
-                colorStops = arrayOf(
-                    0.00f to Color.White.copy(alpha = 0.65f),
-                    0.25f to secondaryColor.copy(alpha = glowAlpha * 0.55f),
-                    0.50f to Color.White.copy(alpha = 0.25f),
-                    0.75f to primaryColor.copy(alpha = glowAlpha * 0.60f),
-                    1.00f to Color.White.copy(alpha = 0.18f)
-                ),
-                start = Offset(0f, 0f),
-                end = Offset(w, h)
-            )
-
-            onDrawWithContent {
-                clipPath(clipRoundPath) {
-                    drawRect(brush = deepSurfaceBrush)
-                    drawRect(brush = glassSweepBrush)
-                }
-
-                drawContent()
-
-                drawRoundRect(
-                    brush = rimBorderBrush,
-                    topLeft = Offset(halfStroke, halfStroke),
-                    size = androidx.compose.ui.geometry.Size(
-                        (w - strokePx).coerceAtLeast(0f),
-                        (h - strokePx).coerceAtLeast(0f)
-                    ),
-                    cornerRadius = insetCr,
-                    style = Stroke(width = strokePx)
-                )
-            }
-        }
-}
-
-fun Modifier.neonParallelRim(
-    primaryColor: Color = Color(0xFF9D4EDD),
-    secondaryColor: Color = Color(0xFF00E5FF),
-    cornerRadius: Dp = 16.dp,
-    borderWidth: Dp = 1.5.dp
-): Modifier = composed {
-    this.premiumTrackGlowingBorder(
-        primaryColor = primaryColor,
-        secondaryColor = secondaryColor,
-        isPlaying = false,
-        cornerRadius = cornerRadius,
-        borderWidth = borderWidth
+    this.liquidGlass(
+        shape = RoundedCornerShape(cornerRadius),
+        thickness = if (isPlaying) GlassThickness.THICK else GlassThickness.REGULAR,
+        tintColor = primaryColor,
+        tintAlpha = if (isPlaying) 0.24f else 0.14f,
+        borderWidth = borderWidth,
+        secondaryAccent = secondaryColor
     )
 }

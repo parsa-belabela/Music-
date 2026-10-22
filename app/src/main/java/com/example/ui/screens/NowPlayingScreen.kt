@@ -1,441 +1,234 @@
 package com.example.ui.screens
 
-import android.content.Context
-import android.media.AudioManager
-import androidx.compose.animation.animateColorAsState
+import android.graphics.BlurMaskFilter
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
-import com.example.audio.ArtworkPaletteExtractor
 import com.example.audio.ConnectedAudioDevice
-import com.example.data.model.AppSettings
-import com.example.data.model.LyricsLine
-import com.example.data.model.PlaybackState
-import com.example.data.model.Track
-import com.example.data.model.TrackAudioProfile
-import com.example.ui.components.AudioDeviceIndicator
-import com.example.ui.components.LiquidGlassProgressBar
-import com.example.ui.components.TrackArtworkThumbnail
+import com.example.data.model.*
+import com.example.data.model.RepeatMode as PlaybackRepeatMode
+import com.example.ui.components.*
+import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
-import com.example.ui.theme.premiumTrackGlowingBorder
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
+enum class NowPlayingCenterView {
+    ARTWORK_AND_HALO,
+    LYRICS
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NowPlayingScreen(
-    currentTrack: Track?,
-    isPlaying: Boolean,
-    currentPositionMs: Long,
-    durationMs: Long,
-    isShuffleEnabled: Boolean = false,
-    repeatMode: Int = 0,
-    isFavorite: Boolean = false,
-    dominantColor: Color? = null,
-    secondaryColor: Color? = null,
-    connectedDevice: ConnectedAudioDevice? = null,
+    playbackState: PlaybackState,
+    palette: AmbientPalette,
+    currentLyrics: List<LyricsLine>,
+    appSettings: AppSettings,
+    onCollapse: () -> Unit,
     onTogglePlay: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onSeekTo: (Long) -> Unit,
-    onToggleShuffle: () -> Unit = {},
-    onToggleRepeat: () -> Unit = {},
-    onToggleFavorite: () -> Unit = {},
-    onOpenLyrics: () -> Unit = {},
-    onOpenEqualizer: () -> Unit = {},
-    onOpenQueue: () -> Unit = {},
-    onShareTrack: () -> Unit = {},
-    onClose: () -> Unit,
-    modifier: Modifier = Modifier
+    onToggleFavorite: (Track) -> Unit,
+    onToggleShuffle: () -> Unit,
+    onCycleRepeat: () -> Unit,
+    onOpenLyricsEditor: () -> Unit,
+    onOpenEqualizer: () -> Unit,
+    onOpenQueue: () -> Unit,
+    onSelectVisualizerMode: (VisualizerMode) -> Unit,
+    onOpenSleepTimer: () -> Unit,
+    onOpenMetadataEditor: (Track) -> Unit,
+    modifier: Modifier = Modifier,
+    connectedDevice: ConnectedAudioDevice? = null,
+    onShareSong: (Track) -> Unit = {},
+    onPlaybackSpeedChange: (Float) -> Unit = {},
+    audioProfile: TrackAudioProfile? = null,
+    onCycleShuffleMode: () -> Unit = onToggleShuffle,
+    onOpenHearingCalibration: () -> Unit = {},
+    onOpenVipPaywall: (String?) -> Unit = {},
+    onSelectNowPlayingStyle: (String) -> Unit = {},
+    onUpdateTrackArtwork: (Track, String?) -> Unit = { _, _ -> },
+    analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() },
+    currentPositionProvider: () -> Long = { playbackState.currentPositionMs },
+    currentPositionMs: Long? = null
 ) {
-    if (currentTrack == null) return
-
     val context = LocalContext.current
+    val track = playbackState.currentTrack ?: return
+    var centerView by remember { mutableStateOf(NowPlayingCenterView.ARTWORK_AND_HALO) }
+    var isImmersive by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
+    var showRadialMenu by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
 
-    // استخراج خودکار رنگ‌های زنده از کاور آهنگ (اگر از بیرون پاس داده نشده باشد)
-    var extractedPrimary by remember(currentTrack.id) { mutableStateOf(Color(0xFF9D4EDD)) }
-    var extractedSecondary by remember(currentTrack.id) { mutableStateOf(Color(0xFF00E5FF)) }
-
-    LaunchedEffect(currentTrack.artworkUri, currentTrack.id) {
-        try {
-            val palette = ArtworkPaletteExtractor.extractColors(context, currentTrack.artworkUri)
-            extractedPrimary = palette.first
-            extractedSecondary = palette.second
-        } catch (_: Exception) {
-            // اگر متد استخراج پالت امضای متفاوتی داشت یا کاور خالی بود، بر اساس هش آهنگ رنگ نئونی منحصربه‌فرد می‌سازد
-            val palettes = listOf(
-                Color(0xFF9D4EDD) to Color(0xFF00E5FF),
-                Color(0xFFFF2A85) to Color(0xFFFFB703),
-                Color(0xFF00F5D4) to Color(0xFF7B2CBF),
-                Color(0xFF3A86FF) to Color(0xFFFF006E),
-                Color(0xFF06D6A0) to Color(0xFF118AB2)
-            )
-            val pick = palettes[(currentTrack.title.hashCode() and Int.MAX_VALUE) % palettes.size]
-            extractedPrimary = pick.first
-            extractedSecondary = pick.second
+    val triggerHaptic = {
+        if (appSettings.hapticFeedbackEnabled) {
+            try {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            } catch (_: Exception) {}
         }
     }
 
-    // انیمیشن نرم تغییر رنگ کل صفحه و پنل پایینی با عوض شدن آهنگ
-    val activePrimary by animateColorAsState(
-        targetValue = dominantColor ?: extractedPrimary,
-        animationSpec = tween(durationMillis = 850, easing = FastOutSlowInEasing),
-        label = "PlayerPrimaryColor"
+    val isPlaying = playbackState.isPlaying
+
+    // استخراج زنده و نرم رنگ‌های غالب کاور آهنگ (بدون هیچ رنگ نارنجی دستی!)
+    val coverPrimary by animateColorAsState(
+        targetValue = palette.primary,
+        animationSpec = tween(700, easing = FastOutSlowInEasing),
+        label = "coverPrimary"
     )
-    val activeSecondary by animateColorAsState(
-        targetValue = secondaryColor ?: extractedSecondary,
-        animationSpec = tween(durationMillis = 850, easing = FastOutSlowInEasing),
-        label = "PlayerSecondaryColor"
+    val coverSecondary by animateColorAsState(
+        targetValue = palette.secondary,
+        animationSpec = tween(700, easing = FastOutSlowInEasing),
+        label = "coverSecondary"
+    )
+    val coverAccent by animateColorAsState(
+        targetValue = palette.accent,
+        animationSpec = tween(700, easing = FastOutSlowInEasing),
+        label = "coverAccent"
     )
 
-    // انیمیشن مقیاس و شناوری کاور آهنگ هنگام پخش و توقف (به سبک iOS 18)
-    val artworkScale by animateFloatAsState(
-        targetValue = if (isPlaying) 1.0f else 0.88f,
+    val dynamicCoverPalette = remember(coverPrimary, coverSecondary, coverAccent, palette) {
+        palette.copy(
+            primary = coverPrimary,
+            secondary = coverSecondary,
+            accent = coverAccent,
+            haloGlow = coverPrimary.copy(alpha = 0.85f)
+        )
+    }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {}
+            onUpdateTrackArtwork(track, uri.toString())
+        }
+    }
+
+    val waveformFloats = remember(audioProfile?.waveformEnvelope) {
+        audioProfile?.waveformEnvelope?.split(",")?.mapNotNull { it.trim().toFloatOrNull() }?.toFloatArray()
+    }
+
+    // موشن شناوری سه‌بعدی کاور و هاله نوری پشت آن
+    val infiniteTransition = rememberInfiniteTransition(label = "NowPlayingCoverMotion")
+    val floatPhase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2f * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = if (isPlaying) 4200 else 9000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "floatPhase"
+    )
+
+    val artworkBaseScale by animateFloatAsState(
+        targetValue = if (isPlaying) 1.0f else 0.90f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
         ),
-        label = "ArtworkScale"
+        label = "artworkPlayScale"
     )
-
-    val infiniteTransition = rememberInfiniteTransition(label = "NowPlayingAurora")
-    val auroraAngle1 by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2f * Math.PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = if (isPlaying) 16000 else 24000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "AuroraAngle1"
-    )
-    val auroraAngle2 by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2f * Math.PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = if (isPlaying) 21000 else 30000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "AuroraAngle2"
-    )
-    val auraPulse by infiniteTransition.animateFloat(
-        initialValue = 0.90f,
-        targetValue = if (isPlaying) 1.18f else 1.02f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(3800, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "AuraPulse"
-    )
-
-    val safeDuration = durationMs.coerceAtLeast(1L)
-    val progress = (currentPositionMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF05060D))
-            .drawBehind {
-                val w = size.width
-                val h = size.height
-
-                // مدار ۱: شفق قطبی بالایی (نور نئونی عمیق منطبق بر رنگ اصلی کاور)
-                val orb1X = w * (0.5f + 0.35f * kotlin.math.cos(auroraAngle1.toDouble()).toFloat())
-                val orb1Y = h * (0.30f + 0.15f * kotlin.math.sin(auroraAngle1.toDouble()).toFloat())
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            activePrimary.copy(alpha = 0.72f),
-                            activePrimary.copy(alpha = 0.35f),
-                            Color.Transparent
-                        ),
-                        center = Offset(orb1X, orb1Y),
-                        radius = (w * 0.95f) * auraPulse
-                    )
-                )
-
-                // مدار ۲: نور فرعی متضاد RGB شفق (سیان / فیروزه‌ای / یاقوتی)
-                val orb2X = w * (0.5f - 0.38f * kotlin.math.cos(auroraAngle2.toDouble()).toFloat())
-                val orb2Y = h * (0.45f + 0.20f * kotlin.math.sin(auroraAngle2.toDouble()).toFloat())
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            activeSecondary.copy(alpha = 0.65f),
-                            activeSecondary.copy(alpha = 0.25f),
-                            Color.Transparent
-                        ),
-                        center = Offset(orb2X, orb2Y),
-                        radius = (w * 0.90f) * auraPulse
-                    )
-                )
-
-                // مدار ۳: پرتو متحرک گرم/بنفش در نیمه پایینی صفحه برای عمق چندبعدی
-                val orb3X = w * (0.5f + 0.25f * kotlin.math.sin(auroraAngle1.toDouble()).toFloat())
-                val orb3Y = h * (0.75f + 0.12f * kotlin.math.cos(auroraAngle2.toDouble()).toFloat())
-                val warmColor = Color(0xFFFF2A85)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            warmColor.copy(alpha = 0.40f),
-                            activePrimary.copy(alpha = 0.20f),
-                            Color.Transparent
-                        ),
-                        center = Offset(orb3X, orb3Y),
-                        radius = (w * 0.85f) * auraPulse
-                    )
-                )
-
-                // لایه تیره ابسیدین موضعی برای تضمین ۱۰۰٪ خوانایی و کنتراست اطلاعات و کنترل‌ها
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0.00f to Color(0xCC05060D),
-                            0.20f to Color.Transparent,
-                            0.65f to Color.Transparent,
-                            0.90f to Color(0xE605060D),
-                            1.00f to Color(0xF805060D)
-                        )
-                    )
-                )
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures { _, dragAmount ->
+                    if (dragAmount > 55) {
+                        triggerHaptic()
+                        onPrevious()
+                    } else if (dragAmount < -55) {
+                        triggerHaptic()
+                        onNext()
+                    }
+                }
             }
-            .systemBarsPadding()
+            .testTag("now_playing_screen")
     ) {
+        // ۱. پس‌زمینه سینمایی با بلر عمیق کاور و امواج موشن‌بلر شده هم‌رنگ با کاور آهنگ
+        CinematicAtmosphereBackground(
+            track = track,
+            palette = dynamicCoverPalette,
+            analysisDataProvider = analysisDataProvider,
+            glowStrength = if (isImmersive) 1.15f else 1.0f
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 10.dp),
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             // =========================================================================
-            // ۱. هدر بالایی پلیر (دکمه بستن + نشانگر زنده ایرپاد/اسپیکر + منوی اکولایزر)
+            // ۲. هدر بالایی پلیر + نشانگر هوشمند ایرپاد/اسپیکر بلوتوثی
             // =========================================================================
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()
+            AnimatedVisibility(
+                visible = !isImmersive,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
             ) {
-                // خط کپسولی بالای شیت (Drag Pill)
-                Box(
-                    modifier = Modifier
-                        .padding(bottom = 10.dp)
-                        .width(42.dp)
-                        .height(4.5.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.30f))
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    SmallGlassIconButton(
-                        icon = Icons.Rounded.KeyboardArrowDown,
-                        accentColor = activePrimary,
-                        secondaryColor = activeSecondary,
-                        onClick = onClose
-                    )
-
-                    // نمایشگر هوشمند و موشن‌گرافیک ایرپاد/اسپیکر در مرکز هدر (فقط در زمان اتصال نمایش داده می‌شود)
-                    AudioDeviceIndicator(
-                        device = connectedDevice,
-                        accentColor = activeSecondary,
-                        compact = false
-                    )
-
-                    SmallGlassIconButton(
-                        icon = Icons.Rounded.GraphicEq,
-                        accentColor = activePrimary,
-                        secondaryColor = activeSecondary,
-                        onClick = onOpenEqualizer
-                    )
-                }
-            }
-
-            // =========================================================================
-            // ۲. استیج سه‌بعدی کاور آهنگ (با سوایپ چپ/راست برای عوض کردن آهنگ)
-            // =========================================================================
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                var swipeOffset by remember { mutableFloatStateOf(0f) }
-
-                Box(
-                    modifier = Modifier
-                        .aspectRatio(1f)
-                        .fillMaxSize(0.88f)
-                        .scale(artworkScale)
-                        .pointerInput(currentTrack.id) {
-                            detectHorizontalDragGestures(
-                                onHorizontalDrag = { change, dragAmount ->
-                                    change.consume()
-                                    swipeOffset += dragAmount
-                                },
-                                onDragEnd = {
-                                    if (swipeOffset > 110f) {
-                                        onPrevious()
-                                    } else if (swipeOffset < -110f) {
-                                        onNext()
-                                    }
-                                    swipeOffset = 0f
-                                },
-                                onDragCancel = { swipeOffset = 0f }
-                            )
-                        }
-                        .drawBehind {
-                            // هاله نوری شناور و گرادیان شعاعی نرم زیر کاور آهنگ
-                            drawRoundRect(
-                                brush = Brush.radialGradient(
-                                    colors = listOf(
-                                        activePrimary.copy(alpha = if (isPlaying) 0.65f else 0.35f),
-                                        activeSecondary.copy(alpha = if (isPlaying) 0.40f else 0.20f),
-                                        Color.Transparent
-                                    ),
-                                    center = Offset(size.width / 2f, size.height / 2f),
-                                    radius = size.width * 0.72f
-                                ),
-                                cornerRadius = CornerRadius(36.dp.toPx(), 36.dp.toPx())
-                            )
-                            // کادر نوری نئونی دور کاور
-                            drawRoundRect(
-                                brush = Brush.linearGradient(
-                                    colors = listOf(
-                                        activePrimary.copy(alpha = 0.60f),
-                                        activeSecondary.copy(alpha = 0.55f),
-                                        activePrimary.copy(alpha = 0.60f)
-                                    )
-                                ),
-                                cornerRadius = CornerRadius(34.dp.toPx(), 34.dp.toPx()),
-                                style = Stroke(width = 8.dp.toPx())
-                            )
-                        }
-                        .shadow(
-                            elevation = if (isPlaying) 40.dp else 20.dp,
-                            shape = RoundedCornerShape(32.dp),
-                            ambientColor = activePrimary.copy(alpha = 0.85f),
-                            spotColor = activeSecondary.copy(alpha = 0.90f)
-                        )
-                        .border(
-                            width = 2.dp,
-                            brush = Brush.linearGradient(
-                                colors = listOf(
-                                    Color.White.copy(alpha = 0.90f),
-                                    activeSecondary,
-                                    activePrimary,
-                                    Color.White.copy(alpha = 0.70f)
-                                )
-                            ),
-                            shape = RoundedCornerShape(32.dp)
-                        )
-                        .padding(4.dp)
-                        .clip(RoundedCornerShape(28.dp))
-                ) {
-                    TrackArtworkThumbnail(
-                        artworkUri = currentTrack.artworkUri,
-                        modifier = Modifier.fillMaxSize(),
-                        cornerRadius = 28.dp,
-                        primaryBorderColor = activePrimary,
-                        secondaryBorderColor = activeSecondary
-                    )
-                }
-            }
-
-            // =========================================================================
-            // ۳. داک پایینی پلیر که کل اجزای آن با رنگ کاور آهنگ تغییر رنگ می‌دهند
-            // =========================================================================
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .premiumTrackGlowingBorder(
-                        primaryColor = activePrimary,
-                        secondaryColor = activeSecondary,
-                        isPlaying = isPlaying,
-                        cornerRadius = 32.dp,
-                        borderWidth = 1.6.dp
-                    )
-                    .padding(horizontal = 20.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                // الف) ردیف نام آهنگ، خواننده، نشانگر ایرپاد/اسپیکر و دکمه لایک
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = currentTrack.title,
-                            color = Color.White,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Text(
-                            text = currentTrack.artist,
-                            color = activeSecondary.copy(alpha = 0.90f),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    SmallGlassIconButton(
-                        icon = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                        iconTint = if (isFavorite) Color(0xFFFF2A85) else Color.White,
-                        accentColor = if (isFavorite) Color(0xFFFF2A85) else activePrimary,
-                        secondaryColor = activeSecondary,
-                        onClick = onToggleFavorite
-                    )
-                }
-
-                // ب) نوار پیشرفت (Seekbar) حساس به رنگ آهنگ + زمان و نشانگر هوشمند ایرپاد/اسپیکر
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    LiquidGlassProgressBar(
-                        progress = progress,
-                        onSeek = { newRatio ->
-                            onSeekTo((newRatio * safeDuration).toLong())
-                        },
-                        primaryColor = activePrimary,
-                        secondaryColor = activeSecondary
+                    // دستگیره کپسولی بالای صفحه
+                    Box(
+                        modifier = Modifier
+                            .padding(bottom = 8.dp)
+                            .width(42.dp)
+                            .height(4.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.38f))
                     )
 
                     Row(
@@ -443,194 +236,706 @@ fun NowPlayingScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = formatDurationMs(currentPositionMs),
-                            color = Color.White.copy(alpha = 0.72f),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Medium
+                        IconButton(
+                            onClick = {
+                                triggerHaptic()
+                                onCollapse()
+                            },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .liquidGlass(
+                                    shape = CircleShape,
+                                    thickness = GlassThickness.THIN,
+                                    tintColor = coverPrimary,
+                                    tintAlpha = 0.18f
+                                )
+                                .testTag("collapse_now_playing_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Collapse",
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+
+                        // اگر ایرپاد یا اسپیکر بلوتوثی وصل باشد، با موشن‌گرافیک نمایش داده می‌شود
+                        if (connectedDevice != null) {
+                            AudioDeviceIndicator(
+                                device = connectedDevice,
+                                compact = false
+                            )
+                        } else {
+                            // سوییچر شیشه‌ای بین کاور آهنگ و متن ترانه
+                            Box(
+                                modifier = Modifier
+                                    .liquidGlass(
+                                        shape = RoundedCornerShape(28.dp),
+                                        thickness = GlassThickness.THIN,
+                                        tintColor = coverPrimary,
+                                        tintAlpha = 0.16f
+                                    )
+                                    .padding(3.dp)
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    SegmentPillItem(
+                                        title = if (appSettings.language == AppLanguage.PERSIAN) "کاور آهنگ" else "Artwork",
+                                        isSelected = centerView == NowPlayingCenterView.ARTWORK_AND_HALO,
+                                        activeColor = coverPrimary,
+                                        onClick = {
+                                            triggerHaptic()
+                                            centerView = NowPlayingCenterView.ARTWORK_AND_HALO
+                                        }
+                                    )
+                                    SegmentPillItem(
+                                        title = if (appSettings.language == AppLanguage.PERSIAN) "متن آهنگ" else "Lyrics",
+                                        isSelected = centerView == NowPlayingCenterView.LYRICS,
+                                        activeColor = coverPrimary,
+                                        onClick = {
+                                            triggerHaptic()
+                                            centerView = NowPlayingCenterView.LYRICS
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        Box {
+                            IconButton(
+                                onClick = { showMoreMenu = true },
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .liquidGlass(
+                                        shape = CircleShape,
+                                        thickness = GlassThickness.THIN,
+                                        tintColor = coverPrimary,
+                                        tintAlpha = 0.18f
+                                    )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "Options",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false },
+                                modifier = Modifier
+                                    .liquidGlass(
+                                        shape = RoundedCornerShape(18.dp),
+                                        thickness = GlassThickness.THICK,
+                                        tintColor = coverPrimary,
+                                        tintAlpha = 0.25f,
+                                        borderWidth = 1.dp
+                                    )
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "تغییر کاور آهنگ" else "Change Song Artwork", color = Color.White) },
+                                    leadingIcon = { Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = coverAccent) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        photoPickerLauncher.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "اکولایزر و تنظیمات صدا" else "Equalizer & DSP", color = Color.White) },
+                                    leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null, tint = coverAccent) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        onOpenEqualizer()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "تایمر خواب" else "Sleep Timer", color = Color.White) },
+                                    leadingIcon = { Icon(Icons.Default.Snooze, contentDescription = null, tint = coverAccent) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        onOpenSleepTimer()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "ویرایش اطلاعات آهنگ" else "Edit Metadata", color = Color.White) },
+                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = coverAccent) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        onOpenMetadataEditor(track)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "اشتراک‌گذاری استوری" else "Share Social Card", color = Color.White) },
+                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = coverAccent) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        onShareSong(track)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // =========================================================================
+            // ۳. استیج مرکزی: کاور سه‌بعدی با هاله نوری محو و موشن‌بلر تپنده در پشت کاور
+            // =========================================================================
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                when (centerView) {
+                    NowPlayingCenterView.ARTWORK_AND_HALO -> {
+                        val audioData = analysisDataProvider()
+                        val beatPulse = if (isPlaying) {
+                            (audioData.kickPulse * 0.05f + audioData.haloExpansion * 0.03f).coerceIn(0f, 0.08f)
+                        } else 0f
+
+                        val animatedBeatPulse by animateFloatAsState(
+                            targetValue = beatPulse,
+                            animationSpec = spring(
+                                stiffness = Spring.StiffnessMediumLow,
+                                dampingRatio = Spring.DampingRatioMediumBouncy
+                            ),
+                            label = "artworkBeatPulse"
                         )
 
-                        // نشانگر هوشمند و موشن‌گرافیک ایرپاد و اسپیکر متصل (جایگزین نشانگر قبلی کیفیت صدا)
-                        AudioDeviceIndicator(
-                            device = connectedDevice,
-                            accentColor = activeSecondary,
-                            compact = true
-                        )
+                        val floatOffsetY = sin(floatPhase) * (if (isPlaying) 12f else 3f)
+
+                        // الف) هاله‌های نوری کاملاً محو و بلر شده (Gaussian Blurred Aura) دقیقاً پشت کاور آهنگ
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val cx = size.width / 2f
+                            val cy = (size.height / 2f) + floatOffsetY
+                            val baseR = size.minDimension * 0.42f * (1f + animatedBeatPulse * 1.8f)
+
+                            drawIntoCanvas { canvas ->
+                                // هاله اول: رنگ غالب کاور آهنگ با بلر فوق‌العاده نرم و موشن چرخشی
+                                val paintPrimary = Paint().apply {
+                                    asFrameworkPaint().apply {
+                                        isAntiAlias = true
+                                        maskFilter = BlurMaskFilter(95f, BlurMaskFilter.Blur.NORMAL)
+                                        color = coverPrimary.copy(alpha = if (isPlaying) 0.82f else 0.45f).toArgb()
+                                    }
+                                }
+                                canvas.drawCircle(
+                                    Offset(cx - 22f * cos(floatPhase), cy + 22f * sin(floatPhase)),
+                                    baseR,
+                                    paintPrimary
+                                )
+
+                                // هاله دوم: رنگ مکمل کاور آهنگ با حرکت معکوس برای ایجاد موشن‌بلر پشت کاور
+                                val paintSecondary = Paint().apply {
+                                    asFrameworkPaint().apply {
+                                        isAntiAlias = true
+                                        maskFilter = BlurMaskFilter(85f, BlurMaskFilter.Blur.NORMAL)
+                                        color = coverSecondary.copy(alpha = if (isPlaying) 0.72f else 0.35f).toArgb()
+                                    }
+                                }
+                                canvas.drawCircle(
+                                    Offset(cx + 24f * sin(floatPhase), cy - 24f * cos(floatPhase)),
+                                    baseR * 0.90f,
+                                    paintSecondary
+                                )
+
+                                // هاله سوم: درخشش مرکزی تاکیدی هنگام ضربه بیس
+                                val paintAccent = Paint().apply {
+                                    asFrameworkPaint().apply {
+                                        isAntiAlias = true
+                                        maskFilter = BlurMaskFilter(70f, BlurMaskFilter.Blur.NORMAL)
+                                        color = coverAccent.copy(alpha = (0.35f + animatedBeatPulse * 4f).coerceIn(0.2f, 0.85f)).toArgb()
+                                    }
+                                }
+                                canvas.drawCircle(
+                                    Offset(cx, cy),
+                                    baseR * 0.78f,
+                                    paintAccent
+                                )
+                            }
+                        }
+
+                        // ب) قاب شیشه‌ای و سه‌بعدی خودِ کاور آهنگ با خط نوری هم‌رنگ کاور
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight(0.76f)
+                                .aspectRatio(1f)
+                                .graphicsLayer {
+                                    val totalScale = artworkBaseScale + (animatedBeatPulse * 0.6f)
+                                    scaleX = totalScale
+                                    scaleY = totalScale
+                                    translationY = floatOffsetY
+                                    rotationX = sin(floatPhase) * (if (isPlaying) 3.0f else 0.5f)
+                                    rotationY = cos(floatPhase) * (if (isPlaying) 3.0f else 0.5f)
+                                }
+                                .shadow(
+                                    elevation = if (isPlaying) 36.dp else 18.dp,
+                                    shape = RoundedCornerShape(32.dp),
+                                    spotColor = coverPrimary,
+                                    ambientColor = coverSecondary
+                                )
+                                .border(
+                                    width = 2.dp,
+                                    brush = Brush.linearGradient(
+                                        colors = listOf(
+                                            Color.White.copy(alpha = 0.85f),
+                                            coverPrimary,
+                                            coverAccent,
+                                            Color.White.copy(alpha = 0.65f)
+                                        )
+                                    ),
+                                    shape = RoundedCornerShape(32.dp)
+                                )
+                                .padding(3.dp)
+                                .clip(RoundedCornerShape(29.dp))
+                                .background(Color(0xFF10121E))
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onDoubleTap = {
+                                            triggerHaptic()
+                                            onToggleFavorite(track)
+                                        },
+                                        onLongPress = {
+                                            triggerHaptic()
+                                            showRadialMenu = true
+                                        },
+                                        onTap = {
+                                            isImmersive = !isImmersive
+                                        }
+                                    )
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (!track.artworkUri.isNullOrEmpty()) {
+                                AsyncImage(
+                                    model = track.artworkUri,
+                                    contentDescription = track.title,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                MusicArtworkPlaceholder(
+                                    title = track.title,
+                                    artist = track.artist,
+                                    trackId = track.id,
+                                    palette = dynamicCoverPalette,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    }
+
+                    NowPlayingCenterView.LYRICS -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .liquidGlass(
+                                    shape = RoundedCornerShape(30.dp),
+                                    thickness = GlassThickness.REGULAR,
+                                    tintColor = coverPrimary,
+                                    tintAlpha = 0.18f,
+                                    secondaryAccent = coverAccent
+                                )
+                                .padding(14.dp)
+                        ) {
+                            LyricsView(
+                                lyrics = currentLyrics,
+                                currentPositionProvider = currentPositionProvider,
+                                displayMode = appSettings.lyricsDisplayMode,
+                                palette = dynamicCoverPalette,
+                                onSeekTo = onSeekTo,
+                                onOpenEditor = onOpenLyricsEditor,
+                                enableWordHighlight = appSettings.lyricsKaraokeWordHighlight,
+                                baseFontSize = appSettings.lyricsFontSize,
+                                activeTrackId = track.id,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                }
+            }
+
+            // =========================================================================
+            // ۴. داک شیشه‌ای یکپارچه پایین صفحه (تغییر رنگ ۱۰۰٪ با کاور آهنگ + کنتراست تضمینی)
+            // =========================================================================
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .liquidGlass(
+                        shape = RoundedCornerShape(32.dp),
+                        thickness = GlassThickness.THICK,
+                        tintColor = coverPrimary,
+                        tintAlpha = 0.22f,
+                        borderWidth = 1.4.dp,
+                        secondaryAccent = coverAccent
+                    )
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // الف) نام آهنگ، خواننده، موج انرژی زنده و دکمه قلب
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = track.title,
+                                style = MaterialTheme.typography.headlineSmall.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White,
+                                    fontSize = 20.sp
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+
+                            LiveCoverEnergyBars(
+                                isPlaying = isPlaying,
+                                primaryColor = coverPrimary,
+                                accentColor = coverAccent
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(3.dp))
 
                         Text(
-                            text = formatDurationMs(safeDuration),
-                            color = Color.White.copy(alpha = 0.72f),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Medium
+                            text = "${track.artist} • ${track.album}",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = Color.White.copy(alpha = 0.82f),
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    IconButton(
+                        onClick = {
+                            triggerHaptic()
+                            onToggleFavorite(track)
+                        },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = if (track.isFavorite) Color(0xFFFF1744) else coverPrimary,
+                                tintAlpha = if (track.isFavorite) 0.35f else 0.16f
+                            )
+                    ) {
+                        Icon(
+                            imageVector = if (track.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = "Favorite",
+                            tint = if (track.isFavorite) Color(0xFFFF1744) else Color.White,
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
 
-                // ج) دکمه‌های اصلی کنترل پخش (Shuffle, Previous, Dynamic Play Orb, Next, Repeat)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    SmallGlassIconButton(
-                        icon = Icons.Rounded.Shuffle,
-                        iconTint = if (isShuffleEnabled) activeSecondary else Color.White.copy(alpha = 0.70f),
-                        accentColor = activePrimary,
-                        secondaryColor = activeSecondary,
-                        size = 42.dp,
-                        onClick = onToggleShuffle
-                    )
-
-                    SmallGlassIconButton(
-                        icon = Icons.Rounded.SkipPrevious,
-                        accentColor = activePrimary,
-                        secondaryColor = activeSecondary,
-                        size = 54.dp,
-                        iconSize = 28.dp,
-                        onClick = onPrevious
-                    )
-
-                    // دکمه مرکزی Play / Pause که کل گوی نوری آن با رنگ آهنگ تغییر می‌کند
-                    DynamicChameleonPlayOrb(
-                        isPlaying = isPlaying,
-                        primaryColor = activePrimary,
-                        secondaryColor = activeSecondary,
-                        onClick = onTogglePlay
-                    )
-
-                    SmallGlassIconButton(
-                        icon = Icons.Rounded.SkipNext,
-                        accentColor = activePrimary,
-                        secondaryColor = activeSecondary,
-                        size = 54.dp,
-                        iconSize = 28.dp,
-                        onClick = onNext
-                    )
-
-                    SmallGlassIconButton(
-                        icon = if (repeatMode == 1) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                        iconTint = if (repeatMode > 0) activeSecondary else Color.White.copy(alpha = 0.70f),
-                        accentColor = activePrimary,
-                        secondaryColor = activeSecondary,
-                        size = 42.dp,
-                        onClick = onToggleRepeat
-                    )
-                }
-
-                // د) اسلایدر صدای شیشه‌ای هماهنگ با رنگ آهنگ + دکمه‌های دسترسی سریع پایین داک
-                DynamicColorVolumeBar(
-                    primaryColor = activePrimary,
-                    secondaryColor = activeSecondary
+                // ب) نوار پیشرفت هماهنگ با رنگ کاور آهنگ (بدون رنگ نارنجی دستی!)
+                val dur = if (track.durationMs > 0) track.durationMs else 1L
+                LiquidGlassProgressBar(
+                    currentPositionProvider = currentPositionProvider,
+                    durationMs = dur,
+                    palette = dynamicCoverPalette,
+                    analysisDataProvider = analysisDataProvider,
+                    onSeekTo = onSeekTo,
+                    waveformEnvelope = waveformFloats,
+                    modifier = Modifier.fillMaxWidth()
                 )
 
+                // ج) دکمه‌های کنترل پخش با کنتراست تضمین‌شده و گوی نوری هم‌رنگ کاور
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // دکمه Shuffle
+                    IconButton(
+                        onClick = {
+                            triggerHaptic()
+                            onToggleShuffle()
+                        },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = if (playbackState.isShuffle) coverAccent else coverPrimary,
+                                tintAlpha = if (playbackState.isShuffle) 0.30f else 0.12f
+                            )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Shuffle,
+                            contentDescription = "Shuffle",
+                            tint = if (playbackState.isShuffle) coverAccent else Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    // دکمه قبلی (Skip Previous)
+                    IconButton(
+                        onClick = {
+                            triggerHaptic()
+                            onPrevious()
+                        },
+                        modifier = Modifier
+                            .size(50.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = coverPrimary,
+                                tintAlpha = 0.18f
+                            )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SkipPrevious,
+                            contentDescription = "Previous",
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
+                    // دکمه مرکزی Play / Pause که رنگش را مستقیم از کاور می‌گیرد و آیکونش همیشه ۱۰۰٪ خواناست
+                    CoverReactivePlayButton(
+                        isPlaying = isPlaying,
+                        primaryColor = coverPrimary,
+                        secondaryColor = coverSecondary,
+                        accentColor = coverAccent,
+                        onClick = {
+                            triggerHaptic()
+                            onTogglePlay()
+                        }
+                    )
+
+                    // دکمه بعدی (Skip Next)
+                    IconButton(
+                        onClick = {
+                            triggerHaptic()
+                            onNext()
+                        },
+                        modifier = Modifier
+                            .size(50.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = coverPrimary,
+                                tintAlpha = 0.18f
+                            )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SkipNext,
+                            contentDescription = "Next",
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
+                    // دکمه Repeat
+                    IconButton(
+                        onClick = {
+                            triggerHaptic()
+                            onCycleRepeat()
+                        },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = if (playbackState.repeatMode != PlaybackRepeatMode.OFF) coverAccent else coverPrimary,
+                                tintAlpha = if (playbackState.repeatMode != PlaybackRepeatMode.OFF) 0.30f else 0.12f
+                            )
+                    ) {
+                        val repIcon = when (playbackState.repeatMode) {
+                            PlaybackRepeatMode.ONE -> Icons.Default.RepeatOne
+                            PlaybackRepeatMode.ALL -> Icons.Default.Repeat
+                            PlaybackRepeatMode.OFF -> Icons.Default.Repeat
+                        }
+                        Icon(
+                            imageVector = repIcon,
+                            contentDescription = "Repeat",
+                            tint = if (playbackState.repeatMode != PlaybackRepeatMode.OFF) coverAccent else Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                // د) اسلایدر صدا که رنگش با کاور آهنگ عوض می‌شود
+                LiquidGlassVolumeControl(
+                    palette = dynamicCoverPalette,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // ه) نوار ابزار پایینی: [ Lyrics ] [ Speed ] [ Share ] [ Queue ]
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    BottomUtilityPill(
-                        icon = Icons.Rounded.Lyrics,
-                        label = "Lyrics",
-                        accentColor = activePrimary,
-                        secondaryColor = activeSecondary,
-                        onClick = onOpenLyrics
-                    )
-                    BottomUtilityPill(
-                        icon = Icons.Rounded.QueueMusic,
-                        label = "Queue",
-                        accentColor = activePrimary,
-                        secondaryColor = activeSecondary,
-                        onClick = onOpenQueue
-                    )
-                    BottomUtilityPill(
-                        icon = Icons.Rounded.Share,
-                        label = "Share",
-                        accentColor = activePrimary,
-                        secondaryColor = activeSecondary,
-                        onClick = onShareTrack
-                    )
+                    Box(
+                        modifier = Modifier
+                            .liquidGlass(
+                                shape = RoundedCornerShape(20.dp),
+                                thickness = GlassThickness.THIN,
+                                tintColor = if (centerView == NowPlayingCenterView.LYRICS) coverAccent else coverPrimary,
+                                tintAlpha = if (centerView == NowPlayingCenterView.LYRICS) 0.32f else 0.14f
+                            )
+                            .clickable {
+                                triggerHaptic()
+                                centerView = if (centerView == NowPlayingCenterView.LYRICS) {
+                                    NowPlayingCenterView.ARTWORK_AND_HALO
+                                } else {
+                                    NowPlayingCenterView.LYRICS
+                                }
+                            }
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Lyrics,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (appSettings.language == AppLanguage.PERSIAN) "متن ترانه" else "Lyrics",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .liquidGlass(
+                                shape = RoundedCornerShape(20.dp),
+                                thickness = GlassThickness.THIN,
+                                tintColor = coverPrimary,
+                                tintAlpha = 0.14f
+                            )
+                            .clickable {
+                                triggerHaptic()
+                                val nextSpeed = when (appSettings.playbackSpeed) {
+                                    1.0f -> 1.25f
+                                    1.25f -> 1.5f
+                                    1.5f -> 2.0f
+                                    else -> 1.0f
+                                }
+                                onPlaybackSpeedChange(nextSpeed)
+                            }
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                    ) {
+                        Text(
+                            text = "${appSettings.playbackSpeed}x",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    IconButton(
+                        onClick = {
+                            triggerHaptic()
+                            onShareSong(track)
+                        },
+                        modifier = Modifier
+                            .size(38.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = coverPrimary,
+                                tintAlpha = 0.14f
+                            )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Share",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = {
+                            triggerHaptic()
+                            onOpenQueue()
+                        },
+                        modifier = Modifier
+                            .size(38.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = coverPrimary,
+                                tintAlpha = 0.14f
+                            )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.QueueMusic,
+                            contentDescription = "Queue",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
+        }
+
+        if (showRadialMenu) {
+            RadialActionMenu(
+                track = track,
+                palette = dynamicCoverPalette,
+                hapticEnabled = appSettings.hapticFeedbackEnabled,
+                onDismiss = { showRadialMenu = false },
+                onPlayNext = { onNext() },
+                onAddToQueue = { onOpenQueue() },
+                onToggleFavorite = { onToggleFavorite(track) },
+                onAddToPlaylist = { onOpenMetadataEditor(track) },
+                onShare = { onShareSong(track) }
+            )
+        }
+
+        if (appSettings.developerModeEnabled) {
+            DeveloperHud(
+                analysisDataProvider = analysisDataProvider,
+                playbackState = playbackState,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = 80.dp, start = 16.dp)
+            )
         }
     }
 }
 
 /**
- * Overload for NowPlayingScreen to seamlessly support MainScreen and ViewModel state bindings
+ * دکمه Play/Pause مرکزی با هاله بلر شده هم‌رنگ با کاور آهنگ و کنتراست هوشمند آیکون
+ * (حتی اگر کاور آهنگ کاملاً سفید باشد، آیکون هرگز سفید تو سفید و ناپدید نمی‌شود)
  */
 @Composable
-fun NowPlayingScreen(
-    playbackState: PlaybackState,
-    palette: AmbientPalette,
-    currentLyrics: List<LyricsLine> = emptyList(),
-    appSettings: AppSettings? = null,
-    analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() },
-    currentPositionProvider: () -> Long = { playbackState.currentPositionMs },
-    currentPositionMs: Long? = null,
-    audioProfile: TrackAudioProfile? = null,
-    onCollapse: () -> Unit = {},
-    onTogglePlay: () -> Unit = {},
-    onNext: () -> Unit = {},
-    onPrevious: () -> Unit = {},
-    onSeekTo: (Long) -> Unit = {},
-    onToggleFavorite: (Track) -> Unit = {},
-    onToggleShuffle: () -> Unit = {},
-    onCycleShuffleMode: () -> Unit = {},
-    onCycleRepeat: () -> Unit = {},
-    onOpenLyricsEditor: () -> Unit = {},
-    onOpenEqualizer: () -> Unit = {},
-    onOpenQueue: () -> Unit = {},
-    onSelectVisualizerMode: (com.example.data.model.VisualizerMode) -> Unit = {},
-    onOpenSleepTimer: () -> Unit = {},
-    onOpenMetadataEditor: (Track?) -> Unit = {},
-    onOpenHearingCalibration: () -> Unit = {},
-    onOpenVipPaywall: (String?) -> Unit = {},
-    onSelectNowPlayingStyle: (String) -> Unit = {},
-    onUpdateTrackArtwork: (Track, String) -> Unit = { _, _ -> },
-    connectedDevice: ConnectedAudioDevice? = null,
-    onShareSong: (Track) -> Unit = {},
-    onPlaybackSpeedChange: (Float) -> Unit = {},
-    modifier: Modifier = Modifier
-) {
-    val curTrack = playbackState.currentTrack
-    val effectivePositionMs = currentPositionMs ?: currentPositionProvider()
-    NowPlayingScreen(
-        currentTrack = curTrack,
-        isPlaying = playbackState.isPlaying,
-        currentPositionMs = effectivePositionMs,
-        durationMs = playbackState.durationMs,
-        isShuffleEnabled = playbackState.isShuffle,
-        repeatMode = playbackState.repeatMode.ordinal,
-        isFavorite = curTrack?.isFavorite ?: false,
-        dominantColor = palette.primary,
-        secondaryColor = palette.accent,
-        connectedDevice = connectedDevice,
-        onTogglePlay = onTogglePlay,
-        onNext = onNext,
-        onPrevious = onPrevious,
-        onSeekTo = onSeekTo,
-        onToggleShuffle = onToggleShuffle,
-        onToggleRepeat = onCycleRepeat,
-        onToggleFavorite = { curTrack?.let { onToggleFavorite(it) } },
-        onOpenLyrics = onOpenLyricsEditor,
-        onOpenEqualizer = onOpenEqualizer,
-        onOpenQueue = onOpenQueue,
-        onShareTrack = { curTrack?.let { onShareSong(it) } },
-        onClose = onCollapse,
-        modifier = modifier
-    )
-}
-
-/**
- * گوی مرکزی Play/Pause با تغییر رنگ زنده بر اساس کاور آهنگ و فیزیک فنری
- */
-@Composable
-private fun DynamicChameleonPlayOrb(
+private fun CoverReactivePlayButton(
     isPlaying: Boolean,
     primaryColor: Color,
     secondaryColor: Color,
+    accentColor: Color,
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -644,228 +949,131 @@ private fun DynamicChameleonPlayOrb(
         label = "PlayOrbScale"
     )
 
+    // محاسبه روشنایی رنگ کاور برای اینکه اگر کاور خیلی روشن/سفید بود، آیکون تیره شود و هرگز گم نشود
+    val luminance = (0.299f * primaryColor.red + 0.587f * primaryColor.green + 0.114f * primaryColor.blue)
+    val iconColor = if (luminance > 0.72f) Color(0xFF090B14) else Color.White
+
     Box(
-        modifier = Modifier
-            .size(74.dp)
-            .scale(scale)
-            .shadow(
-                elevation = 24.dp,
-                shape = CircleShape,
-                ambientColor = primaryColor.copy(alpha = 0.85f),
-                spotColor = Color.Black
-            )
-            .clip(CircleShape)
-            // رینگ تیره اوبسیدین ضد سفیدی برای تضمین کنتراست در هر شرایط
-            .background(Color(0xFF060710))
-            .background(
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        primaryColor,
-                        secondaryColor,
-                        primaryColor.copy(alpha = 0.95f)
+        modifier = Modifier.size(72.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // هاله نوری بلر شده در پشت دکمه پلی
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawIntoCanvas { canvas ->
+                val glowPaint = Paint().apply {
+                    asFrameworkPaint().apply {
+                        isAntiAlias = true
+                        maskFilter = BlurMaskFilter(32f, BlurMaskFilter.Blur.NORMAL)
+                        color = primaryColor.copy(alpha = 0.75f).toArgb()
+                    }
+                }
+                canvas.drawCircle(
+                    Offset(size.width / 2f, size.height / 2f),
+                    size.minDimension / 2.1f,
+                    glowPaint
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .scale(scale)
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            primaryColor,
+                            accentColor.copy(alpha = 0.90f),
+                            secondaryColor
+                        )
                     )
                 )
+                .border(
+                    width = 1.6.dp,
+                    brush = Brush.verticalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.85f),
+                            Color.White.copy(alpha = 0.25f)
+                        )
+                    ),
+                    shape = CircleShape
+                )
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onClick
+                )
+                .testTag("play_pause_button"),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = if (isPlaying) "Pause" else "Play",
+                tint = iconColor,
+                modifier = Modifier.size(34.dp)
             )
-            .border(
-                width = 2.dp,
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.95f),
-                        Color.White.copy(alpha = 0.30f)
-                    )
-                ),
-                shape = CircleShape
-            )
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-            contentDescription = if (isPlaying) "Pause" else "Play",
-            tint = Color.White,
-            modifier = Modifier.size(38.dp)
-        )
+        }
     }
 }
 
 /**
- * دکمه شیشه‌ای کوچک با کنتراست ۱۰۰٪ تضمین‌شده، ضد ناپدید شدن در پس‌زمینه سفید
+ * میله‌های اکولایزر زنده کنار نام آهنگ که با رنگ کاور آهنگ می‌درخشند
  */
 @Composable
-private fun SmallGlassIconButton(
-    icon: ImageVector,
-    accentColor: Color,
-    secondaryColor: Color,
-    iconTint: Color = Color.White,
-    size: Dp = 44.dp,
-    iconSize: Dp = 22.dp,
+private fun LiveCoverEnergyBars(
+    isPlaying: Boolean,
+    primaryColor: Color,
+    accentColor: Color
+) {
+    val transition = rememberInfiniteTransition(label = "CoverEnergyBars")
+    val b1 by transition.animateFloat(0.25f, 1.0f, infiniteRepeatable(tween(320, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b1")
+    val b2 by transition.animateFloat(0.35f, 0.95f, infiniteRepeatable(tween(240, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b2")
+    val b3 by transition.animateFloat(0.20f, 1.0f, infiniteRepeatable(tween(400, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b3")
+    val b4 by transition.animateFloat(0.30f, 0.90f, infiniteRepeatable(tween(280, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b4")
+
+    val bars = if (isPlaying) listOf(b1, b2, b3, b4) else listOf(0.25f, 0.25f, 0.25f, 0.25f)
+
+    Row(
+        modifier = Modifier.height(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.5.dp)
+    ) {
+        bars.forEach { ratio ->
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .fillMaxHeight(ratio)
+                    .clip(CircleShape)
+                    .background(Brush.verticalGradient(listOf(accentColor, primaryColor)))
+            )
+        }
+    }
+}
+
+@Composable
+private fun SegmentPillItem(
+    title: String,
+    isSelected: Boolean,
+    activeColor: Color,
     onClick: () -> Unit
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.88f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "SmallBtnScale"
-    )
+    val lum = (0.299f * activeColor.red + 0.587f * activeColor.green + 0.114f * activeColor.blue)
+    val selectedTextColor = if (lum > 0.72f) Color(0xFF090B14) else Color.White
 
     Box(
         modifier = Modifier
-            .size(size)
-            .scale(scale)
-            .shadow(
-                elevation = 12.dp,
-                shape = CircleShape,
-                ambientColor = Color.Black,
-                spotColor = accentColor.copy(alpha = 0.5f)
-            )
-            .clip(CircleShape)
-            // پایه تیره اوبسیدین برای ممانعت از محو شدن آیکون‌های سفید روی پس‌زمینه‌های روشن
-            .background(Color(0xE60A0C16))
-            .liquidGlass(
-                shape = CircleShape,
-                accentColor = accentColor,
-                secondaryAccent = secondaryColor
-            )
-            .border(
-                width = 1.4.dp,
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.80f),
-                        secondaryColor.copy(alpha = 0.50f),
-                        accentColor.copy(alpha = 0.35f),
-                        Color.White.copy(alpha = 0.20f)
-                    )
-                ),
-                shape = CircleShape
-            )
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            ),
+            .clip(RoundedCornerShape(24.dp))
+            .background(if (isSelected) activeColor else Color.Transparent)
+            .clickable { onClick() }
+            .padding(horizontal = 15.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (iconTint != Color.White) iconTint else Color(0xFFF2F5FD),
-            modifier = Modifier.size(iconSize)
-        )
-    }
-}
-
-/**
- * کپسول‌های شیشه‌ای پایین پلیر با کنتراست تقویت‌شده و مرز کریستالی
- */
-@Composable
-private fun BottomUtilityPill(
-    icon: ImageVector,
-    label: String,
-    accentColor: Color,
-    secondaryColor: Color,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(Color(0xCC0A0C16))
-            .liquidGlass(
-                shape = RoundedCornerShape(50),
-                accentColor = accentColor,
-                secondaryAccent = secondaryColor
-            )
-            .border(
-                width = 1.dp,
-                brush = Brush.horizontalGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.40f),
-                        secondaryColor.copy(alpha = 0.30f),
-                        Color.White.copy(alpha = 0.12f)
-                    )
-                ),
-                shape = RoundedCornerShape(50)
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = secondaryColor,
-            modifier = Modifier.size(16.dp)
-        )
         Text(
-            text = label,
-            color = Color.White.copy(alpha = 0.95f),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold
+            text = title,
+            color = if (isSelected) selectedTextColor else Color(0xFFB0B6CA),
+            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+            fontSize = 12.sp
         )
     }
-}
-
-/**
- * نوار کنترل صدای سیستم که رنگ آن نیز با رنگ آهنگ در حال پخش تغییر می‌کند
- */
-@Composable
-private fun DynamicColorVolumeBar(
-    primaryColor: Color,
-    secondaryColor: Color
-) {
-    val context = LocalContext.current
-    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
-    val maxVolume = remember { audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
-    var volumeRatio by remember {
-        mutableFloatStateOf(
-            audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxVolume.toFloat()
-        )
-    }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Icon(
-            imageVector = Icons.Rounded.VolumeDown,
-            contentDescription = "Volume Down",
-            tint = Color.White.copy(alpha = 0.65f),
-            modifier = Modifier.size(18.dp)
-        )
-
-        LiquidGlassProgressBar(
-            progress = volumeRatio,
-            onSeek = { newRatio ->
-                volumeRatio = newRatio
-                val targetVol = (newRatio * maxVolume).toInt().coerceIn(0, maxVolume)
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVol, 0)
-            },
-            primaryColor = primaryColor,
-            secondaryColor = secondaryColor,
-            modifier = Modifier.weight(1f)
-        )
-
-        Icon(
-            imageVector = Icons.Rounded.VolumeUp,
-            contentDescription = "Volume Up",
-            tint = secondaryColor,
-            modifier = Modifier.size(18.dp)
-        )
-    }
-}
-
-private fun formatDurationMs(ms: Long): String {
-    val totalSeconds = (ms / 1000L).coerceAtLeast(0L)
-    val minutes = totalSeconds / 60L
-    val seconds = totalSeconds % 60L
-    return "%02d:%02d".format(minutes, seconds)
 }
