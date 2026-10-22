@@ -300,15 +300,45 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    private fun playTrackInternal(track: Track, queue: List<Track>, queueIndex: Int, startPositionMs: Long = 0L) {
-        val prevTrack = activePlayingTrackRef
+    /**
+     * ثبت دقیق زمان واقعی گوش دادن به آهنگ:
+     * اگر کاربر آهنگ را زیر ۲۵ ثانیه رد (Skip) کند، به عنوان آهنگ گوشدادهشده ثبت نمیشود!
+     */
+    private fun commitActiveListeningSession(wasSkipped: Boolean) {
+        val prevTrack = activePlayingTrackRef ?: return
         val startTs = trackStartPlayTimestamp
-        if (prevTrack != null && startTs > 0L) {
-            val listenedMs = (System.currentTimeMillis() - startTs).coerceAtLeast(0L)
-            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                repository.recordPlaybackSession(prevTrack, listenedMs, wasSkipped = true)
+        if (startTs <= 0L) return
+
+        val wallElapsedMs = (System.currentTimeMillis() - startTs).coerceAtLeast(0L)
+        val playerPosMs = audioEngine.currentPosition.value.coerceAtLeast(0L)
+        // زمان واقعی گوش دادن (حداکثر تا طول خود آهنگ)
+        val actualListenedMs = minOf(wallElapsedMs, prevTrack.durationMs.coerceAtLeast(180_000L))
+            .coerceAtLeast(if (!wasSkipped) prevTrack.durationMs else minOf(wallElapsedMs, playerPosMs))
+
+        // شرط ضد-اسکیپ: حداقل ۳۰ ثانیه یا ۴۰٪ کل زمان آهنگ باید واقعاً گوش داده شده باشد
+        val minRequiredMs = minOf(30_000L, (prevTrack.durationMs * 0.40f).toLong().coerceAtLeast(15_000L))
+        val isGenuineListen = actualListenedMs >= minRequiredMs
+
+        trackStartPlayTimestamp = 0L
+        activePlayingTrackRef = null
+
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            if (isGenuineListen) {
+                repository.recordPlay(prevTrack.id)
+                repository.recordPlaybackSession(
+                    track = prevTrack,
+                    durationListenedMs = actualListenedMs,
+                    wasSkipped = wasSkipped
+                )
+                UserProfileManager.refreshProfileWithDatabase(app, repository)
+                refreshCurrentWrappedStats()
             }
         }
+    }
+
+    private fun playTrackInternal(track: Track, queue: List<Track>, queueIndex: Int, startPositionMs: Long = 0L) {
+        // ۱. بررسی آهنگ قبلی: فقط اگر واقعاً گوش داده شده باشد ثبت میشود و اگر سریع اسکیپ شده باشد نادیده گرفته میشود
+        commitActiveListeningSession(wasSkipped = true)
 
         activePlayingTrackRef = track
         trackStartPlayTimestamp = System.currentTimeMillis()
@@ -330,13 +360,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             )
         }
 
-        // 1. Play in engine
         audioEngine.playTrack(track, startPositionMs)
-
-        // 2. Load lyrics
         loadLyricsForTrack(track.id)
 
-        // 3. Load Audio Profile (Waveform & Tempo)
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             var profile = repository.getAudioProfile(track.id)
             if (profile == null) {
@@ -346,13 +372,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             _currentTrackAudioProfile.value = profile
         }
 
-        // 4. Extract palette and record metadata
+        // توجه: دیگر در لحظه شروع آهنگ recordPlay صدا زده نمیشود تا آهنگهای اسکیپشده شمارش نشوند!
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val palette = ArtworkPaletteExtractor.extract(track, _appSettings.value, app)
             _activePalette.value = palette
-
-            repository.recordPlay(track.id)
-            UserProfileManager.refreshProfileWithDatabase(app, repository)
             saveLastPlayback(track.id, queue.map { it.id }, startPositionMs)
 
             if (_appSettings.value.preloadNextTrack && queue.size > 1) {
@@ -361,8 +384,6 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     audioEngine.preloadTrack(nextTrack)
                 }
             }
-
-            refreshCurrentWrappedStats()
         }
 
         AudioPlaybackService.update(
@@ -535,17 +556,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private fun handleTrackCompleted() {
         val state = _playbackState.value
         val track = state.currentTrack
-        val startTs = trackStartPlayTimestamp
-        if (track != null && startTs > 0L) {
-            val listenedMs = (System.currentTimeMillis() - startTs).coerceAtLeast(0L)
-            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                repository.recordPlaybackSession(track, listenedMs, wasSkipped = false)
-            }
-        }
-        trackStartPlayTimestamp = 0L
-        activePlayingTrackRef = null
+        commitActiveListeningSession(wasSkipped = false)
 
-        // Priority 1: Repeat One takes absolute precedence
         if (state.repeatMode == RepeatMode.ONE) {
             if (track != null) {
                 playTrackInternal(track, state.queue, state.queueIndex)
@@ -553,7 +565,6 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             return
         }
 
-        // Advance to next track
         val activeQueue = state.queue
         if (activeQueue.isEmpty()) return
         val curIdx = if (track != null) {

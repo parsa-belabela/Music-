@@ -12,39 +12,23 @@ import com.example.data.model.AppTheme
 import com.example.data.model.Track
 import com.example.ui.components.GenerativeArtworkTheme
 import java.io.File
-import java.io.InputStream
 import kotlin.math.abs
 import kotlin.math.sqrt
 
 data class AmbientPalette(
     val primary: Color = Color(0xFF7C4DFF),
-    val secondary: Color = Color(0xFF00E676),
+    val secondary: Color = Color(0xFF00E5FF),
     val haloGlow: Color = Color(0xFF651FFF),
-    val accent: Color = Color(0xFF00E676),
+    val accent: Color = Color(0xFF00E5FF),
     val deepAtmosphere: Color = Color(0xFF07070E),
     val richBlack: Color = Color(0xFF07080E),
     val isLightLuminance: Boolean = false,
     val isMonochrome: Boolean = false
 )
 
-/**
- * High-performance Artwork-Driven Color Engine.
- * Extracts the 3 authentic dominant colors directly from album artwork bitmap.
- * Falls back to harmonic, polished theme defaults when artwork is unavailable.
- * Cached in memory for 0ms subsequent queries.
- */
 object ArtworkPaletteExtractor {
 
     private val paletteCache = LruCache<String, AmbientPalette>(64)
-
-    fun extractColors(context: Context, artworkUri: String?): Pair<Color, Color> {
-        val bitmap = loadThumbnailBitmap(context, artworkUri)
-        if (bitmap != null) {
-            val pal = extractDominantPaletteFromBitmap(bitmap, AppTheme.PURE_LIQUID_GLASS)
-            return Pair(pal.primary, pal.accent)
-        }
-        return Pair(Color(0xFF9D4EDD), Color(0xFF00E5FF))
-    }
 
     fun extract(
         track: Track?,
@@ -55,7 +39,7 @@ object ArtworkPaletteExtractor {
             return getDefaultPalette(appSettings.theme)
         }
 
-        val cacheKey = "${track.id}_${track.artworkUri ?: "no_art"}_${appSettings.theme.name}"
+        val cacheKey = "${track.id}_${track.artworkUri ?: "no_art"}_${appSettings.autoColorFromArtwork}"
         paletteCache.get(cacheKey)?.let { return it }
 
         if (!appSettings.autoColorFromArtwork) {
@@ -64,19 +48,18 @@ object ArtworkPaletteExtractor {
             return defaultPal
         }
 
-        // Try extracting authentic colors from artwork bitmap
         val bitmap = loadThumbnailBitmap(context, track.artworkUri)
         val palette = if (bitmap != null) {
-            extractDominantPaletteFromBitmap(bitmap, appSettings.theme)
+            extractTrueCoverPalette(bitmap)
         } else {
             val gen = GenerativeArtworkTheme.getThemeForTrack(track.title, track.artist, track.id)
             AmbientPalette(
                 primary = gen.primary,
                 secondary = gen.secondary,
-                haloGlow = gen.primary.copy(alpha = 0.70f),
+                haloGlow = gen.primary.copy(alpha = 0.85f),
                 accent = gen.tertiary,
                 deepAtmosphere = gen.deep,
-                richBlack = Color(0xFF090A14),
+                richBlack = Color(0xFF06070F),
                 isLightLuminance = false,
                 isMonochrome = false
             )
@@ -91,30 +74,21 @@ object ArtworkPaletteExtractor {
         return try {
             val uri = Uri.parse(artworkUri)
             val options = BitmapFactory.Options().apply {
-                inSampleSize = 4 // Subsample for fast decoding
+                inSampleSize = 4
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
 
             when (uri.scheme) {
-                "content" -> {
-                    context.contentResolver.openInputStream(uri)?.use { stream ->
-                        BitmapFactory.decodeStream(stream, null, options)
-                    }
+                "content" -> context.contentResolver.openInputStream(uri)?.use {
+                    BitmapFactory.decodeStream(it, null, options)
                 }
                 "file" -> {
-                    val path = uri.path ?: artworkUri
-                    val file = File(path)
-                    if (file.exists()) {
-                        BitmapFactory.decodeFile(file.absolutePath, options)
-                    } else null
+                    val file = File(uri.path ?: artworkUri)
+                    if (file.exists()) BitmapFactory.decodeFile(file.absolutePath, options) else null
                 }
                 else -> {
-                    if (artworkUri.startsWith("/")) {
-                        val file = File(artworkUri)
-                        if (file.exists()) {
-                            BitmapFactory.decodeFile(file.absolutePath, options)
-                        } else null
-                    } else null
+                    val file = File(artworkUri)
+                    if (file.exists()) BitmapFactory.decodeFile(file.absolutePath, options) else null
                 }
             }
         } catch (_: Exception) {
@@ -122,307 +96,163 @@ object ArtworkPaletteExtractor {
         }
     }
 
-    private fun extractDominantPaletteFromBitmap(bitmap: Bitmap, theme: AppTheme): AmbientPalette {
+    /**
+     * استخراج دقیق رنگ غالب کاور بر اساس مساحت واقعی رنگها در تصویر (بدون تحریف Hue)
+     */
+    private fun extractTrueCoverPalette(bitmap: Bitmap): AmbientPalette {
         return try {
-            // Resize to 40x40 thumbnail for instantaneous color clustering
-            val scaled = if (bitmap.width > 48 || bitmap.height > 48) {
-                Bitmap.createScaledBitmap(bitmap, 40, 40, true)
-            } else {
-                bitmap
-            }
-
-            val width = scaled.width
-            val height = scaled.height
-            val pixels = IntArray(width * height)
-            scaled.getPixels(pixels, 0, width, 0, 0, width, height)
+            val size = 48
+            val scaled = Bitmap.createScaledBitmap(bitmap, size, size, true)
+            val pixels = IntArray(size * size)
+            scaled.getPixels(pixels, 0, size, 0, 0, size, size)
 
             val hsv = FloatArray(3)
-            val colorBuckets = HashMap<Int, Int>() // Key -> pixel count
-            val colorVibrancy = HashMap<Int, Float>() // Key -> total saturation * value
-            val bucketBestColor = HashMap<Int, Color>()
-            val bucketBestScore = HashMap<Int, Float>()
+            // تقسیم طیف رنگ به 24 بخش دقیق (هر 15 درجه) برای حفظ کامل رنگ واقعی کاور
+            val bucketWeight = FloatArray(24)
+            val bucketR = FloatArray(24)
+            val bucketG = FloatArray(24)
+            val bucketB = FloatArray(24)
 
-            // First pass: analyze monochrome / grayscale characteristics
-            var lowSatPixelCount = 0
-            var validPixelCount = 0
-            var sumSat = 0f
-            var sumLum = 0f
+            var totalValid = 0f
+            var lowSatWeight = 0f
+            var avgLum = 0f
 
-            for (pixel in pixels) {
-                val alpha = (pixel ushr 24) and 0xff
-                if (alpha < 128) continue
+            for (y in 0 until size) {
+                for (x in 0 until size) {
+                    val pixel = pixels[y * size + x]
+                    val a = (pixel ushr 24) and 0xFF
+                    if (a < 128) continue
 
-                android.graphics.Color.colorToHSV(pixel, hsv)
-                val sat = hsv[1]
-                val value = hsv[2]
-                validPixelCount++
-                sumSat += sat
-                sumLum += value
-                if (sat < 0.16f) {
-                    lowSatPixelCount++
+                    val r = ((pixel shr 16) and 0xFF) / 255f
+                    val g = ((pixel shr 8) and 0xFF) / 255f
+                    val b = (pixel and 0xFF) / 255f
+
+                    android.graphics.Color.colorToHSV(pixel, hsv)
+                    val hue = hsv[0]
+                    val sat = hsv[1]
+                    val value = hsv[2]
+
+                    // وزندهی بیشتر به مرکز و بدنه اصلی کاور نسبت به حاشیههای پرت
+                    val dx = (x - size / 2f) / (size / 2f)
+                    val dy = (y - size / 2f) / (size / 2f)
+                    val centerWeight = (1.35f - (dx * dx + dy * dy) * 0.5f).coerceIn(0.6f, 1.35f)
+
+                    totalValid += centerWeight
+                    avgLum += value * centerWeight
+
+                    if (sat < 0.14f || value < 0.10f) {
+                        lowSatWeight += centerWeight
+                        continue
+                    }
+
+                    val bin = ((hue / 15f).toInt()).coerceIn(0, 23)
+                    // اولویت با مساحت واقعی رنگ روی کاور است تا رنگهای کوچک و بیربط انتخاب نشوند
+                    val weight = centerWeight * (0.65f + sat * 0.35f) * (0.5f + value * 0.5f)
+                    bucketWeight[bin] += weight
+                    bucketR[bin] += r * weight
+                    bucketG[bin] += g * weight
+                    bucketB[bin] += b * weight
                 }
             }
 
-            // If >= 70% of pixels have saturation < 0.16 or mean saturation is < 0.13, this is a Black & White / Grayscale album cover!
-            val isMonochrome = validPixelCount > 0 && (
-                (lowSatPixelCount.toFloat() / validPixelCount >= 0.70f) ||
-                (sumSat / validPixelCount < 0.13f)
-            )
-
-            if (isMonochrome) {
-                // High-Contrast Monochrome Palette with Pure Luminous Silver/White (NO spurious blue/cyan)
-                val primary = Color(0xFFF1F5F9) // Luminous Silver-Platinum
-                val secondary = Color(0xFF94A3B8) // Muted Slate Chrome
-                val accent = Color(0xFFFFFFFF) // Pure Crisp Diamond White
-                val deepAtmosphere = Color(0xFF070911) // Deepest velvet atmosphere
-                val richBlack = Color(0xFF020306) // Absolute Pure Black
-
+            // اگر بیش از ۷۸٪ کاور سیاهوسفید یا خاکستری بود، هاله نقرهای/سفید خالص تولید شود
+            val isMono = totalValid > 0f && (lowSatWeight / totalValid) > 0.78f
+            if (isMono) {
                 return AmbientPalette(
-                    primary = primary,
-                    secondary = secondary,
-                    haloGlow = Color(0x60FFFFFF),
-                    accent = accent,
-                    deepAtmosphere = deepAtmosphere,
-                    richBlack = richBlack,
-                    isLightLuminance = false,
+                    primary = Color(0xFFE2E8F0),
+                    secondary = Color(0xFF94A3B8),
+                    haloGlow = Color(0xB3E2E8F0),
+                    accent = Color(0xFFFFFFFF),
+                    deepAtmosphere = Color(0xFF080A12),
+                    richBlack = Color(0xFF040508),
+                    isLightLuminance = (avgLum / totalValid.coerceAtLeast(1f)) > 0.65f,
                     isMonochrome = true
                 )
             }
 
-            for (pixel in pixels) {
-                val alpha = (pixel ushr 24) and 0xff
-                if (alpha < 128) continue
+            val sortedBins = (0 until 24).sortedByDescending { bucketWeight[it] }
+            val extractedColors = mutableListOf<Color>()
 
-                android.graphics.Color.colorToHSV(pixel, hsv)
-                val hue = hsv[0]
-                val sat = hsv[1]
-                val value = hsv[2]
+            for (bin in sortedBins) {
+                val w = bucketWeight[bin]
+                if (w <= 0.01f) continue
+                val avgR = (bucketR[bin] / w).coerceIn(0f, 1f)
+                val avgG = (bucketG[bin] / w).coerceIn(0f, 1f)
+                val avgB = (bucketB[bin] / w).coerceIn(0f, 1f)
 
-                // Discard extreme near-black or extreme washed-out white
-                if (value < 0.15f || (sat < 0.10f && value > 0.88f)) continue
-
-                // Quantize hue into 18 bins (20 deg each), sat into 3 bins, value into 3 bins
-                val hueBin = (hue / 20f).toInt().coerceIn(0, 17)
-                val satBin = (sat * 2.99f).toInt().coerceIn(0, 2)
-                val valBin = (value * 2.99f).toInt().coerceIn(0, 2)
-                val key = (hueBin shl 4) or (satBin shl 2) or valBin
-
-                colorBuckets[key] = (colorBuckets[key] ?: 0) + 1
-                val pixelVibrancy = (sat * sat) * value
-                colorVibrancy[key] = (colorVibrancy[key] ?: 0f) + pixelVibrancy
-
-                if (pixelVibrancy > (bucketBestScore[key] ?: -1f)) {
-                    bucketBestScore[key] = pixelVibrancy
-                    val boostedHsv = floatArrayOf(
-                        hue,
-                        (sat * 1.30f + 0.18f).coerceIn(0.65f, 1.0f),
-                        (value * 1.25f + 0.15f).coerceIn(0.85f, 1.0f)
-                    )
-                    bucketBestColor[key] = Color(android.graphics.Color.HSVToColor(boostedHsv))
+                val candidate = refineCoverColor(Color(avgR, avgG, avgB, 1f))
+                if (extractedColors.isEmpty() || extractedColors.none { colorDistance(it, candidate) < 42.0 }) {
+                    extractedColors.add(candidate)
+                    if (extractedColors.size >= 3) break
                 }
             }
 
-            if (colorBuckets.isEmpty()) {
-                return getDefaultPalette(theme)
-            }
+            val primary = extractedColors.getOrNull(0) ?: Color(0xFF8B5CF6)
+            val secondary = extractedColors.getOrNull(1) ?: shiftHarmonicColor(primary, 22f, 0.90f)
+            val accent = extractedColors.getOrNull(2) ?: shiftHarmonicColor(primary, -18f, 1.08f)
 
-            // Heavily reward saturation and vibrancy so lights pop
-            val rankedKeys = colorBuckets.keys.sortedByDescending { key ->
-                val count = colorBuckets[key] ?: 1
-                val totalVibrancy = colorVibrancy[key] ?: 0f
-                count * 0.3f + totalVibrancy * 2.5f
-            }
-
-            val dominantColors = mutableListOf<Color>()
-            for (key in rankedKeys) {
-                val candidateColor = bucketBestColor[key] ?: run {
-                    val hueBin = (key shr 4) and 0x1F
-                    val hue = (hueBin * 20f + 10f).coerceIn(0f, 360f)
-                    Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.85f, 0.95f)))
-                }
-
-                // Distinct color separation check
-                if (dominantColors.isEmpty() || dominantColors.none { colorDistance(it, candidateColor) < 55 }) {
-                    dominantColors.add(candidateColor)
-                    if (dominantColors.size >= 3) break
-                }
-            }
-
-            val rawPrimary = dominantColors.getOrNull(0) ?: Color(0xFFFF007F)
-            val rawSecondary = dominantColors.getOrNull(1) ?: Color(0xFF00E5FF)
-            val rawAccent = dominantColors.getOrNull(2) ?: Color(0xFFFF9100)
-
-            // Dynamic high-energy cinematic color grading: maximize saturation and luminosity for vibrant neon glow
-            val primary = enhanceCinematicVibrance(rawPrimary, boostSat = 1.45f, boostVal = 1.35f)
-            val secondary = enhanceCinematicVibrance(rawSecondary, boostSat = 1.40f, boostVal = 1.30f)
-            val accent = enhanceCinematicVibrance(rawAccent, boostSat = 1.50f, boostVal = 1.40f)
-
-            // Compute perceived luminance (Rec. 709 / W3C formula)
-            val perceivedLuminance = (0.299f * primary.red + 0.587f * primary.green + 0.114f * primary.blue)
-            val isLightLuminance = perceivedLuminance > 0.62f
-
-            // Deep background atmosphere derived cleanly and richly with Deep Chromatic Obsidian
             val deepHsv = FloatArray(3)
             android.graphics.Color.colorToHSV(primary.toArgb(), deepHsv)
-            val deepAtmosphere = Color(android.graphics.Color.HSVToColor(floatArrayOf(deepHsv[0], 0.85f, 0.05f)))
-            val richBlack = Color(android.graphics.Color.HSVToColor(floatArrayOf(deepHsv[0], 0.92f, 0.022f)))
+            val deepAtmosphere = Color(
+                android.graphics.Color.HSVToColor(
+                    floatArrayOf(deepHsv[0], (deepHsv[1] * 0.75f).coerceIn(0.3f, 0.85f), 0.12f)
+                )
+            )
 
-            val rawPalette = AmbientPalette(
+            val perceivedLum = 0.299f * primary.red + 0.587f * primary.green + 0.114f * primary.blue
+
+            AmbientPalette(
                 primary = primary,
                 secondary = secondary,
-                haloGlow = primary.copy(alpha = 0.85f),
+                haloGlow = primary.copy(alpha = 0.88f),
                 accent = accent,
                 deepAtmosphere = deepAtmosphere,
-                richBlack = richBlack,
-                isLightLuminance = isLightLuminance
+                richBlack = Color(0xFF05060C),
+                isLightLuminance = perceivedLum > 0.65f,
+                isMonochrome = false
             )
-            applyThemeGrade(rawPalette, theme)
         } catch (_: Exception) {
-            getDefaultPalette(theme)
+            getDefaultPalette(AppTheme.PURE_LIQUID_GLASS)
         }
     }
 
-    fun applyThemeGrade(raw: AmbientPalette, theme: AppTheme): AmbientPalette {
-        return when (theme) {
-            AppTheme.MONOCHROME_NOIR -> AmbientPalette(
-                primary = Color(0xFFF8FAFC), // Pure Diamond White
-                secondary = Color(0xFF090B12), // Rich Velvet Obsidian Black
-                haloGlow = Color(0x65FFFFFF),
-                accent = Color(0xFF282C3D), // Sleek Graphite / Gunmetal
-                deepAtmosphere = Color(0xFF020204), // Deepest Void Black
-                richBlack = Color(0xFF000000),
-                isLightLuminance = false,
-                isMonochrome = true
-            )
-            AppTheme.CYBER_NIGHTS -> AmbientPalette(
-                primary = blendColors(raw.primary, Color(0xFF00F0FF), 0.45f), // Cyan Cyberpunk
-                secondary = Color(0xFFFF007F), // Laser Rose Pink
-                haloGlow = Color(0x9900F0FF),
-                accent = Color(0xFF9D4EDD), // Neon Ultraviolet
-                deepAtmosphere = Color(0xFF020716),
-                richBlack = Color(0xFF03050B)
-            )
-            AppTheme.VELVET_NOIR -> AmbientPalette(
-                primary = blendColors(raw.primary, Color(0xFFFFD700), 0.35f), // Imperial Gold
-                secondary = Color(0xFF9333EA), // Royal Velvet Purple
-                haloGlow = Color(0x99FFD700),
-                accent = Color(0xFFBE185D), // Radiant Burgundy
-                deepAtmosphere = Color(0xFF0B020E),
-                richBlack = Color(0xFF08020A)
-            )
-            AppTheme.SUNSET_RAVE -> AmbientPalette(
-                primary = blendColors(raw.primary, Color(0xFFFF5E00), 0.40f), // Solar Orange
-                secondary = Color(0xFFFF1361), // Hot Synth Coral Pink
-                haloGlow = Color(0x99FF5E00),
-                accent = Color(0xFFFFD200), // Radiant Sunbeam Gold
-                deepAtmosphere = Color(0xFF130314),
-                richBlack = Color(0xFF09010A)
-            )
-            AppTheme.DIGITAL_ACID -> AmbientPalette(
-                primary = Color(0xFF39FF14), // Radioactive Acid Lime
-                secondary = Color(0xFF00FF66), // Toxic Matrix Green
-                haloGlow = Color(0x9939FF14),
-                accent = Color(0xFF00F5D4), // Phosphor Cyan
-                deepAtmosphere = Color(0xFF000500),
-                richBlack = Color(0xFF000200)
-            )
-            AppTheme.Y2K_CHROME -> AmbientPalette(
-                primary = blendColors(raw.primary, Color(0xFFE2E8F0), 0.50f), // Liquid Mercury Silver
-                secondary = Color(0xFF38BDF8), // Electric Ice Blue
-                haloGlow = Color(0x8038BDF8),
-                accent = Color(0xFFCBD5E1), // Platinum Chrome
-                deepAtmosphere = Color(0xFF080B10),
-                richBlack = Color(0xFF040608)
-            )
-            AppTheme.PURE_LIQUID_GLASS -> AmbientPalette(
-                primary = raw.primary,
-                secondary = blendColors(raw.secondary, raw.primary, 0.25f),
-                haloGlow = raw.primary.copy(alpha = 0.78f),
-                accent = if (raw.isMonochrome) Color(0xFFFFFFFF) else raw.secondary,
-                deepAtmosphere = raw.deepAtmosphere,
-                richBlack = raw.richBlack,
-                isLightLuminance = raw.isLightLuminance,
-                isMonochrome = raw.isMonochrome
-            )
-        }
-    }
-
-    private fun blendColors(c1: Color, c2: Color, ratio: Float): Color {
-        val r = (c1.red * (1f - ratio) + c2.red * ratio).coerceIn(0f, 1f)
-        val g = (c1.green * (1f - ratio) + c2.green * ratio).coerceIn(0f, 1f)
-        val b = (c1.blue * (1f - ratio) + c2.blue * ratio).coerceIn(0f, 1f)
-        return Color(r, g, b, 1f)
-    }
-
-    private fun enhanceCinematicVibrance(color: Color, boostSat: Float, boostVal: Float): Color {
+    /**
+     * حفظ دقیق Hue اصلی کاور و فقط تنظیم روشنایی برای اینکه نور دور کاور قوی و زنده دیده شود
+     */
+    private fun refineCoverColor(raw: Color): Color {
         val hsv = FloatArray(3)
-        android.graphics.Color.colorToHSV(color.toArgb(), hsv)
-        hsv[1] = (hsv[1] * boostSat + 0.16f).coerceIn(0.68f, 1.0f)
-        hsv[2] = (hsv[2] * boostVal + 0.12f).coerceIn(0.85f, 1.0f)
+        android.graphics.Color.colorToHSV(raw.toArgb(), hsv)
+        // Hue (hsv[0]) مطلقاً تغییر نمیکند تا رنگ کاور عوض نشود
+        hsv[1] = (hsv[1] * 1.12f).coerceIn(0.35f, 0.96f)
+        hsv[2] = hsv[2].coerceIn(0.68f, 0.98f)
+        return Color(android.graphics.Color.HSVToColor(hsv))
+    }
+
+    private fun shiftHarmonicColor(base: Color, hueShift: Float, valMultiplier: Float): Color {
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(base.toArgb(), hsv)
+        hsv[0] = (hsv[0] + hueShift + 360f) % 360f
+        hsv[1] = (hsv[1] * 1.05f).coerceIn(0.35f, 0.95f)
+        hsv[2] = (hsv[2] * valMultiplier).coerceIn(0.65f, 1.0f)
         return Color(android.graphics.Color.HSVToColor(hsv))
     }
 
     private fun colorDistance(c1: Color, c2: Color): Double {
-        val r = (c1.red - c2.red) * 255
-        val g = (c1.green - c2.green) * 255
-        val b = (c1.blue - c2.blue) * 255
-        return sqrt((r * r + g * g + b * b).toDouble())
+        val r = (c1.red - c2.red) * 255.0
+        val g = (c1.green - c2.green) * 255.0
+        val b = (c1.blue - c2.blue) * 255.0
+        return sqrt(r * r + g * g + b * b)
     }
 
+    fun applyThemeGrade(raw: AmbientPalette, theme: AppTheme): AmbientPalette = raw
+
     fun getDefaultPalette(theme: AppTheme): AmbientPalette {
-        return when (theme) {
-            AppTheme.PURE_LIQUID_GLASS -> AmbientPalette(
-                primary = Color(0xFF00E5FF), // Pure Crystal Cyan
-                secondary = Color(0xFF8B5CF6), // Prismatic Violet
-                haloGlow = Color(0x9900E5FF),
-                accent = Color(0xFFFFFFFF), // Pure Ice White
-                deepAtmosphere = Color(0xFF060810) // Pure ultra-deep midnight for maximum glass transparency
-            )
-            AppTheme.CYBER_NIGHTS -> AmbientPalette(
-                primary = Color(0xFF00F0FF), // Electric Laser Cyan
-                secondary = Color(0xFF1E3A8A), // Midnight Navy
-                haloGlow = Color(0x9900F0FF),
-                accent = Color(0xFFFF007F), // Laser Rose Magenta
-                deepAtmosphere = Color(0xFF030712)
-            )
-            AppTheme.Y2K_CHROME -> AmbientPalette(
-                primary = Color(0xFFE2E8F0), // Liquid Mercury Silver
-                secondary = Color(0xFF38BDF8), // Electric Ice Blue
-                haloGlow = Color(0x9938BDF8),
-                accent = Color(0xFFFFFFFF), // Platinum White
-                deepAtmosphere = Color(0xFF080B10)
-            )
-            AppTheme.VELVET_NOIR -> AmbientPalette(
-                primary = Color(0xFFFFD700), // Imperial 24K Gold
-                secondary = Color(0xFF581C87), // Deep Royal Velvet
-                haloGlow = Color(0x99FFD700),
-                accent = Color(0xFFF59E0B), // Champagne Gold
-                deepAtmosphere = Color(0xFF0B020E)
-            )
-            AppTheme.SUNSET_RAVE -> AmbientPalette(
-                primary = Color(0xFFFF6D00), // Solar Orange
-                secondary = Color(0xFFFF007F), // Radiant Neon Pink
-                haloGlow = Color(0x99FF6D00),
-                accent = Color(0xFFFFD600), // Golden Sunset Ray
-                deepAtmosphere = Color(0xFF130314)
-            )
-            AppTheme.DIGITAL_ACID -> AmbientPalette(
-                primary = Color(0xFF39FF14), // Radioactive Acid Lime
-                secondary = Color(0xFF059669), // Matrix Toxic Green
-                haloGlow = Color(0x9939FF14),
-                accent = Color(0xFF00FF66), // Laser Phosphor
-                deepAtmosphere = Color(0xFF000000)
-            )
-            AppTheme.MONOCHROME_NOIR -> AmbientPalette(
-                primary = Color(0xFFFFFFFF), // Crisp Diamond White
-                secondary = Color(0xFF0E1019), // Rich Onyx / Obsidian Black
-                haloGlow = Color(0x99FFFFFF),
-                accent = Color(0xFF1C1F2E), // Rich Charcoal Jet Black
-                deepAtmosphere = Color(0xFF030306), // Obsidian Pitch Black
-                richBlack = Color(0xFF07080E),
-                isLightLuminance = false,
-                isMonochrome = true
-            )
-        }
+        return AmbientPalette(
+            primary = Color(0xFF8B5CF6),
+            secondary = Color(0xFF00E5FF),
+            haloGlow = Color(0xCC8B5CF6),
+            accent = Color(0xFF38BDF8),
+            deepAtmosphere = Color(0xFF060812)
+        )
     }
 }

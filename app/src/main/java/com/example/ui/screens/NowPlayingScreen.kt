@@ -174,6 +174,7 @@ fun NowPlayingScreen(
 
     var dynamicPhaseRad by remember { mutableFloatStateOf(0f) }
     var smoothReactiveEnergy by remember { mutableFloatStateOf(0.35f) }
+    var smoothReactiveKick by remember { mutableFloatStateOf(0.1f) }
 
     val latestAnalysisProvider by rememberUpdatedState(analysisDataProvider)
     val trackBaseBpm = remember(audioProfile?.estimatedTempoBpm) {
@@ -198,6 +199,9 @@ fun NowPlayingScreen(
                 }
 
                 smoothReactiveEnergy += (targetEnergy - smoothReactiveEnergy) * (dtSec * 6f).coerceIn(0f, 1f)
+
+                val targetKick = if (isPlaying) (audio.kickPulse * 0.8f + audio.bass * 0.2f).coerceIn(0f, 1f) else 0f
+                smoothReactiveKick += (targetKick - smoothReactiveKick) * (dtSec * 12f).coerceIn(0f, 1f)
 
                 if (isPlaying) {
                     val bpmFactor = (trackBaseBpm / 105f).coerceIn(0.65f, 1.65f)
@@ -428,75 +432,86 @@ fun NowPlayingScreen(
                     NowPlayingCenterView.ARTWORK_AND_HALO -> {
                         var artworkSwipeAccum by remember { mutableFloatStateOf(0f) }
 
-                        val dynamicTiltAmplitude = 1.8f + (smoothReactiveEnergy * 4.5f)
-                        val floatOffsetY = sin(dynamicPhaseRad) * (6f + smoothReactiveEnergy * 12f)
-                        val floatOffsetX = cos(dynamicPhaseRad * 0.7f) * (5f + smoothReactiveEnergy * 10f)
+                        // محاسبه حرکت عمودی بالا و پایین (Vertical Bobbing) متناسب با حال و هوای آهنگ:
+                        // در آهنگ آرام: نوسان بسیار نرم و کوتاه | در آهنگ پرانرژی: نوسان زندهتر ولی کنترلشده
+                        val moodIntensity = (smoothReactiveEnergy * 0.7f + smoothReactiveKick * 0.3f).coerceIn(0.08f, 1f)
+                        val verticalBobbingPx = if (isPlaying) {
+                            (sin(dynamicPhaseRad * 1.15f) * (5.5f + moodIntensity * 9.5f)) +
+                                (cos(dynamicPhaseRad * 2.3f) * (smoothReactiveKick * 5.0f))
+                        } else {
+                            sin(dynamicPhaseRad) * 2.0f
+                        }
 
-                        // نور پشت کاور که با فضای کلی آهنگ (آرام یا پرانرژی) به صورت کاملاً محسوس حرکت می‌کند
+                        val dynamicTiltAmplitude = 1.0f + (moodIntensity * 4.2f)
+
+                        // هاله نوری قوی و کاملاً همرنگ با کاور آهنگ در اطراف و پشت کاور
                         Canvas(modifier = Modifier.fillMaxSize()) {
                             val cx = size.width / 2f
-                            val cy = size.height / 2f
-                            val orbitRange = size.minDimension * (0.12f + smoothReactiveEnergy * 0.14f)
-                            val baseR = size.minDimension * (0.38f + smoothReactiveEnergy * 0.12f)
-
-                            val orb1Center = Offset(
-                                cx + cos(dynamicPhaseRad) * orbitRange,
-                                cy + sin(dynamicPhaseRad) * orbitRange
-                            )
-                            val orb2Center = Offset(
-                                cx - sin(dynamicPhaseRad * 0.85f) * orbitRange,
-                                cy + cos(dynamicPhaseRad * 0.85f) * orbitRange
-                            )
+                            val cy = (size.height / 2f) + verticalBobbingPx
+                            val haloScale = 1f + (moodIntensity * 0.22f) + (smoothReactiveKick * 0.16f)
+                            val baseR = size.minDimension * 0.44f * haloScale
 
                             drawIntoCanvas { canvas ->
-                                val paintPrimary = Paint().apply {
+                                // لایه اول: رنگ اصلی کاور با غلظت بالا دقیقاً دور کاور
+                                val primaryPaint = Paint().apply {
+                                    asFrameworkPaint().apply {
+                                        isAntiAlias = true
+                                        maskFilter = BlurMaskFilter(105f, BlurMaskFilter.Blur.NORMAL)
+                                        color = coverPrimary.copy(alpha = if (isPlaying) 0.88f else 0.50f).toArgb()
+                                    }
+                                }
+                                canvas.drawCircle(
+                                    Offset(cx, cy),
+                                    baseR * 1.05f,
+                                    primaryPaint
+                                )
+
+                                // لایه دوم: رنگ دوم کاور که همراه با کاور بالا و پایین میرود
+                                val secondaryPaint = Paint().apply {
                                     asFrameworkPaint().apply {
                                         isAntiAlias = true
                                         maskFilter = BlurMaskFilter(90f, BlurMaskFilter.Blur.NORMAL)
-                                        color = coverPrimary.copy(alpha = if (isPlaying) 0.85f else 0.40f).toArgb()
+                                        color = coverSecondary.copy(alpha = if (isPlaying) 0.78f else 0.40f).toArgb()
                                     }
                                 }
-                                canvas.drawCircle(orb1Center, baseR, paintPrimary)
-
-                                val paintSecondary = Paint().apply {
-                                    asFrameworkPaint().apply {
-                                        isAntiAlias = true
-                                        maskFilter = BlurMaskFilter(85f, BlurMaskFilter.Blur.NORMAL)
-                                        color = highContrastAccent.copy(alpha = if (isPlaying) 0.78f else 0.35f).toArgb()
-                                    }
-                                }
-                                canvas.drawCircle(orb2Center, baseR * 0.92f, paintSecondary)
+                                canvas.drawCircle(
+                                    Offset(cx + 18f * cos(dynamicPhaseRad * 0.7f), cy + 16f * sin(dynamicPhaseRad * 0.7f)),
+                                    baseR * 0.92f,
+                                    secondaryPaint
+                                )
                             }
                         }
 
+                        // قاب سهبعدی کاور با حرکت بالا و پایین ملایم و چرخش هماهنگ با موزیک
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight(0.76f)
                                 .aspectRatio(1f)
                                 .graphicsLayer {
-                                    val totalScale = artworkBaseScale + (if (isPlaying) smoothReactiveEnergy * 0.035f else 0f)
+                                    val beatScaleBoost = smoothReactiveKick * 0.032f + moodIntensity * 0.015f
+                                    val totalScale = artworkBaseScale + (if (isPlaying) beatScaleBoost else 0f)
                                     scaleX = totalScale
                                     scaleY = totalScale
-                                    translationX = floatOffsetX * 0.4f
-                                    translationY = floatOffsetY
-                                    rotationX = sin(dynamicPhaseRad) * (if (isPlaying) dynamicTiltAmplitude else 0.5f)
-                                    rotationY = cos(dynamicPhaseRad) * (if (isPlaying) dynamicTiltAmplitude else 0.5f)
-                                    rotationZ = sin(dynamicPhaseRad * 0.5f) * (if (isPlaying) smoothReactiveEnergy * 2.5f else 0f)
+                                    translationY = verticalBobbingPx
+                                    translationX = cos(dynamicPhaseRad * 0.6f) * (if (isPlaying) 3.5f * moodIntensity else 0f)
+                                    rotationX = sin(dynamicPhaseRad) * (if (isPlaying) dynamicTiltAmplitude else 0.4f)
+                                    rotationY = cos(dynamicPhaseRad) * (if (isPlaying) dynamicTiltAmplitude else 0.4f)
+                                    rotationZ = sin(dynamicPhaseRad * 0.5f) * (if (isPlaying) moodIntensity * 1.8f else 0f)
                                 }
                                 .shadow(
-                                    elevation = if (isPlaying) 34.dp else 16.dp,
+                                    elevation = if (isPlaying) 36.dp else 18.dp,
                                     shape = RoundedCornerShape(32.dp),
                                     spotColor = coverPrimary,
                                     ambientColor = coverSecondary
                                 )
                                 .border(
-                                    width = 2.dp,
+                                    width = 2.2.dp,
                                     brush = Brush.linearGradient(
                                         colors = listOf(
-                                            Color.White.copy(alpha = 0.90f),
                                             coverPrimary,
-                                            highContrastAccent,
-                                            Color.White.copy(alpha = 0.75f)
+                                            Color.White.copy(alpha = 0.75f),
+                                            coverSecondary,
+                                            coverAccent
                                         )
                                     ),
                                     shape = RoundedCornerShape(32.dp)
@@ -520,9 +535,7 @@ fun NowPlayingScreen(
                                             }
                                             artworkSwipeAccum = 0f
                                         },
-                                        onDragCancel = {
-                                            artworkSwipeAccum = 0f
-                                        }
+                                        onDragCancel = { artworkSwipeAccum = 0f }
                                     )
                                 }
                                 .pointerInput(track.id) {
