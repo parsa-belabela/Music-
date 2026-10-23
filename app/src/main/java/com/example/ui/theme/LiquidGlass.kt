@@ -39,6 +39,9 @@ object HardwareGyroscopeManager : SensorEventListener {
     private val rotationMatrix = FloatArray(9)
     private val orientationAngles = FloatArray(3)
 
+    private var baselinePitch = Float.NaN
+    private var baselineRoll = Float.NaN
+
     // Normalized tilt values in [-1f, 1f]
     var roll by mutableFloatStateOf(0f)
         private set
@@ -56,7 +59,7 @@ object HardwareGyroscopeManager : SensorEventListener {
                         ?: sm?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
                         ?: sm?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
                     if (sensor != null) {
-                        sm?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)
+                        sm?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_UI)
                     }
                 } catch (_: Exception) {}
             }
@@ -71,8 +74,27 @@ object HardwareGyroscopeManager : SensorEventListener {
                     sensorManager?.unregisterListener(this)
                 } catch (_: Exception) {}
                 sensorManager = null
+                baselinePitch = Float.NaN
+                baselineRoll = Float.NaN
             }
         }
+    }
+
+    private fun updateCalibratedTilt(rawPitch: Float, rawRoll: Float) {
+        if (baselinePitch.isNaN() || baselineRoll.isNaN()) {
+            baselinePitch = rawPitch
+            baselineRoll = rawRoll
+        } else {
+            // Gently adapt baseline to resting hold angle so stationary phones/emulators stay centered at 0f
+            baselinePitch += (rawPitch - baselinePitch) * 0.05f
+            baselineRoll += (rawRoll - baselineRoll) * 0.05f
+        }
+        val deltaPitch = ((rawPitch - baselinePitch) * 1.8f).coerceIn(-1f, 1f)
+        val deltaRoll = ((rawRoll - baselineRoll) * 1.8f).coerceIn(-1f, 1f)
+        val nextPitch = pitch + (deltaPitch - pitch) * 0.16f
+        val nextRoll = roll + (deltaRoll - roll) * 0.16f
+        if (kotlin.math.abs(nextPitch - pitch) > 0.004f) pitch = nextPitch
+        if (kotlin.math.abs(nextRoll - roll) > 0.004f) roll = nextRoll
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
@@ -82,20 +104,15 @@ object HardwareGyroscopeManager : SensorEventListener {
                 try {
                     SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
                     SensorManager.getOrientation(rotationMatrix, orientationAngles)
-                    // orientationAngles[1] = pitch (radians), orientationAngles[2] = roll (radians)
-                    val targetPitch = (orientationAngles[1] / (PI.toFloat() * 0.35f)).coerceIn(-1f, 1f)
-                    val targetRoll = (orientationAngles[2] / (PI.toFloat() * 0.35f)).coerceIn(-1f, 1f)
-                    pitch += (targetPitch - pitch) * 0.14f
-                    roll += (targetRoll - roll) * 0.14f
+                    val rawPitch = (orientationAngles[1] / (PI.toFloat() * 0.35f)).coerceIn(-2f, 2f)
+                    val rawRoll = (orientationAngles[2] / (PI.toFloat() * 0.35f)).coerceIn(-2f, 2f)
+                    updateCalibratedTilt(rawPitch, rawRoll)
                 } catch (_: Exception) {}
             }
             Sensor.TYPE_ACCELEROMETER -> {
                 val gx = (event.values.getOrNull(0) ?: 0f) / 9.81f
                 val gy = (event.values.getOrNull(1) ?: 0f) / 9.81f
-                val targetRoll = (-gx).coerceIn(-1f, 1f)
-                val targetPitch = (gy - 0.5f).coerceIn(-1f, 1f)
-                pitch += (targetPitch - pitch) * 0.12f
-                roll += (targetRoll - roll) * 0.12f
+                updateCalibratedTilt(gy, -gx)
             }
         }
     }

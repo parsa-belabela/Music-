@@ -162,19 +162,30 @@ fun NowPlayingScreen(
         audioProfile?.waveformEnvelope?.split(",")?.mapNotNull { it.trim().toFloatOrNull() }?.toFloatArray()
     }
 
-    // موتور ۱۲۰ فریم بر ثانیه برای چرخش نرم قاب کاور (۳۵٪ سریع‌تر و کاملاً هماهنگ با ریتم و بیس آهنگ)
+    // موتور ۱۲۰ فریم بر ثانیه برای چرخش نرم سه‌بعدی قاب کاور (۳۵٪ سریع‌تر و کاملاً هماهنگ با ریتم و بیس آهنگ)
+    val baseOrbitTransition = rememberInfiniteTransition(label = "CoverBaseOrbit")
+    val continuousOrbitPhase by baseOrbitTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2f * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = if (isPlaying) 5200 else 14000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "continuousOrbitPhase"
+    )
+
     var rotationPhaseRad by remember { mutableFloatStateOf(0f) }
-    var currentAngularVelocity by remember { mutableFloatStateOf(0.45f) }
-    var smoothBassLevel by remember { mutableFloatStateOf(0f) }
+    var currentAngularVelocity by remember { mutableFloatStateOf(0.65f) }
+    var smoothBassLevel by remember { mutableFloatStateOf(0.25f) }
     var smoothKickImpact by remember { mutableFloatStateOf(0f) }
-    var smoothEnergyLevel by remember { mutableFloatStateOf(0.2f) }
+    var smoothEnergyLevel by remember { mutableFloatStateOf(0.45f) }
 
     val latestAnalysisProvider by rememberUpdatedState(analysisDataProvider)
     val trackBaseBpm = remember(audioProfile?.estimatedTempoBpm) {
         (audioProfile?.estimatedTempoBpm ?: 105).coerceIn(65, 175)
     }
     val trackBaseEnergy = remember(audioProfile?.energyLevel) {
-        (audioProfile?.energyLevel ?: 0.5f).coerceIn(0.15f, 0.95f)
+        (audioProfile?.energyLevel ?: 0.55f).coerceIn(0.25f, 0.95f)
     }
 
     LaunchedEffect(isPlaying, track.id) {
@@ -185,14 +196,15 @@ fun NowPlayingScreen(
                 lastFrameNanos = nowNanos
 
                 val audio = latestAnalysisProvider()
-                val rawBass = if (isPlaying) audio.bass.coerceIn(0f, 1f) else 0f
+                val rawBass = if (isPlaying) {
+                    (audio.bass * 0.75f + trackBaseEnergy * 0.25f).coerceIn(0.15f, 1f)
+                } else 0f
                 val rawKick = if (isPlaying) audio.kickPulse.coerceIn(0f, 1f) else 0f
                 val rawEnergy = if (isPlaying) {
-                    (audio.totalEnergy * 0.55f + rawBass * 0.45f).coerceIn(0.05f, 1f)
-                } else 0.03f
+                    (audio.totalEnergy * 0.50f + audio.mid * 0.25f + trackBaseEnergy * 0.35f).coerceIn(0.28f, 1f)
+                } else 0.08f
 
-                // واکنش سریع به ضربه بیس (Fast Attack) و برگشت نرم (Smooth Release) برای بالا و پایین رفتن کاور
-                val bassLerp = if (rawBass > smoothBassLevel) (dtSec * 20f) else (dtSec * 8f)
+                val bassLerp = if (rawBass > smoothBassLevel) (dtSec * 18f) else (dtSec * 8f)
                 smoothBassLevel += (rawBass - smoothBassLevel) * bassLerp.coerceIn(0f, 1f)
 
                 val kickLerp = if (rawKick > smoothKickImpact) (dtSec * 24f) else (dtSec * 9.5f)
@@ -201,14 +213,13 @@ fun NowPlayingScreen(
                 smoothEnergyLevel += (rawEnergy - smoothEnergyLevel) * (dtSec * 7.5f).coerceIn(0f, 1f)
 
                 val targetAngularSpeed = if (isPlaying) {
-                    val bpmFactor = (trackBaseBpm / 108f).coerceIn(0.65f, 1.75f)
+                    val bpmFactor = (trackBaseBpm / 105f).coerceIn(0.75f, 1.75f)
                     // سرعت حدود ۳۵٪ بیشتر و وابسته به تمپو، انرژی و کیک آهنگ
-                    0.48f + (smoothEnergyLevel * 1.98f * bpmFactor) + (smoothKickImpact * 1.25f) + (smoothBassLevel * 0.45f)
+                    0.68f + (smoothEnergyLevel * 1.95f * bpmFactor) + (smoothKickImpact * 1.15f) + (smoothBassLevel * 0.45f)
                 } else {
-                    0.08f
+                    0.15f
                 }
 
-                // تغییر کاملاً نرم و تدریجی سرعت چرخش
                 currentAngularVelocity += (targetAngularSpeed - currentAngularVelocity) * (dtSec * 5.5f).coerceIn(0f, 1f)
                 rotationPhaseRad = (rotationPhaseRad + currentAngularVelocity * dtSec) % (2f * PI.toFloat() * 100f)
             }
@@ -425,21 +436,35 @@ fun NowPlayingScreen(
             ) {
                 when (centerView) {
                     NowPlayingCenterView.ARTWORK_AND_HALO -> {
-                        // محاسبه جهش عمودی (Up & Down Bass Bounce) مستقیماً بر اساس بیس و کیک واقعی آهنگ
-                        // هر بار که بیس می‌کوبد، قاب کاور در حین چرخش با نرمی بالا و پایین می‌جهد
-                        val bassVerticalBouncePx = if (isPlaying) {
-                            val waveFloat = sin(rotationPhaseRad * 1.4f) * (6f + smoothBassLevel * 12f)
-                            val bassLift = -(smoothBassLevel * 22f + smoothKickImpact * 18f)
-                            waveFloat + bassLift
+                        // فاز ترکیبی تضمینی برای چرخش سه‌بعدی نرم و بدون توقف کاور در مرکز صفحه (بدون گیر کردن در بالا)
+                        val effectivePhase = continuousOrbitPhase + rotationPhaseRad * 0.65f
+
+                        // نوسان متقارن حول مرکز (۰) تا کاور هرگز در بالای صفحه گیر نکند و با بیس به نرمی بالا و پایین برود
+                        val floatOffsetY = if (isPlaying) {
+                            sin(effectivePhase) * (9f + smoothEnergyLevel * 13f + smoothBassLevel * 10f) +
+                                cos(effectivePhase * 2.2f) * (smoothKickImpact * 9f)
                         } else {
-                            sin(rotationPhaseRad) * 3f
+                            sin(effectivePhase) * 4f
+                        }
+                        val floatOffsetX = if (isPlaying) {
+                            cos(effectivePhase * 0.75f) * (7f + smoothEnergyLevel * 11f)
+                        } else {
+                            cos(effectivePhase * 0.75f) * 3f
                         }
 
                         val dynamicTiltDeg = if (isPlaying) {
-                            1.8f + (smoothEnergyLevel * 4.5f) + (smoothBassLevel * 2.5f)
-                        } else 0.5f
+                            3.6f + (smoothEnergyLevel * 5.5f) + (smoothBassLevel * 3.0f)
+                        } else 1.2f
 
-                        // ذرات نوری معلق حساس به فرکانس‌های زیر و بم (Shader Starlight Dust)
+                        // لایه ۱ پشت کاور: هاله عمیق چندلایه AmbientHalo
+                        AmbientHalo(
+                            analysisDataProvider = analysisDataProvider,
+                            palette = dynamicCoverPalette,
+                            modifier = Modifier.fillMaxSize(),
+                            glowStrength = if (isPlaying) 1.05f else 0.65f
+                        )
+
+                        // لایه ۲ پشت کاور: ذرات نوری معلق حساس به فرکانس‌های زیر و بم (Shader Starlight Dust)
                         ShaderStarlightDustLayer(
                             isPlaying = isPlaying,
                             analysisDataProvider = analysisDataProvider,
@@ -449,46 +474,76 @@ fun NowPlayingScreen(
                             modifier = Modifier.fillMaxSize()
                         )
 
-                        // هاله نوری پشت کاور که همزمان با قاب کاور بالا و پایین می‌رود
+                        // لایه ۳ پشت کاور: گوی‌های نوری چرخان عمیق با بلر Gaussian واقعی (Primary + Secondary + Accent)
                         Canvas(modifier = Modifier.fillMaxSize()) {
                             val cx = size.width / 2f
-                            val cy = (size.height / 2f) + bassVerticalBouncePx
+                            val cy = size.height / 2f
+                            val orbitRange = size.minDimension * (0.12f + smoothEnergyLevel * 0.14f)
                             val pulseExpand = 1f + (smoothBassLevel * 0.22f) + (smoothKickImpact * 0.18f)
                             val baseR = size.minDimension * 0.40f * pulseExpand
+
+                            val orb1Center = Offset(
+                                cx + cos(effectivePhase) * orbitRange,
+                                cy + sin(effectivePhase) * orbitRange
+                            )
+                            val orb2Center = Offset(
+                                cx - sin(effectivePhase * 0.85f) * orbitRange,
+                                cy + cos(effectivePhase * 0.85f) * orbitRange
+                            )
+                            val orb3Center = Offset(
+                                cx + floatOffsetX * 0.6f,
+                                cy + floatOffsetY * 0.6f
+                            )
 
                             drawIntoCanvas { canvas ->
                                 val paintPrimary = Paint().apply {
                                     asFrameworkPaint().apply {
                                         isAntiAlias = true
-                                        maskFilter = BlurMaskFilter(90f, BlurMaskFilter.Blur.NORMAL)
-                                        color = coverPrimary.copy(alpha = if (isPlaying) 0.65f else 0.30f).toArgb()
+                                        maskFilter = BlurMaskFilter(95f, BlurMaskFilter.Blur.NORMAL)
+                                        color = coverPrimary.copy(alpha = if (isPlaying) 0.82f else 0.42f).toArgb()
                                     }
                                 }
-                                canvas.drawCircle(
-                                    Offset(cx, cy),
-                                    baseR,
-                                    paintPrimary
-                                )
+                                canvas.drawCircle(orb1Center, baseR, paintPrimary)
+
+                                val paintSecondary = Paint().apply {
+                                    asFrameworkPaint().apply {
+                                        isAntiAlias = true
+                                        maskFilter = BlurMaskFilter(90f, BlurMaskFilter.Blur.NORMAL)
+                                        color = coverAccent.copy(alpha = if (isPlaying) 0.74f else 0.36f).toArgb()
+                                    }
+                                }
+                                canvas.drawCircle(orb2Center, baseR * 0.92f, paintSecondary)
+
+                                val paintCenter = Paint().apply {
+                                    asFrameworkPaint().apply {
+                                        isAntiAlias = true
+                                        maskFilter = BlurMaskFilter(110f, BlurMaskFilter.Blur.NORMAL)
+                                        color = coverSecondary.copy(alpha = if (isPlaying) 0.62f else 0.28f).toArgb()
+                                    }
+                                }
+                                canvas.drawCircle(orb3Center, baseR * 0.86f, paintCenter)
                             }
                         }
 
-                        // قاب سه‌بعدی کاور آهنگ (بدون ژست Swipe تا لمس کردن هیچ نقطه‌ای باعث پرش به آهنگ بعدی نشود)
+                        // قاب سه‌بعدی کاور آهنگ با چرخش نرم ۳ بعدی حول مرکز (بدون گیر کردن در بالا)
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight(0.76f)
                                 .aspectRatio(1f)
                                 .graphicsLayer {
                                     val bassScalePunch = if (isPlaying) {
-                                        (smoothBassLevel * 0.045f + smoothKickImpact * 0.035f)
+                                        (smoothBassLevel * 0.042f + smoothKickImpact * 0.032f)
                                     } else 0f
                                     val totalScale = artworkBaseScale + bassScalePunch
 
                                     scaleX = totalScale
                                     scaleY = totalScale
-                                    translationY = bassVerticalBouncePx
-                                    rotationX = sin(rotationPhaseRad) * dynamicTiltDeg + (gyroPitch * 8.5f)
-                                    rotationY = cos(rotationPhaseRad) * dynamicTiltDeg + (gyroRoll * 8.5f)
-                                    rotationZ = sin(rotationPhaseRad * 0.5f) * (if (isPlaying) smoothBassLevel * 2.4f else 0f)
+                                    translationX = floatOffsetX
+                                    translationY = floatOffsetY
+                                    rotationX = sin(effectivePhase) * dynamicTiltDeg + (gyroPitch * 2.2f)
+                                    rotationY = cos(effectivePhase) * dynamicTiltDeg + (gyroRoll * 2.2f)
+                                    rotationZ = sin(effectivePhase * 0.6f) * (if (isPlaying) (1.8f + smoothEnergyLevel * 2.8f + smoothBassLevel * 2.0f) else 0.4f)
+                                    cameraDistance = 14f * density
                                 }
                                 .shadow(
                                     elevation = if (isPlaying) 34.dp else 16.dp,
@@ -1231,24 +1286,24 @@ private fun ShaderStarlightDustLayer(
     Canvas(modifier = modifier) {
         val cx = size.width / 2f
         val cy = size.height / 2f
-        val baseRadius = size.minDimension * 0.34f
-        val particleCount = 34
+        val baseRadius = size.minDimension * 0.33f
+        val particleCount = 48
 
         for (i in 0 until particleCount) {
             val seed = i * 19.37f
-            val ringFactor = 0.68f + ((i % 7) / 6f) * 0.72f
-            val burstOutward = smoothKickBurst * (size.minDimension * 0.14f) * (0.5f + (i % 4) * 0.2f)
-            val vocalFloat = sin(driftTime * (1.2f + (i % 3) * 0.4f) + seed) * (10f + smoothMidHigh * 26f)
+            val ringFactor = 0.62f + ((i % 8) / 7f) * 0.82f
+            val burstOutward = smoothKickBurst * (size.minDimension * 0.15f) * (0.5f + (i % 4) * 0.2f)
+            val vocalFloat = sin(driftTime * (1.2f + (i % 3) * 0.4f) + seed) * (12f + smoothMidHigh * 28f)
             val angle = (i.toFloat() / particleCount.toFloat()) * (2f * PI.toFloat()) +
-                driftTime * (if (i % 2 == 0) 0.45f else -0.35f)
+                driftTime * (if (i % 2 == 0) 0.52f else -0.40f)
 
             val r = baseRadius * ringFactor + burstOutward + vocalFloat
             val px = cx + cos(angle) * r
             val py = cy + sin(angle) * r
 
-            val twinkle = (0.35f + 0.65f * ((sin(driftTime * 3f + seed) + 1f) * 0.5f))
-            val alpha = ((0.18f + smoothMidHigh * 0.58f + smoothKickBurst * 0.24f) * twinkle).coerceIn(0.06f, 0.92f)
-            val radiusPx = (1.6f + (i % 4) * 1.15f + smoothMidHigh * 2.2f + smoothKickBurst * 1.5f).dp.toPx()
+            val twinkle = (0.40f + 0.60f * ((sin(driftTime * 3.2f + seed) + 1f) * 0.5f))
+            val alpha = ((0.24f + smoothMidHigh * 0.58f + smoothKickBurst * 0.26f) * twinkle).coerceIn(0.10f, 0.95f)
+            val radiusPx = (1.8f + (i % 4) * 1.25f + smoothMidHigh * 2.4f + smoothKickBurst * 1.6f).dp.toPx()
 
             val particleColor = when (i % 3) {
                 0 -> Color.White
@@ -1258,8 +1313,8 @@ private fun ShaderStarlightDustLayer(
 
             // هاله لطیف اطراف هر ذره نوری
             drawCircle(
-                color = primaryColor.copy(alpha = alpha * 0.32f),
-                radius = radiusPx * 2.4f,
+                color = primaryColor.copy(alpha = alpha * 0.38f),
+                radius = radiusPx * 2.8f,
                 center = Offset(px, py)
             )
             // هسته درخشان ذره نوری

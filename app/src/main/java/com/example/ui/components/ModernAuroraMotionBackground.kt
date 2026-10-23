@@ -1,6 +1,5 @@
 package com.example.ui.components
 
-import android.graphics.BlurMaskFilter
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
@@ -12,8 +11,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.unit.dp
 import com.example.audio.AmbientPalette
 import com.example.data.model.AppTheme
 import kotlin.math.PI
@@ -28,7 +27,6 @@ fun ModernAuroraMotionBackground(
     energyBoostProvider: () -> Float = { 0f },
     intensity: Float = 1.0f
 ) {
-    // انیمیشن نرم تغییر رنگ کل فضای برنامه بر اساس رنگ کاور آهنگ در حال پخش
     val animPrimary by animateColorAsState(
         targetValue = palette.primary,
         animationSpec = tween(900, easing = FastOutSlowInEasing),
@@ -77,7 +75,7 @@ fun ModernAuroraMotionBackground(
         label = "pulseScale"
     )
 
-    val baseBackgroundColor = Color(0xFF05060D)
+    val baseBackgroundColor = Color(0xFF03040A)
 
     Box(
         modifier = modifier
@@ -92,7 +90,6 @@ fun ModernAuroraMotionBackground(
             val boost = energyBoostProvider().coerceIn(0f, 1f)
             val dynamicScale = pulseScale * (1f + boost * 0.35f) * intensity
 
-            // تابع رسم موج شفق قطبی با بلر عمیق و دنباله موشنبلر (Motion Blur Trail)
             fun drawMotionBlurredAuroraOrb(
                 cx: Float,
                 cy: Float,
@@ -105,7 +102,7 @@ fun ModernAuroraMotionBackground(
                 for (trail in 2 downTo 0) {
                     val trailY = cy - (velY * h * 0.055f * trail)
                     val trailRadius = radius * (1f - trail * 0.14f)
-                    val alpha = (coreAlpha * (1f - trail * 0.28f)).coerceIn(0.05f, 0.88f)
+                    val alpha = (coreAlpha * (1f - trail * 0.28f)).coerceIn(0.05f, 0.90f)
 
                     withTransform({
                         scale(scaleX = 1f, scaleY = stretchY, pivot = Offset(cx, trailY))
@@ -114,8 +111,8 @@ fun ModernAuroraMotionBackground(
                             brush = Brush.radialGradient(
                                 colorStops = arrayOf(
                                     0.00f to color.copy(alpha = alpha),
-                                    0.42f to color.copy(alpha = alpha * 0.58f),
-                                    0.78f to color.copy(alpha = alpha * 0.18f),
+                                    0.42f to color.copy(alpha = alpha * 0.60f),
+                                    0.78f to color.copy(alpha = alpha * 0.22f),
                                     1.00f to Color.Transparent
                                 ),
                                 center = Offset(cx, trailY),
@@ -129,49 +126,94 @@ fun ModernAuroraMotionBackground(
                 }
             }
 
-            // ۱. گوی نوری اصلی کاور آهنگ (حرکت موجی بالا و پایین در نیمه بالایی)
-            val orb1X = w * (0.30f + 0.22f * cos(phase1))
-            val orb1Y = h * (0.26f + 0.22f * sin(phase1))
+            // ۱. گوی نوری اصلی کاور آهنگ
+            val orb1X = w * (0.28f + 0.22f * cos(phase1))
+            val orb1Y = h * (0.24f + 0.20f * sin(phase1))
             drawMotionBlurredAuroraOrb(
                 cx = orb1X,
                 cy = orb1Y,
                 velY = cos(phase1),
-                radius = w * 0.75f * dynamicScale,
+                radius = w * 0.78f * dynamicScale,
                 color = animPrimary,
-                coreAlpha = 0.65f
+                coreAlpha = 0.68f
             )
 
-            // ۲. گوی نوری مکمل کاور آهنگ (حرکت معکوس بالا و پایین در سمت راست)
-            val orb2X = w * (0.72f - 0.20f * sin(phase2))
-            val orb2Y = h * (0.62f - 0.24f * cos(phase2))
+            // ۲. گوی نوری مکمل کاور آهنگ
+            val orb2X = w * (0.74f - 0.20f * sin(phase2))
+            val orb2Y = h * (0.64f - 0.22f * cos(phase2))
             drawMotionBlurredAuroraOrb(
                 cx = orb2X,
                 cy = orb2Y,
                 velY = sin(phase2),
-                radius = w * 0.72f * dynamicScale,
+                radius = w * 0.74f * dynamicScale,
                 color = animSecondary,
-                coreAlpha = 0.58f
+                coreAlpha = 0.60f
             )
 
-            // ۳. گوی نوری تاکیدی (Accent) در مرکز و پایین صفحه
+            // ۳. گوی نوری تاکیدی (Accent) در مرکز صفحه
             val orb3X = w * (0.48f + 0.20f * sin(phase1 + 1.2f))
-            val orb3Y = h * (0.50f + 0.25f * cos(phase1 + 1.2f))
+            val orb3Y = h * (0.48f + 0.24f * cos(phase1 + 1.2f))
             drawMotionBlurredAuroraOrb(
                 cx = orb3X,
                 cy = orb3Y,
                 velY = -sin(phase1 + 1.2f),
-                radius = w * 0.64f * dynamicScale,
+                radius = w * 0.66f * dynamicScale,
                 color = animAccent,
-                coreAlpha = 0.50f
+                coreAlpha = 0.52f
             )
 
-            // ۴. لایه محافظ کنتراست مخملی برای خوانایی کامل متنها
+            // ۴. ذرات معلق نوری در فضای پس‌زمینه کل صفحات اپ
+            val particleCount = 34
+            for (i in 0 until particleCount) {
+                val seed = i * 27.4f
+                val speed = 0.35f + (i % 4) * 0.2f
+                val px = w * ((sin(seed + phase1 * speed) + 1f) * 0.5f)
+                val py = h * (1f - ((i * 0.029f + (phase2 / (2f * PI.toFloat())) * speed) % 1f))
+                val twinkle = 0.35f + 0.65f * ((cos(phase1 * 2.5f + seed) + 1f) * 0.5f)
+                val dotAlpha = (0.16f + boost * 0.28f) * twinkle
+                val dotRadius = (1.3f + (i % 3) * 0.9f).dp.toPx()
+                val pColor = when (i % 3) {
+                    0 -> Color.White
+                    1 -> animAccent
+                    else -> animSecondary
+                }
+                drawCircle(
+                    color = animPrimary.copy(alpha = dotAlpha * 0.32f),
+                    radius = dotRadius * 2.4f,
+                    center = Offset(px, py)
+                )
+                drawCircle(
+                    color = pColor.copy(alpha = dotAlpha),
+                    radius = dotRadius,
+                    center = Offset(px, py)
+                )
+            }
+
+            // ۵. تکسچر استودیویی میکرو-گرین
+            val step = 28.dp.toPx().coerceAtLeast(18f)
+            val cols = (w / step).toInt()
+            val rows = (h / step).toInt()
+            for (r in 0..rows) {
+                val y = r * step
+                for (c in 0..cols) {
+                    if ((r + c) % 2 == 0) {
+                        val x = c * step
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.024f),
+                            radius = 1.1f,
+                            center = Offset(x, y)
+                        )
+                    }
+                }
+            }
+
+            // ۶. لایه محافظ کنتراست مخملی عمیق
             drawRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        baseBackgroundColor.copy(alpha = 0.22f),
-                        Color.Transparent,
-                        baseBackgroundColor.copy(alpha = 0.58f)
+                        baseBackgroundColor.copy(alpha = 0.34f),
+                        Color(0x2203040A),
+                        baseBackgroundColor.copy(alpha = 0.68f)
                     )
                 )
             )

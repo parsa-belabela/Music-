@@ -6,189 +6,77 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Outer Soft Glow Halo Behind Glass Medallion -->
+    <!-- Soft Outer Emerald Aura Shadow -->
     <path
-        android:pathData="M54,54m-31,0a31,31 0 1,1 62,0a31,31 0 1,1 -62,0">
+        android:pathData="M54,54m-33,0a33,33 0,1 1,66 0a33,33 0,1 1,-66 0">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:centerX="54"
                 android:centerY="54"
-                android:gradientRadius="32"
+                android:gradientRadius="34"
                 android:type="radial">
-                <item android:offset="0.0" android:color="#45FF2E93" />
-                <item android:offset="0.65" android:color="#288B5CF6" />
+                <item android:offset="0.0" android:color="#551ED760" />
+                <item android:offset="0.80" android:color="#221ED760" />
                 <item android:offset="1.0" android:color="#00000000" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Frosted Crystal Squircle / Luxury Glass Medallion -->
+    <!-- Main Iconic Spotify-Style Circular Disc -->
     <path
-        android:pathData="M54,23 C70,23 82,28 84,44 C86,58 81,74 68,81 C60,85 48,85 40,81 C27,74 22,58 24,44 C26,28 38,23 54,23 Z">
+        android:pathData="M54,54m-28.5,0a28.5,28.5 0,1 1,57 0a28.5,28.5 0,1 1,-57 0">
         <aapt:attr name="android:fillColor">
             <gradient
-                android:startX="26"
-                android:startY="23"
-                android:endX="82"
-                android:endY="85"
+                android:startX="30"
+                android:startY="24"
+                android:endX="78"
+                android:endY="84"
                 android:type="linear">
-                <item android:offset="0.0" android:color="#48FFFFFF" />
-                <item android:offset="0.38" android:color="#1EFFFFFF" />
-                <item android:offset="0.75" android:color="#16FF85A1" />
-                <item android:offset="1.0" android:color="#3200F5D4" />
+                <item android:offset="0.0" android:color="#FF24F06D" />
+                <item android:offset="0.50" android:color="#FF1ED760" />
+                <item android:offset="1.0" android:color="#FF12A847" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Iridescent Rose-Gold & Diamond Glass Rim -->
+    <!-- Subtle Top Specular Glass Rim -->
     <path
-        android:pathData="M54,23 C70,23 82,28 84,44 C86,58 81,74 68,81 C60,85 48,85 40,81 C27,74 22,58 24,44 C26,28 38,23 54,23 Z"
-        android:strokeWidth="1.7">
-        <aapt:attr name="android:strokeColor">
-            <gradient
-                android:startX="24"
-                android:startY="23"
-                android:endX="84"
-                android:endY="85"
-                android:type="linear">
-                <item android:offset="0.0" android:color="#FFFFFFFF" />
-                <item android:offset="0.3" android:color="#FFFF85A1" />
-                <item android:offset="0.65" android:color="#90C77DFF" />
-                <item android:offset="1.0" android:color="#FF00F5D4" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Sleek Floating Crystal Headphone Halo Arc -->
-    <path
-        android:pathData="M31,54 C31,39.5 41.2,29.5 54,29.5 C66.8,29.5 77,39.5 77,54"
-        android:strokeWidth="3.2"
-        android:strokeLineCap="round">
-        <aapt:attr name="android:strokeColor">
-            <gradient
-                android:startX="31"
-                android:startY="30"
-                android:endX="77"
-                android:endY="54"
-                android:type="linear">
-                <item android:offset="0.0" android:color="#FFFF2E93" />
-                <item android:offset="0.35" android:color="#FFFFD166" />
-                <item android:offset="0.5" android:color="#FFFFFFFF" />
-                <item android:offset="0.65" android:color="#FFC77DFF" />
-                <item android:offset="1.0" android:color="#FF00F5D4" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Left Plush Crystal Earcup -->
-    <path
-        android:pathData="M29.5,48.5 C31.8,48.5 33.5,50.3 33.5,52.5 L33.5,60.5 C33.5,62.7 31.8,64.5 29.5,64.5 C27.2,64.5 25.5,62.7 25.5,60.5 L25.5,52.5 C25.5,50.3 27.2,48.5 29.5,48.5 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:startX="25.5"
-                android:startY="48.5"
-                android:endX="33.5"
-                android:endY="64.5"
-                android:type="linear">
-                <item android:offset="0.0" android:color="#FFFF85A1" />
-                <item android:offset="1.0" android:color="#FFFF2E93" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Right Plush Crystal Earcup -->
-    <path
-        android:pathData="M78.5,48.5 C80.8,48.5 82.5,50.3 82.5,52.5 L82.5,60.5 C82.5,62.7 80.8,64.5 78.5,64.5 C76.2,64.5 74.5,62.7 74.5,60.5 L74.5,52.5 C74.5,50.3 76.2,48.5 78.5,48.5 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:startX="74.5"
-                android:startY="48.5"
-                android:endX="82.5"
-                android:endY="64.5"
-                android:type="linear">
-                <item android:offset="0.0" android:color="#FF72EFDD" />
-                <item android:offset="1.0" android:color="#FF00BBF9" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Centerpiece Outer Glow: Luminous Heart-Wave & Musical Note -->
-    <path
-        android:pathData="M54,73.5 C54,73.5 37,62.5 37,49.5 C37,43.2 41.8,38.5 47.5,38.5 C50.8,38.5 53.0,40.3 54,42.5 C55.0,40.3 57.2,38.5 60.5,38.5 C66.2,38.5 71,43.2 71,49.5 C71,62.5 54,73.5 54,73.5 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:startX="37"
-                android:startY="38.5"
-                android:endX="71"
-                android:endY="73.5"
-                android:type="linear">
-                <item android:offset="0.0" android:color="#FFFF2E93" />
-                <item android:offset="0.48" android:color="#FFD946EF" />
-                <item android:offset="1.0" android:color="#FF7C3AED" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Heart Specular Rim & Inner Glass Highlights -->
-    <path
-        android:pathData="M54,73.5 C54,73.5 37,62.5 37,49.5 C37,43.2 41.8,38.5 47.5,38.5 C50.8,38.5 53.0,40.3 54,42.5 C55.0,40.3 57.2,38.5 60.5,38.5 C66.2,38.5 71,43.2 71,49.5 C71,62.5 54,73.5 54,73.5 Z"
-        android:strokeWidth="1.5">
-        <aapt:attr name="android:strokeColor">
-            <gradient
-                android:startX="37"
-                android:startY="38"
-                android:endX="71"
-                android:endY="74"
-                android:type="linear">
-                <item android:offset="0.0" android:color="#FFFFFFFF" />
-                <item android:offset="0.5" android:color="#FFFFB3C6" />
-                <item android:offset="1.0" android:color="#FF00F5D4" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Sculpted Golden-Pearl Musical Note Embedded Inside the Heart -->
-    <path
-        android:pathData="M51,61.5 A4.2,3.6 0 1,1 42.6,61.5 A4.2,3.6 0 1,1 51,61.5 Z M63.4,59.5 A4.2,3.6 0 1,1 55,59.5 A4.2,3.6 0 1,1 63.4,59.5 Z"
-        android:fillColor="#FFFFFFFF" />
-
-    <path
-        android:pathData="M49.8,61.5 L49.8,46.8 L62.2,44.2 L62.2,59.5"
-        android:strokeWidth="2.5"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:strokeColor="#FFFFFFFF" />
-
-    <path
-        android:pathData="M49.8,49.8 L62.2,47.2"
-        android:strokeWidth="2.8"
-        android:strokeLineCap="round"
-        android:strokeColor="#FFFFE5EC" />
-
-    <!-- Top-Left Caustic Lens Sheen -->
-    <path
-        android:pathData="M34,32 C40,26.5 47,25.5 57,26.5"
-        android:strokeWidth="2.2"
-        android:strokeLineCap="round">
+        android:pathData="M54,54m-28,0a28,28 0,1 1,56 0a28,28 0,1 1,-56 0"
+        android:strokeWidth="1.1">
         <aapt:attr name="android:strokeColor">
             <gradient
                 android:startX="34"
-                android:startY="32"
-                android:endX="57"
-                android:endY="26.5"
+                android:startY="25"
+                android:endX="74"
+                android:endY="83"
                 android:type="linear">
-                <item android:offset="0.0" android:color="#00FFFFFF" />
-                <item android:offset="0.5" android:color="#E6FFFFFF" />
-                <item android:offset="1.0" android:color="#00FFFFFF" />
+                <item android:offset="0.0" android:color="#B8FFFFFF" />
+                <item android:offset="0.45" android:color="#30FFFFFF" />
+                <item android:offset="1.0" android:color="#28041A0B" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Sparkling Diamond Starlight Accents -->
+    <!-- 3 Iconic Tilted Acoustic Sound-Wave Arcs (Spotify Geometric Precision) -->
+    <!-- Top Wave (Widest, boldest) -->
     <path
-        android:pathData="M71,33 L72.2,35.8 L75,37 L72.2,38.2 L71,41 L69.8,38.2 L67,37 L69.8,35.8 Z"
-        android:fillColor="#FFFFFFFF" />
+        android:pathData="M37.5,44.2 C47.5,40.4 61.2,41.6 71.2,47.4"
+        android:strokeColor="#FF060A08"
+        android:strokeWidth="5.4"
+        android:strokeLineCap="round" />
+
+    <!-- Middle Wave (Medium) -->
     <path
-        android:pathData="M36,68 L36.8,69.8 L38.6,70.6 L36.8,71.4 L36,73.2 L35.2,71.4 L33.4,70.6 L35.2,69.8 Z"
-        android:fillColor="#FF00F5D4" />
+        android:pathData="M40.2,54.4 C48.6,51.2 59.4,52.2 67.6,57.1"
+        android:strokeColor="#FF060A08"
+        android:strokeWidth="4.6"
+        android:strokeLineCap="round" />
+
+    <!-- Bottom Wave (Compact) -->
+    <path
+        android:pathData="M43.0,63.8 C49.6,61.4 57.6,62.2 64.0,66.0"
+        android:strokeColor="#FF060A08"
+        android:strokeWidth="3.9"
+        android:strokeLineCap="round" />
+
 </vector>
