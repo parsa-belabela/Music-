@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -33,12 +34,18 @@ import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
 import kotlinx.coroutines.delay
 
+/**
+ * نوار پیشرفت هماهنگ با رنگ کاور آهنگ:
+ * - حذف کامل رنگ‌های چندگانه دی‌جی (قرمز/آبی/سبز)
+ * - استفاده مستقیم از رنگ کاور آهنگ (palette.primary و palette.accent)
+ * - دارای شیار محافظ تیره (Contrast Casing) و هسته سفید-نوری تا هرگز با رنگ‌های پس‌زمینه یکی و محو نشود
+ */
 @Composable
 fun LiquidGlassProgressBar(
     currentPositionProvider: () -> Long,
     durationMs: Long,
     palette: AmbientPalette,
-    analysisDataProvider: () -> AudioAnalysisData,
+    analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() },
     onSeekTo: (Long) -> Unit,
     waveformEnvelope: FloatArray? = null,
     loopStartMs: Long? = null,
@@ -56,6 +63,17 @@ fun LiquidGlassProgressBar(
 
     var internalCurrentMs by remember { mutableLongStateOf(currentPositionProvider()) }
 
+    val coverPrimary by animateColorAsState(
+        targetValue = palette.primary,
+        animationSpec = tween(500),
+        label = "barCoverPrimary"
+    )
+    val coverAccent by animateColorAsState(
+        targetValue = palette.accent,
+        animationSpec = tween(500),
+        label = "barCoverAccent"
+    )
+
     LaunchedEffect(durationMs) {
         internalCurrentMs = currentPositionProviderUpdated()
         dragProgress = 0f
@@ -68,7 +86,7 @@ fun LiquidGlassProgressBar(
                 if (System.currentTimeMillis() > ignoreExternalSyncUntilMs) {
                     internalCurrentMs = currentPositionProviderUpdated()
                 }
-                delay(16L) // 60-120fps smooth position polling
+                delay(16L)
             }
         }
     }
@@ -78,13 +96,13 @@ fun LiquidGlassProgressBar(
     val displayedProgress = (effectiveMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
 
     val trackHeight by animateDpAsState(
-        targetValue = if (isDragging) 9.dp else 5.5.dp,
+        targetValue = if (isDragging) 9.5.dp else 6.dp,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "trackHeight"
     )
 
     val thumbRadiusDp by animateDpAsState(
-        targetValue = if (isDragging) 10.dp else 6.5.dp,
+        targetValue = if (isDragging) 10.dp else 7.dp,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
         label = "thumbRadius"
     )
@@ -95,29 +113,6 @@ fun LiquidGlassProgressBar(
         label = "haloExpansion"
     )
 
-    // Ensure a rich Serato/Rekordbox waveform is always available even before background analysis completes
-    val activeWaveform = remember(waveformEnvelope, safeDuration) {
-        if (waveformEnvelope != null && waveformEnvelope.isNotEmpty()) {
-            waveformEnvelope
-        } else {
-            val count = 110
-            val seed = (safeDuration xor (safeDuration ushr 16)).toInt()
-            FloatArray(count) { idx ->
-                val norm = idx.toFloat() / count.toFloat()
-                // Intro / outro taper + energetic beat drop sections
-                val envelope = when {
-                    norm < 0.08f -> 0.22f + (norm / 0.08f) * 0.35f
-                    norm in 0.22f..0.48f -> 0.72f + kotlin.math.sin(idx * 0.85f + seed) * 0.24f
-                    norm in 0.48f..0.62f -> 0.30f + kotlin.math.cos(idx * 0.5f) * 0.12f // vocal breakdown
-                    norm in 0.62f..0.88f -> 0.78f + kotlin.math.sin(idx * 1.1f + seed) * 0.20f // 2nd drop
-                    norm > 0.90f -> (1f - norm) * 4.5f
-                    else -> 0.48f + kotlin.math.sin(idx * 0.65f + seed) * 0.18f
-                }
-                envelope.coerceIn(0.14f, 0.98f)
-            }
-        }
-    }
-
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         Column(
             modifier = modifier
@@ -127,7 +122,7 @@ fun LiquidGlassProgressBar(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(44.dp)
+                    .height(42.dp)
                     .onSizeChanged { size ->
                         componentWidthPx = size.width.toFloat().coerceAtLeast(1f)
                     }
@@ -174,125 +169,150 @@ fun LiquidGlassProgressBar(
                 Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(34.dp)
+                        .height(30.dp)
                 ) {
                     val w = size.width
                     val h = size.height
                     val centerY = h / 2f
                     val activeWidth = (w * displayedProgress).coerceIn(0f, w)
-                    val audioData = analysisDataProvider()
-                    val liveKickBoost = if (!isDragging) audioData.kickPulse * 0.12f else 0.08f
+                    val trackH = trackHeight.toPx()
+                    val corner = CornerRadius(trackH / 2f, trackH / 2f)
+                    val trackTop = centerY - (trackH / 2f)
 
-                    // Draw A-B Loop Highlight Region behind bars if active
-                    val loopAFraction = loopStartMs?.let { (it.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f) }
-                    val loopBFraction = loopEndMs?.let { (it.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f) }
-                    if (loopAFraction != null && loopBFraction != null && loopBFraction > loopAFraction) {
-                        val startX = loopAFraction * w
-                        val endX = loopBFraction * w
+                    // ۱. قاب محافظ کنتراست تیره (Dark Contrast Casing) در زیر نوار
+                    // تضمین می‌کند حتی اگر پس‌زمینه دقیقاً هم‌رنگ کاور یا سفید باشد، نوار کاملاً تفکیک و مشخص بماند
+                    val casingPadding = 2.dp.toPx()
+                    drawRoundRect(
+                        color = Color(0xB805070E),
+                        topLeft = Offset(0f, trackTop - casingPadding),
+                        size = Size(w, trackH + casingPadding * 2f),
+                        cornerRadius = CornerRadius((trackH + casingPadding * 2f) / 2f)
+                    )
+
+                    // ۲. شیار پس‌زمینه شیشه‌ای نوار
+                    drawRoundRect(
+                        color = Color(0x38FFFFFF),
+                        topLeft = Offset(0f, trackTop),
+                        size = Size(w, trackH),
+                        cornerRadius = corner
+                    )
+
+                    // خط مرزی ظریف دور کل شیار نوار برای جلوگیری از محو شدن
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = 0.28f),
+                        topLeft = Offset(0f, trackTop),
+                        size = Size(w, trackH),
+                        cornerRadius = corner,
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+
+                    // ۳. بخش پرشده نوار بر اساس رنگ کاور آهنگ (همراه با لبه روشن کریستالی)
+                    if (activeWidth > 0f) {
+                        val glowHeight = trackH * (2.2f + haloExpansion * 0.5f)
+                        val glowTop = centerY - (glowHeight / 2f)
+
                         drawRoundRect(
                             brush = Brush.horizontalGradient(
                                 colors = listOf(
-                                    Color(0x4000F5D4),
-                                    Color(0x28FF1E56),
-                                    Color(0x4000F5D4)
+                                    coverPrimary.copy(alpha = 0.45f),
+                                    coverAccent.copy(alpha = 0.65f)
                                 ),
-                                startX = startX,
-                                endX = endX
+                                startX = 0f,
+                                endX = activeWidth.coerceAtLeast(1f)
                             ),
-                            topLeft = Offset(startX, 1.dp.toPx()),
-                            size = Size((endX - startX).coerceAtLeast(2f), h - 2.dp.toPx()),
-                            cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
+                            topLeft = Offset(0f, glowTop),
+                            size = Size(activeWidth, glowHeight),
+                            cornerRadius = CornerRadius(glowHeight / 2f, glowHeight / 2f)
                         )
-                    }
 
-                    val bars = activeWaveform
-                    val barCount = bars.size
-                    val totalGapRatio = 0.34f
-                    val barWidth = (w / barCount) * (1f - totalGapRatio)
-                    val barGap = (w / barCount) * totalGapRatio
-                    val maxBarHeight = h * 0.88f
-
-                    // Serato / Rekordbox Spectral Color Palette
-                    val dropCrimson = Color(0xFFFF1E56)   // Heavy Bass / Beat Drop
-                    val dropMagenta = Color(0xFFFF007F)   // Peak Kick & Sub
-                    val midViolet = Color(0xFF9D4EDD)     // Mid-range Groove / Synth
-                    val vocalIceCyan = Color(0xFF00F5D4)  // Vocal / Quiet / High-hat Air
-                    val deepIceBlue = Color(0xFF00BBF9)   // Low-intensity Ambient
-
-                    for (i in 0 until barCount) {
-                        val x = i * (barWidth + barGap)
-                        val amp = bars[i].coerceIn(0.08f, 1f)
-                        val isNearPlayhead = kotlin.math.abs((x + barWidth * 0.5f) - activeWidth) < (barWidth * 3.5f)
-                        val dynamicScale = if (isNearPlayhead) (1f + liveKickBoost) else 1f
-                        val barH = (amp * maxBarHeight * dynamicScale).coerceIn(4f, maxBarHeight)
-                        val y = centerY - (barH / 2f)
-                        val isPlayed = (x + barWidth * 0.5f) <= activeWidth
-
-                        // Determine spectral color from amplitude & local energy (Serato / Rekordbox style)
-                        val baseBarColor = when {
-                            amp >= 0.76f -> dropCrimson
-                            amp >= 0.64f -> dropMagenta
-                            amp >= 0.45f -> midViolet
-                            amp >= 0.28f -> vocalIceCyan
-                            else -> deepIceBlue
-                        }
-
-                        // Unplayed bars still show their frequency color at 44% opacity so the user can visually spot Beat Drops ahead of time!
-                        val finalAlpha = if (isPlayed) 0.96f else 0.44f
-
+                        // بدنه اصلی نوار پرشده با رنگ کاور + هسته درخشان در نوک نوار
                         drawRoundRect(
-                            color = baseBarColor.copy(alpha = finalAlpha),
-                            topLeft = Offset(x, y),
-                            size = Size(barWidth, barH),
-                            cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f)
+                            brush = Brush.horizontalGradient(
+                                colorStops = arrayOf(
+                                    0.00f to coverPrimary,
+                                    0.75f to coverAccent,
+                                    1.00f to Color.White
+                                ),
+                                startX = 0f,
+                                endX = activeWidth.coerceAtLeast(1f)
+                            ),
+                            topLeft = Offset(0f, trackTop),
+                            size = Size(activeWidth, trackH),
+                            cornerRadius = corner
+                        )
+
+                        // هایلایت سفید بسیار ظریف روی لبه بالایی قسمت پرشده برای تفکیک از پس‌زمینه
+                        drawRoundRect(
+                            color = Color.White.copy(alpha = 0.45f),
+                            topLeft = Offset(0f, trackTop),
+                            size = Size(activeWidth, trackH),
+                            cornerRadius = corner,
+                            style = Stroke(width = 0.9.dp.toPx())
                         )
                     }
 
-                    // Draw A and B markers if set
-                    if (loopAFraction != null) {
-                        val ax = (loopAFraction * w).coerceIn(0f, w)
-                        drawLine(
-                            color = Color(0xFF00F5D4),
-                            start = Offset(ax, 0f),
-                            end = Offset(ax, h),
-                            strokeWidth = 2.2.dp.toPx()
-                        )
+                    // نمایش بازه Loop A-B در صورت فعال بودن
+                    if (loopStartMs != null && loopStartMs >= 0L) {
+                        val startX = ((loopStartMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)) * w
                         drawCircle(
-                            color = Color(0xFF00F5D4),
-                            radius = 4.dp.toPx(),
-                            center = Offset(ax, 4.dp.toPx())
+                            color = Color.White,
+                            radius = trackH * 0.8f,
+                            center = Offset(startX, centerY)
                         )
-                    }
-                    if (loopBFraction != null) {
-                        val bx = (loopBFraction * w).coerceIn(0f, w)
-                        drawLine(
-                            color = Color(0xFFFF1E56),
-                            start = Offset(bx, 0f),
-                            end = Offset(bx, h),
-                            strokeWidth = 2.2.dp.toPx()
-                        )
-                        drawCircle(
-                            color = Color(0xFFFF1E56),
-                            radius = 4.dp.toPx(),
-                            center = Offset(bx, h - 4.dp.toPx())
-                        )
+                        if (loopEndMs != null && loopEndMs > loopStartMs) {
+                            val endX = ((loopEndMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)) * w
+                            drawRoundRect(
+                                color = Color.White.copy(alpha = 0.30f),
+                                topLeft = Offset(startX, trackTop - 2.dp.toPx()),
+                                size = Size((endX - startX).coerceAtLeast(2f), trackH + 4.dp.toPx()),
+                                cornerRadius = corner
+                            )
+                            drawCircle(
+                                color = Color.White,
+                                radius = trackH * 0.8f,
+                                center = Offset(endX, centerY)
+                            )
+                        }
                     }
 
-                    val thumbCenter = Offset(activeWidth, centerY)
+                    // ۴. گوی نوری سر نوار (Thumb) با حلقه محافظ تیره + مرکز سفید و رنگی
+                    val thumbCenter = Offset(activeWidth.coerceIn(0f, w), centerY)
                     val thumbRadiusPx = thumbRadiusDp.toPx()
-                    val bloomRadius = thumbRadiusPx * (2.5f + haloExpansion * 0.7f)
 
                     drawCircle(
                         brush = Brush.radialGradient(
-                            colors = listOf(palette.accent.copy(alpha = 0.68f), Color.Transparent),
+                            colors = listOf(
+                                coverAccent.copy(alpha = 0.70f),
+                                coverPrimary.copy(alpha = 0.30f),
+                                Color.Transparent
+                            ),
                             center = thumbCenter,
-                            radius = bloomRadius
+                            radius = thumbRadiusPx * 2.4f
                         ),
-                        radius = bloomRadius,
+                        radius = thumbRadiusPx * 2.4f,
                         center = thumbCenter
                     )
-                    drawCircle(color = palette.accent, radius = thumbRadiusPx, center = thumbCenter)
-                    drawCircle(color = Color.White, radius = thumbRadiusPx * 0.6f, center = thumbCenter)
+
+                    // حلقه سایه تیره دور گوی تا روی پس‌زمینه روشن هم ۱۰۰٪ مشخص باشد
+                    drawCircle(
+                        color = Color(0xD905070E),
+                        radius = thumbRadiusPx + 2.dp.toPx(),
+                        center = thumbCenter
+                    )
+
+                    // حلقه سفید بیرونی گوی
+                    drawCircle(
+                        color = Color.White,
+                        radius = thumbRadiusPx,
+                        center = thumbCenter
+                    )
+
+                    // هسته رنگی کاور در مرکز گوی
+                    drawCircle(
+                        color = coverAccent,
+                        radius = thumbRadiusPx * 0.55f,
+                        center = thumbCenter
+                    )
                 }
             }
 
@@ -306,18 +326,18 @@ fun LiquidGlassProgressBar(
                 Text(
                     text = formatDuration(effectiveMs),
                     style = MaterialTheme.typography.bodySmall.copy(
-                        color = if (isDragging) palette.accent else Color(0xFFA5ABC0),
+                        color = if (isDragging) Color.White else Color(0xFFD0D6EA),
                         fontSize = 12.sp,
-                        fontWeight = if (isDragging) FontWeight.Bold else FontWeight.SemiBold
+                        fontWeight = FontWeight.Bold
                     )
                 )
 
                 Text(
                     text = "-${formatDuration((safeDuration - effectiveMs).coerceAtLeast(0L))}",
                     style = MaterialTheme.typography.bodySmall.copy(
-                        color = Color(0xFFA5ABC0),
+                        color = Color(0xFFD0D6EA),
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Bold
                     )
                 )
             }
@@ -329,23 +349,23 @@ fun LiquidGlassProgressBar(
 fun LiquidGlassProgressBar(
     progress: Float,
     onSeek: (Float) -> Unit,
+    palette: AmbientPalette = AmbientPalette(),
+    waveformEnvelope: FloatArray? = null,
     modifier: Modifier = Modifier,
-    primaryColor: Color = Color(0xFF9D4EDD),
-    secondaryColor: Color = Color(0xFF00E5FF)
+    primaryColor: Color = palette.primary,
+    secondaryColor: Color = palette.accent,
+    durationMs: Long = 180000L,
+    currentPositionMs: Long = (progress * durationMs).toLong()
 ) {
-    val dummyPalette = remember(primaryColor, secondaryColor) {
-        AmbientPalette(primary = primaryColor, secondary = secondaryColor, accent = secondaryColor)
-    }
-    val safeProgress = progress.coerceIn(0f, 1f)
-    val dummyDurationMs = 180000L
-    val dummyPositionMs = (safeProgress * dummyDurationMs).toLong()
-
+    val safeDur = durationMs.coerceAtLeast(1L)
+    val mergedPalette = palette.copy(primary = primaryColor, accent = secondaryColor)
     LiquidGlassProgressBar(
-        currentPositionProvider = { dummyPositionMs },
-        durationMs = dummyDurationMs,
-        palette = dummyPalette,
+        currentPositionProvider = { currentPositionMs },
+        durationMs = safeDur,
+        palette = mergedPalette,
         analysisDataProvider = { AudioAnalysisData() },
-        onSeekTo = { pos -> onSeek(pos.toFloat() / dummyDurationMs.toFloat()) },
+        onSeekTo = { ms -> onSeek((ms.toFloat() / safeDur.toFloat()).coerceIn(0f, 1f)) },
+        waveformEnvelope = waveformEnvelope,
         modifier = modifier
     )
 }

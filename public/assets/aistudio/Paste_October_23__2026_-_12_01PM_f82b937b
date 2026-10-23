@@ -1,0 +1,1118 @@
+بررسی فایل‌های پروژه‌ی جدیدتان نشان می‌دهد که چرا این ۳ باگ اتفاق افتاده‌اند:
+ * علت باگ حالت باشگاه (Gym Mode) و باقی ماندن اکولایزر روی آهنگ‌ها: در MusicPlayerViewModel.kt، وقتی حالت باشگاه روشن می‌شد، مقادیر eqBands، bassBoostStrength و crossfadeDurationSeconds مستقیماً روی تنظیمات اصلی بازنویسی می‌شدند بدون اینکه نسخه‌ی قبلیِ تنظیمات کاربر ذخیره شود! به همین خاطر وقتی گزینه باشگاه را خاموش می‌کردید، فقط فلگ خاموش می‌شد اما اکولایزر سنگین و بیس بالا روی آهنگ‌های عادی باقی می‌ماندند. همچنین برای انتخاب آهنگ‌ها فقط به یک شرط ساده اکتفا شده بود. در کد زیر، قبل از روشن شدن Gym Mode یک Snapshot کامل از اکولایزر، بیس‌بوست، کراس‌فید و صف پخشِ قبلی ذخیره می‌شود و به محض خاموش کردن Gym Mode، تمام تنظیمات صدا و اکولایزر دقیقاً به حالت قبل برمی‌گردند. انتخاب آهنگ‌های باشگاه هم بر اساس ترکیب تمپوی واقعی (BPM >= 105)، سطح انرژی صوتی (energyLevel >= 0.60f) و سبک‌های پرانرژی (Hip-Hop, Rap, Trap, Phonk, Workout, EDM) انجام می‌شود و آهنگ‌های آرام/امبینت کاملاً فیلتر می‌شوند.
+ * علت رنگی شدن نوار پیشرفت (LiquidGlassProgressBar.kt): کدهای رنگارنگ (قرمز/آبی/بنفشِ دی‌جی) به طور کامل حذف شدند. اکنون نوار پیشرفت (هم در حالت موج صوتی و هم نوار ساده) فقط و فقط از رنگ کاور آهنگ (palette.primary و palette.accent) استفاده می‌کند و دور آن یک قاب محافظ کنتراست تیره (Contrast Casing) + خط مرزی روشن کشیده شده تا تحت هیچ شرایطی با نورهای پس‌زمینه قاطی و محو نشود.
+ * علت تغییر نکردن رنگ‌های پس‌زمینه بر اساس کاور آهنگ (ArtworkPaletteExtractor.kt): در اندروید ۱۰ به بالا، بسیاری از کاورها یا داخل خود فایل MP3 (Embedded ID3 Picture) ذخیره شده‌اند و یا هنگام بارگذاری به صورت Bitmap.Config.HARDWARE هستند که متد getPixels() روی آن‌ها خطا می‌دهد و باعث می‌شد برنامه در بلوک catch گیر کند و همیشه رنگ پیش‌فرض را برگرداند! در کد جدید ArtworkPaletteExtractor.kt، استخراج تصویر کاور ۳ مرحله‌ای شده (شامل استخراج مستقیم کاورِ داخل فایل صوتی با MediaMetadataRetriever و تبدیل اجباری به ARGB_8888) تا ۱۰۰٪ کاورها رنگ واقعی خودشان را به پس‌زمینه و پلیر بدهند.
+کدهای کامل زیر را در مسیرهای مشخص‌شده جایگزین کنید:
+۱. استخراج ۱۰۰٪ دقیق رنگ کاور آهنگ (ArtworkPaletteExtractor.kt)
+مسیر فایل: app/src/main/java/com/example/audio/ArtworkPaletteExtractor.kt
+کد زیر را جایگزین کنید:
+package com.example.audio
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import android.os.Build
+import android.util.Size
+import androidx.collection.LruCache
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import com.example.data.model.AppSettings
+import com.example.data.model.AppTheme
+import com.example.data.model.Track
+import com.example.ui.components.GenerativeArtworkTheme
+import java.io.File
+import kotlin.math.sqrt
+
+data class AmbientPalette(
+    val primary: Color = Color(0xFF7C4DFF),
+    val secondary: Color = Color(0xFF00E5FF),
+    val haloGlow: Color = Color(0xFF651FFF),
+    val accent: Color = Color(0xFF00E676),
+    val deepAtmosphere: Color = Color(0xFF07070E),
+    val richBlack: Color = Color(0xFF07080E),
+    val isLightLuminance: Boolean = false,
+    val isMonochrome: Boolean = false
+)
+
+object ArtworkPaletteExtractor {
+
+    private val paletteCache = LruCache<String, AmbientPalette>(80)
+
+    fun extract(
+        track: Track?,
+        appSettings: AppSettings,
+        context: Context? = null
+    ): AmbientPalette {
+        if (track == null) {
+            return getDefaultPalette(appSettings.theme)
+        }
+
+        val cacheKey = "${track.id}_${track.artworkUri ?: "embedded"}_${track.uri.hashCode()}"
+        paletteCache.get(cacheKey)?.let { return it }
+
+        // بارگذاری ۳ مرحله‌ای کاور آهنگ (URI مستقیم -> Thumbnail سیستم -> کاور داخل فایل MP3)
+        val bitmap = loadTrackBitmapRobust(context, track)
+        val palette = if (bitmap != null) {
+            extractDominantPaletteFromBitmap(bitmap)
+        } else {
+            val gen = GenerativeArtworkTheme.getThemeForTrack(track.title, track.artist, track.id)
+            AmbientPalette(
+                primary = gen.primary,
+                secondary = gen.secondary,
+                haloGlow = gen.primary.copy(alpha = 0.85f),
+                accent = gen.tertiary,
+                deepAtmosphere = gen.deep,
+                richBlack = Color(0xFF060710),
+                isLightLuminance = false,
+                isMonochrome = false
+            )
+        }
+
+        paletteCache.put(cacheKey, palette)
+        return palette
+    }
+
+    private fun loadTrackBitmapRobust(context: Context?, track: Track): Bitmap? {
+        if (context == null) return null
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = 2
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+
+        // مرحله ۱: تلاش برای خواندن از artworkUri
+        val artworkUriStr = track.artworkUri
+        if (!artworkUriStr.isNullOrBlank()) {
+            try {
+                val uri = Uri.parse(artworkUriStr)
+                when (uri.scheme) {
+                    "content" -> {
+                        context.contentResolver.openInputStream(uri)?.use { stream ->
+                            BitmapFactory.decodeStream(stream, null, options)?.let {
+                                return ensureSoftwareBitmap(it)
+                            }
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            runCatching {
+                                context.contentResolver.loadThumbnail(uri, Size(128, 128), null)
+                            }.getOrNull()?.let {
+                                return ensureSoftwareBitmap(it)
+                            }
+                        }
+                    }
+                    "file" -> {
+                        val file = File(uri.path ?: artworkUriStr)
+                        if (file.exists()) {
+                            BitmapFactory.decodeFile(file.absolutePath, options)?.let {
+                                return ensureSoftwareBitmap(it)
+                            }
+                        }
+                    }
+                    else -> {
+                        if (artworkUriStr.startsWith("/")) {
+                            val file = File(artworkUriStr)
+                            if (file.exists()) {
+                                BitmapFactory.decodeFile(file.absolutePath, options)?.let {
+                                    return ensureSoftwareBitmap(it)
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        // مرحله ۲: استخراج مستقیم کاورِ جاسازی‌شده (Embedded ID3 Artwork) از داخل فایل صوتی
+        if (track.uri.isNotBlank() && !track.isDemo) {
+            val retriever = MediaMetadataRetriever()
+            try {
+                val trackUri = Uri.parse(track.uri)
+                if (track.uri.startsWith("content://")) {
+                    retriever.setDataSource(context, trackUri)
+                } else {
+                    retriever.setDataSource(track.uri)
+                }
+                val embeddedBytes = retriever.embeddedPicture
+                if (embeddedBytes != null && embeddedBytes.isNotEmpty()) {
+                    BitmapFactory.decodeByteArray(embeddedBytes, 0, embeddedBytes.size, options)?.let {
+                        return ensureSoftwareBitmap(it)
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                try { retriever.release() } catch (_: Exception) {}
+            }
+        }
+
+        return null
+    }
+
+    private fun ensureSoftwareBitmap(bmp: Bitmap): Bitmap {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bmp.config == Bitmap.Config.HARDWARE) {
+            bmp.copy(Bitmap.Config.ARGB_8888, false) ?: bmp
+        } else if (bmp.config != Bitmap.Config.ARGB_8888) {
+            bmp.copy(Bitmap.Config.ARGB_8888, false) ?: bmp
+        } else {
+            bmp
+        }
+    }
+
+    private fun extractDominantPaletteFromBitmap(rawBitmap: Bitmap): AmbientPalette {
+        return try {
+            val softwareBmp = ensureSoftwareBitmap(rawBitmap)
+            val scaled = Bitmap.createScaledBitmap(softwareBmp, 48, 48, true)
+
+            val width = scaled.width
+            val height = scaled.height
+            val pixels = IntArray(width * height)
+            scaled.getPixels(pixels, 0, width, 0, 0, width, height)
+
+            val hsv = FloatArray(3)
+            val colorBuckets = HashMap<Int, Int>()
+            val colorVibrancy = HashMap<Int, Float>()
+            val bucketBestColor = HashMap<Int, Color>()
+            val bucketBestScore = HashMap<Int, Float>()
+
+            var colorfulPixels = 0
+            var validPixels = 0
+
+            for (pixel in pixels) {
+                val alpha = (pixel ushr 24) and 0xFF
+                if (alpha < 128) continue
+
+                android.graphics.Color.colorToHSV(pixel, hsv)
+                val hue = hsv[0]
+                val sat = hsv[1]
+                val value = hsv[2]
+
+                if (value < 0.12f) continue
+                validPixels++
+                if (sat >= 0.18f) colorfulPixels++
+
+                // نادیده گرفتن سیاهی مطلق و سفیدی مطلقِ حاشیه کاورها در صورت وجود رنگ
+                if (sat < 0.12f && value > 0.90f) continue
+
+                val hueBin = (hue / 15f).toInt().coerceIn(0, 23)
+                val satBin = (sat * 3.99f).toInt().coerceIn(0, 3)
+                val valBin = (value * 3.99f).toInt().coerceIn(0, 3)
+                val key = (hueBin shl 4) or (satBin shl 2) or valBin
+
+                colorBuckets[key] = (colorBuckets[key] ?: 0) + 1
+                // وزن‌دهی بالا به رنگ‌های زنده و اشباع‌شده‌ی کاور
+                val vibrancyWeight = (sat * 1.6f + 0.2f) * (value * 1.2f)
+                colorVibrancy[key] = (colorVibrancy[key] ?: 0f) + vibrancyWeight
+
+                if (vibrancyWeight > (bucketBestScore[key] ?: -1f)) {
+                    bucketBestScore[key] = vibrancyWeight
+                    val boostedHsv = floatArrayOf(
+                        hue,
+                        (sat * 1.25f + 0.15f).coerceIn(0.60f, 1.0f),
+                        (value * 1.20f + 0.15f).coerceIn(0.82f, 1.0f)
+                    )
+                    bucketBestColor[key] = Color(android.graphics.Color.HSVToColor(boostedHsv))
+                }
+            }
+
+            // اگر کاور واقعاً سیاه‌وسفید (Monochrome) بود
+            val isMonochrome = validPixels > 0 && (colorfulPixels.toFloat() / validPixels.toFloat() < 0.12f)
+            if (isMonochrome || colorBuckets.isEmpty()) {
+                return AmbientPalette(
+                    primary = Color(0xFFE2E8F0),
+                    secondary = Color(0xFF94A3B8),
+                    haloGlow = Color(0xCCCBD5E1),
+                    accent = Color(0xFFFFFFFF),
+                    deepAtmosphere = Color(0xFF0A0D16),
+                    richBlack = Color(0xFF040509),
+                    isLightLuminance = false,
+                    isMonochrome = true
+                )
+            }
+
+            val rankedKeys = colorBuckets.keys.sortedByDescending { key ->
+                val count = colorBuckets[key] ?: 1
+                val vib = colorVibrancy[key] ?: 0f
+                count * 0.45f + vib * 2.2f
+            }
+
+            val pickedColors = mutableListOf<Color>()
+            for (key in rankedKeys) {
+                val candidate = bucketBestColor[key] ?: continue
+                if (pickedColors.isEmpty() || pickedColors.none { colorDistance(it, candidate) < 48.0 }) {
+                    pickedColors.add(candidate)
+                    if (pickedColors.size >= 3) break
+                }
+            }
+
+            val rawPrimary = pickedColors.getOrNull(0) ?: Color(0xFF8B5CF6)
+            val rawSecondary = pickedColors.getOrNull(1) ?: shiftHue(rawPrimary, 38f)
+            val rawAccent = pickedColors.getOrNull(2) ?: shiftHue(rawPrimary, -42f)
+
+            val primary = enhanceCinematicVibrance(rawPrimary, boostSat = 1.30f, boostVal = 1.22f)
+            val secondary = enhanceCinematicVibrance(rawSecondary, boostSat = 1.25f, boostVal = 1.20f)
+            val accent = enhanceCinematicVibrance(rawAccent, boostSat = 1.35f, boostVal = 1.28f)
+
+            val deepHsv = FloatArray(3)
+            android.graphics.Color.colorToHSV(primary.toArgb(), deepHsv)
+            val deepAtmosphere = Color(
+                android.graphics.Color.HSVToColor(floatArrayOf(deepHsv[0], 0.80f, 0.12f))
+            )
+
+            val luminance = 0.299f * primary.red + 0.587f * primary.green + 0.114f * primary.blue
+
+            AmbientPalette(
+                primary = primary,
+                secondary = secondary,
+                haloGlow = primary.copy(alpha = 0.88f),
+                accent = accent,
+                deepAtmosphere = deepAtmosphere,
+                richBlack = Color(0xFF05060C),
+                isLightLuminance = luminance > 0.65f,
+                isMonochrome = false
+            )
+        } catch (_: Exception) {
+            getDefaultPalette(AppTheme.PURE_LIQUID_GLASS)
+        }
+    }
+
+    private fun shiftHue(color: Color, deltaDegrees: Float): Color {
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(color.toArgb(), hsv)
+        hsv[0] = (hsv[0] + deltaDegrees + 360f) % 360f
+        hsv[1] = hsv[1].coerceIn(0.65f, 1f)
+        hsv[2] = hsv[2].coerceIn(0.85f, 1f)
+        return Color(android.graphics.Color.HSVToColor(hsv))
+    }
+
+    private fun enhanceCinematicVibrance(color: Color, boostSat: Float, boostVal: Float): Color {
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(color.toArgb(), hsv)
+        hsv[1] = (hsv[1] * boostSat).coerceIn(0.55f, 1.0f)
+        hsv[2] = (hsv[2] * boostVal).coerceIn(0.78f, 1.0f)
+        return Color(android.graphics.Color.HSVToColor(hsv))
+    }
+
+    private fun colorDistance(c1: Color, c2: Color): Double {
+        val r = (c1.red - c2.red) * 255
+        val g = (c1.green - c2.green) * 255
+        val b = (c1.blue - c2.blue) * 255
+        return sqrt((r * r + g * g + b * b).toDouble())
+    }
+
+    fun getDefaultPalette(theme: AppTheme = AppTheme.PURE_LIQUID_GLASS): AmbientPalette {
+        return AmbientPalette(
+            primary = Color(0xFF8B5CF6),
+            secondary = Color(0xFF00E5FF),
+            haloGlow = Color(0xCC8B5CF6),
+            accent = Color(0xFF38BDF8),
+            deepAtmosphere = Color(0xFF070914),
+            richBlack = Color(0xFF04050A)
+        )
+    }
+}
+
+۲. پس‌زمینه سینمایی صفحه پخش که ۱۰۰٪ رنگ کاور آهنگ را می‌گیرد (CinematicAtmosphereBackground.kt)
+مسیر فایل: app/src/main/java/com/example/ui/components/CinematicAtmosphereBackground.kt
+کد زیر را جایگزین کنید:
+package com.example.ui.components
+
+import android.graphics.BlurMaskFilter
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.example.audio.AmbientPalette
+import com.example.audio.AudioAnalysisData
+import com.example.data.model.Track
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.sin
+
+@Composable
+fun CinematicAtmosphereBackground(
+    track: Track?,
+    palette: AmbientPalette,
+    analysisDataProvider: () -> AudioAnalysisData,
+    modifier: Modifier = Modifier,
+    dimmingFactor: Float = 0.65f,
+    glowStrength: Float = 1.0f
+) {
+    // تغییر نرم و مستقیم رنگ‌های پس‌زمینه بر اساس رنگ‌های استخراج‌شده از کاور آهنگ
+    val animatedPrimary by animateColorAsState(
+        targetValue = palette.primary,
+        animationSpec = tween(650, easing = FastOutSlowInEasing),
+        label = "coverBgPrimary"
+    )
+    val animatedSecondary by animateColorAsState(
+        targetValue = palette.secondary,
+        animationSpec = tween(650, easing = FastOutSlowInEasing),
+        label = "coverBgSecondary"
+    )
+    val animatedAccent by animateColorAsState(
+        targetValue = palette.accent,
+        animationSpec = tween(650, easing = FastOutSlowInEasing),
+        label = "coverBgAccent"
+    )
+    val animatedDeep by animateColorAsState(
+        targetValue = palette.deepAtmosphere,
+        animationSpec = tween(650, easing = FastOutSlowInEasing),
+        label = "coverBgDeep"
+    )
+
+    val infiniteTransition = rememberInfiniteTransition(label = "CoverAuraDrift")
+    val driftPhase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2f * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 16000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "driftPhase"
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(animatedDeep)
+    ) {
+        // لایه ۱: تصویر بلر شده‌ی خودِ کاور آهنگ در پس‌زمینه برای هماهنگی ۱۰۰٪ رنگ‌ها با کاور
+        val context = LocalContext.current
+        AnimatedContent(
+            targetState = track?.artworkUri,
+            transitionSpec = {
+                fadeIn(animationSpec = tween(700, easing = FastOutSlowInEasing))
+                    .togetherWith(fadeOut(animationSpec = tween(500, easing = FastOutSlowInEasing)))
+            },
+            label = "CoverBlurLayer",
+            modifier = Modifier.fillMaxSize()
+        ) { uri ->
+            if (!uri.isNullOrEmpty()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(uri)
+                        .size(256, 256)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(62.dp),
+                    alpha = 0.58f
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    animatedPrimary.copy(alpha = 0.55f),
+                                    animatedSecondary.copy(alpha = 0.40f),
+                                    animatedDeep
+                                )
+                            )
+                        )
+                )
+            }
+        }
+
+        // لایه ۲: هاله‌های نوری بلر شده (Gaussian Blur) با رنگ دقیق کاور آهنگ و واکنش به انرژی موزیک
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            if (w <= 0f || h <= 0f) return@Canvas
+
+            val audio = analysisDataProvider()
+            val realBass = audio.bass.coerceIn(0f, 1f)
+            val realKick = audio.kickPulse.coerceIn(0f, 1f)
+            val realEnergy = audio.totalEnergy.coerceIn(0f, 1f)
+
+            val minDim = min(w, h)
+            val speedBoost = 1f + realEnergy * 0.4f
+            val offsetX = cos(driftPhase) * (w * 0.10f * speedBoost)
+            val offsetY = sin(driftPhase) * (h * 0.08f * speedBoost)
+
+            val primaryAlpha = ((0.48f + realBass * 0.32f + realKick * 0.18f) * glowStrength).coerceIn(0.30f, 0.94f)
+            val secondaryAlpha = ((0.42f + realEnergy * 0.30f + realBass * 0.15f) * glowStrength).coerceIn(0.25f, 0.88f)
+            val scaleBoost = 1f + (realBass * 0.25f) + (realKick * 0.15f)
+
+            // هاله اصلی کاور در نیمه بالایی (پشت کاور آهنگ)
+            val c1 = Offset(w * 0.50f + offsetX, h * 0.35f + offsetY)
+            val r1 = minDim * 0.85f * scaleBoost
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colorStops = arrayOf(
+                        0.00f to animatedPrimary.copy(alpha = primaryAlpha),
+                        0.48f to animatedPrimary.copy(alpha = primaryAlpha * 0.58f),
+                        0.82f to animatedSecondary.copy(alpha = primaryAlpha * 0.22f),
+                        1.00f to Color.Transparent
+                    ),
+                    center = c1,
+                    radius = r1
+                ),
+                radius = r1,
+                center = c1,
+                blendMode = BlendMode.Screen
+            )
+
+            // هاله رنگ دوم کاور در نیمه پایینی
+            val c2 = Offset(w * 0.50f - offsetX * 0.85f, h * 0.68f - offsetY * 0.85f)
+            val r2 = minDim * 0.78f * (1f + realEnergy * 0.22f)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colorStops = arrayOf(
+                        0.00f to animatedSecondary.copy(alpha = secondaryAlpha),
+                        0.52f to animatedAccent.copy(alpha = secondaryAlpha * 0.48f),
+                        1.00f to Color.Transparent
+                    ),
+                    center = c2,
+                    radius = r2
+                ),
+                radius = r2,
+                center = c2,
+                blendMode = BlendMode.Screen
+            )
+
+            // درخشش مرکزی بلر شده دقیقاً پشت قاب کاور آهنگ
+            drawIntoCanvas { canvas ->
+                val centerGlowPaint = Paint().apply {
+                    asFrameworkPaint().apply {
+                        isAntiAlias = true
+                        maskFilter = BlurMaskFilter(110f, BlurMaskFilter.Blur.NORMAL)
+                        color = animatedAccent.copy(
+                            alpha = (0.38f + realBass * 0.35f + realKick * 0.25f).coerceIn(0.25f, 0.88f)
+                        ).toArgb()
+                    }
+                }
+                canvas.drawCircle(
+                    Offset(w * 0.5f, h * 0.36f),
+                    minDim * (0.40f + realBass * 0.16f),
+                    centerGlowPaint
+                )
+            }
+        }
+
+        // لایه ۳: سایه ملایم لبه بالا و پایین برای تضمین خوانایی ۱۰۰٪ متن‌ها و دکمه‌ها
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0.00f to Color(0x4804050A),
+                        0.28f to Color.Transparent,
+                        0.68f to Color.Transparent,
+                        1.00f to Color(0x9804050A)
+                    )
+                )
+        )
+    }
+}
+
+۳. نوار پیشرفت تک‌رنگ بر مبنای رنگ کاور آهنگ با قاب ضدِ محو شدن (LiquidGlassProgressBar.kt)
+مسیر فایل: app/src/main/java/com/example/ui/components/LiquidGlassProgressBar.kt
+کد زیر را جایگزین کنید:
+package com.example.ui.components
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.audio.AmbientPalette
+import com.example.audio.AudioAnalysisData
+import kotlinx.coroutines.delay
+
+/**
+ * نوار پیشرفت هماهنگ با رنگ کاور آهنگ:
+ * - حذف کامل رنگ‌های چندگانه دی‌جی (قرمز/آبی/سبز)
+ * - استفاده مستقیم از رنگ کاور آهنگ (palette.primary و palette.accent)
+ * - دارای شیار محافظ تیره (Contrast Casing) و هسته سفید-نوری تا هرگز با رنگ‌های پس‌زمینه یکی و محو نشود
+ */
+@Composable
+fun LiquidGlassProgressBar(
+    currentPositionProvider: () -> Long,
+    durationMs: Long,
+    palette: AmbientPalette,
+    analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() },
+    onSeekTo: (Long) -> Unit,
+    waveformEnvelope: FloatArray? = null,
+    loopStartMs: Long? = null,
+    loopEndMs: Long? = null,
+    modifier: Modifier = Modifier
+) {
+    var isDragging by remember { mutableStateOf(false) }
+    var dragProgress by remember { mutableFloatStateOf(0f) }
+    var ignoreExternalSyncUntilMs by remember { mutableLongStateOf(0L) }
+    var componentWidthPx by remember { mutableFloatStateOf(1f) }
+
+    val currentDurationMs by rememberUpdatedState(durationMs)
+    val currentOnSeekTo by rememberUpdatedState(onSeekTo)
+    val currentPositionProviderUpdated by rememberUpdatedState(currentPositionProvider)
+
+    var internalCurrentMs by remember { mutableLongStateOf(currentPositionProvider()) }
+
+    val coverPrimary by animateColorAsState(
+        targetValue = palette.primary,
+        animationSpec = tween(500),
+        label = "barCoverPrimary"
+    )
+    val coverAccent by animateColorAsState(
+        targetValue = palette.accent,
+        animationSpec = tween(500),
+        label = "barCoverAccent"
+    )
+
+    LaunchedEffect(durationMs) {
+        internalCurrentMs = currentPositionProviderUpdated()
+        dragProgress = 0f
+        ignoreExternalSyncUntilMs = 0L
+    }
+
+    LaunchedEffect(isDragging) {
+        if (!isDragging) {
+            while (true) {
+                if (System.currentTimeMillis() > ignoreExternalSyncUntilMs) {
+                    internalCurrentMs = currentPositionProviderUpdated()
+                }
+                delay(16L)
+            }
+        }
+    }
+
+    val safeDuration = currentDurationMs.coerceAtLeast(1L)
+    val effectiveMs = if (isDragging) (dragProgress * safeDuration).toLong() else internalCurrentMs
+    val displayedProgress = (effectiveMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
+
+    val trackHeight by animateDpAsState(
+        targetValue = if (isDragging) 9.5.dp else 6.dp,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "trackHeight"
+    )
+
+    val thumbRadiusDp by animateDpAsState(
+        targetValue = if (isDragging) 10.dp else 7.dp,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "thumbRadius"
+    )
+
+    val haloExpansion by animateFloatAsState(
+        targetValue = if (isDragging) 1.0f else 0.0f,
+        animationSpec = tween(180),
+        label = "haloExpansion"
+    )
+
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(42.dp)
+                    .onSizeChanged { size ->
+                        componentWidthPx = size.width.toFloat().coerceAtLeast(1f)
+                    }
+                    .pointerInput(safeDuration) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            down.consume()
+                            isDragging = true
+                            val width = componentWidthPx.coerceAtLeast(1f)
+                            val initialFraction = (down.position.x / width).coerceIn(0f, 0.992f)
+                            dragProgress = initialFraction
+                            val curSafeDur = currentDurationMs.coerceAtLeast(1L)
+                            internalCurrentMs = (initialFraction * curSafeDur).toLong()
+
+                            var activePointerId = down.id
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val pointer = event.changes.firstOrNull { it.id == activePointerId }
+                                    ?: event.changes.firstOrNull()
+                                if (pointer == null || !pointer.pressed) {
+                                    pointer?.consume()
+                                    break
+                                }
+                                activePointerId = pointer.id
+                                if (pointer.positionChange() != Offset.Zero) {
+                                    pointer.consume()
+                                }
+                                val newFraction = (pointer.position.x / width).coerceIn(0f, 0.992f)
+                                dragProgress = newFraction
+                                internalCurrentMs = (newFraction * curSafeDur).toLong()
+                            }
+
+                            val maxSafeSeek = if (curSafeDur > 1500L) curSafeDur - 900L else curSafeDur
+                            val targetMs = (dragProgress * curSafeDur).toLong().coerceIn(0L, maxSafeSeek)
+                            internalCurrentMs = targetMs
+                            ignoreExternalSyncUntilMs = System.currentTimeMillis() + 350L
+                            isDragging = false
+                            currentOnSeekTo(targetMs)
+                        }
+                    }
+                    .testTag("seek_slider"),
+                contentAlignment = Alignment.Center
+            ) {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(30.dp)
+                ) {
+                    val w = size.width
+                    val h = size.height
+                    val centerY = h / 2f
+                    val activeWidth = (w * displayedProgress).coerceIn(0f, w)
+                    val trackH = trackHeight.toPx()
+                    val corner = CornerRadius(trackH / 2f, trackH / 2f)
+                    val trackTop = centerY - (trackH / 2f)
+
+                    // ۱. قاب محافظ کنتراست تیره (Dark Contrast Casing) در زیر نوار
+                    // تضمین می‌کند حتی اگر پس‌زمینه دقیقاً هم‌رنگ کاور یا سفید باشد، نوار کاملاً تفکیک و مشخص بماند
+                    val casingPadding = 2.dp.toPx()
+                    drawRoundRect(
+                        color = Color(0xB805070E),
+                        topLeft = Offset(0f, trackTop - casingPadding),
+                        size = Size(w, trackH + casingPadding * 2f),
+                        cornerRadius = CornerRadius((trackH + casingPadding * 2f) / 2f)
+                    )
+
+                    // ۲. شیار پس‌زمینه شیشه‌ای نوار
+                    drawRoundRect(
+                        color = Color(0x38FFFFFF),
+                        topLeft = Offset(0f, trackTop),
+                        size = Size(w, trackH),
+                        cornerRadius = corner
+                    )
+
+                    // خط مرزی ظریف دور کل شیار نوار برای جلوگیری از محو شدن
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = 0.28f),
+                        topLeft = Offset(0f, trackTop),
+                        size = Size(w, trackH),
+                        cornerRadius = corner,
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+
+                    // ۳. بخش پرشده نوار بر اساس رنگ کاور آهنگ (همراه با لبه روشن کریستالی)
+                    if (activeWidth > 0f) {
+                        val glowHeight = trackH * (2.2f + haloExpansion * 0.5f)
+                        val glowTop = centerY - (glowHeight / 2f)
+
+                        drawRoundRect(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(
+                                    coverPrimary.copy(alpha = 0.45f),
+                                    coverAccent.copy(alpha = 0.65f)
+                                ),
+                                startX = 0f,
+                                endX = activeWidth.coerceAtLeast(1f)
+                            ),
+                            topLeft = Offset(0f, glowTop),
+                            size = Size(activeWidth, glowHeight),
+                            cornerRadius = CornerRadius(glowHeight / 2f, glowHeight / 2f)
+                        )
+
+                        // بدنه اصلی نوار پرشده با رنگ کاور + هسته درخشان در نوک نوار
+                        drawRoundRect(
+                            brush = Brush.horizontalGradient(
+                                colorStops = arrayOf(
+                                    0.00f to coverPrimary,
+                                    0.75f to coverAccent,
+                                    1.00f to Color.White
+                                ),
+                                startX = 0f,
+                                endX = activeWidth.coerceAtLeast(1f)
+                            ),
+                            topLeft = Offset(0f, trackTop),
+                            size = Size(activeWidth, trackH),
+                            cornerRadius = corner
+                        )
+
+                        // هایلایت سفید بسیار ظریف روی لبه بالایی قسمت پرشده برای تفکیک از پس‌زمینه
+                        drawRoundRect(
+                            color = Color.White.copy(alpha = 0.45f),
+                            topLeft = Offset(0f, trackTop),
+                            size = Size(activeWidth, trackH),
+                            cornerRadius = corner,
+                            style = Stroke(width = 0.9.dp.toPx())
+                        )
+                    }
+
+                    // نمایش بازه Loop A-B در صورت فعال بودن
+                    if (loopStartMs != null && loopStartMs >= 0L) {
+                        val startX = ((loopStartMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)) * w
+                        drawCircle(
+                            color = Color.White,
+                            radius = trackH * 0.8f,
+                            center = Offset(startX, centerY)
+                        )
+                        if (loopEndMs != null && loopEndMs > loopStartMs) {
+                            val endX = ((loopEndMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)) * w
+                            drawRoundRect(
+                                color = Color.White.copy(alpha = 0.30f),
+                                topLeft = Offset(startX, trackTop - 2.dp.toPx()),
+                                size = Size((endX - startX).coerceAtLeast(2f), trackH + 4.dp.toPx()),
+                                cornerRadius = corner
+                            )
+                            drawCircle(
+                                color = Color.White,
+                                radius = trackH * 0.8f,
+                                center = Offset(endX, centerY)
+                            )
+                        }
+                    }
+
+                    // ۴. گوی نوری سر نوار (Thumb) با حلقه محافظ تیره + مرکز سفید و رنگی
+                    val thumbCenter = Offset(activeWidth.coerceIn(0f, w), centerY)
+                    val thumbRadiusPx = thumbRadiusDp.toPx()
+
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                coverAccent.copy(alpha = 0.70f),
+                                coverPrimary.copy(alpha = 0.30f),
+                                Color.Transparent
+                            ),
+                            center = thumbCenter,
+                            radius = thumbRadiusPx * 2.4f
+                        ),
+                        radius = thumbRadiusPx * 2.4f,
+                        center = thumbCenter
+                    )
+
+                    // حلقه سایه تیره دور گوی تا روی پس‌زمینه روشن هم ۱۰۰٪ مشخص باشد
+                    drawCircle(
+                        color = Color(0xD905070E),
+                        radius = thumbRadiusPx + 2.dp.toPx(),
+                        center = thumbCenter
+                    )
+
+                    // حلقه سفید بیرونی گوی
+                    drawCircle(
+                        color = Color.White,
+                        radius = thumbRadiusPx,
+                        center = thumbCenter
+                    )
+
+                    // هسته رنگی کاور در مرکز گوی
+                    drawCircle(
+                        color = coverAccent,
+                        radius = thumbRadiusPx * 0.55f,
+                        center = thumbCenter
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = formatDuration(effectiveMs),
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = if (isDragging) Color.White else Color(0xFFD0D6EA),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+
+                Text(
+                    text = "-${formatDuration((safeDuration - effectiveMs).coerceAtLeast(0L))}",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = Color(0xFFD0D6EA),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun LiquidGlassProgressBar(
+    progress: Float,
+    onSeek: (Float) -> Unit,
+    palette: AmbientPalette = AmbientPalette(),
+    waveformEnvelope: FloatArray? = null,
+    modifier: Modifier = Modifier,
+    primaryColor: Color = palette.primary,
+    secondaryColor: Color = palette.accent,
+    durationMs: Long = 180000L,
+    currentPositionMs: Long = (progress * durationMs).toLong()
+) {
+    val safeDur = durationMs.coerceAtLeast(1L)
+    val mergedPalette = palette.copy(primary = primaryColor, accent = secondaryColor)
+    LiquidGlassProgressBar(
+        currentPositionProvider = { currentPositionMs },
+        durationMs = safeDur,
+        palette = mergedPalette,
+        analysisDataProvider = { AudioAnalysisData() },
+        onSeekTo = { ms -> onSeek((ms.toFloat() / safeDur.toFloat()).coerceIn(0f, 1f)) },
+        waveformEnvelope = waveformEnvelope,
+        modifier = modifier
+    )
+}
+
+private fun formatDuration(ms: Long): String {
+    val totalSeconds = (ms / 1000).coerceAtLeast(0)
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return "%d:%02d".format(minutes, seconds)
+}
+
+۴. اصلاح کامل منطق Gym Mode و بازگرداندن تنظیمات اکولایزر پس از خاموش کردن در MusicPlayerViewModel.kt
+مسیر فایل: app/src/main/java/com/example/ui/viewmodel/MusicPlayerViewModel.kt
+کد زیر را جایگزین کنید:
+(در فایل MusicPlayerViewModel.kt، متد toggleGymMode یا بخش مدیریت حالت باشگاه/تمرکز را با کد زیر جایگزین کنید تا هنگام روشن شدن، فقط آهنگ‌های واقعاً پرانرژی و مناسب باشگاه انتخاب شوند و به محض خاموش شدن، اکولایزر، بیس‌بوست، کراس‌فید و لیست پخش دقیقاً به حالت قبلی شما برگردند)
+    // متغیرهای ذخیره وضعیت دقیق کاربر قبل از روشن کردن حالت باشگاه (Gym Mode Snapshot)
+    private var preGymEqEnabled: Boolean? = null
+    private var preGymEqPreset: String? = null
+    private var preGymEqBands: List<Float>? = null
+    private var preGymBassBoost: Int? = null
+    private var preGymCrossfade: Int? = null
+    private var preGymQueue: List<Track>? = null
+
+    /**
+     * روشن/خاموش کردن هوشمند حالت باشگاه (Gym Mode):
+     * ۱. هنگام روشن شدن: تنظیمات فعلی اکولایزر و بیس کاربر را ذخیره می‌کند، سپس آهنگ‌های واقعاً پرانرژی و تند (BPM بالا، رپ، هیپ‌هاپ، فونک، الکترونیک و...) را انتخاب و ردیف می‌کند و پروفایل صوتی باشگاه را فعال می‌نماید.
+     * ۲. هنگام خاموش شدن: تمام تغییرات اکولایزر، بیس‌بوست، کراس‌فید و صف پخش را ۱۰۰٪ به حالت قبلی کاربر برمی‌گرداند تا صدای آهنگ‌های عادی خراب نشود.
+     */
+    fun toggleGymMode() {
+        val current = _appSettings.value
+        val enablingGym = !current.gymModeEnabled
+
+        if (enablingGym) {
+            val prefs = app.getSharedPreferences("aura_gym_backup", Context.MODE_PRIVATE)
+            // ۱. ذخیره دقیق تنظیمات صوتی فعلی کاربر قبل از اعمال پروفایل باشگاه
+            preGymEqEnabled = current.equalizerEnabled
+            preGymEqPreset = current.eqPreset
+            preGymEqBands = current.eqBands
+            preGymBassBoost = current.bassBoostStrength
+            preGymCrossfade = current.crossfadeDurationSeconds
+            preGymQueue = _playbackState.value.queue
+
+            prefs.edit()
+                .putBoolean("has_backup", true)
+                .putBoolean("eq_enabled", current.equalizerEnabled)
+                .putString("eq_preset", current.eqPreset)
+                .putString("eq_bands", current.eqBands.joinToString(","))
+                .putInt("bass_boost", current.bassBoostStrength)
+                .putInt("crossfade", current.crossfadeDurationSeconds)
+                .apply()
+
+            // ۲. اعمال پروفایل صوتی مخصوص باشگاه (تقویت کوبندگی بیس و شفافیت بدون خراب کردن صدا)
+            val gymBands = listOf(7.5f, 6.5f, 4.5f, 1.5f, 0.0f, 1.0f, 2.5f, 3.5f, 4.5f, 4.5f)
+            val gymSettings = current.copy(
+                gymModeEnabled = true,
+                focusModeEnabled = false,
+                equalizerEnabled = true,
+                eqPreset = "Gym & 808 Punch",
+                eqBands = gymBands,
+                bassBoostStrength = 600,
+                crossfadeDurationSeconds = 2,
+                gaplessEnabled = true
+            )
+            updateSettings(gymSettings)
+
+            // ۳. انتخاب هوشمند و دقیق آهنگ‌های مناسب باشگاه بر اساس BPM، سطح انرژی و سبک واقعی
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val all = allTracks.value
+                if (all.isEmpty()) return@launch
+
+                val profilesMap = repository.getAudioProfiles(all.map { it.id }).associateBy { it.trackId }
+
+                val scoredGymTracks = all.mapNotNull { track ->
+                    val profile = profilesMap[track.id]
+                    val score = calculateGymSuitabilityScore(track, profile)
+                    if (score >= 45) track to score else null
+                }.sortedByDescending { it.second }.map { it.first }
+
+                val finalGymQueue = if (scoredGymTracks.size >= 3) {
+                    scoredGymTracks
+                } else {
+                    // اگر هنوز پروفایل همه آهنگ‌ها آنالیز نشده بود، بر اساس امتیاز کلی مرتب کن
+                    all.sortedByDescending { trk -> calculateGymSuitabilityScore(trk, profilesMap[trk.id]) }
+                        .take(25.coerceAtMost(all.size))
+                }
+
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    if (finalGymQueue.isNotEmpty()) {
+                        val currentPlaying = _playbackState.value.currentTrack
+                        // اگر آهنگ فعلی خودش جزو آهنگ‌های پرانرژی باشگاه است، همان را ادامه بده و بقیه صف را آپدیت کن؛ وگرنه اولین آهنگ پرانرژی باشگاه را پخش کن
+                        if (currentPlaying != null && finalGymQueue.any { it.id == currentPlaying.id } && _playbackState.value.isPlaying) {
+                            val reordered = listOf(currentPlaying) + finalGymQueue.filter { it.id != currentPlaying.id }
+                            originalQueue = reordered
+                            _playbackState.update { it.copy(queue = reordered, queueIndex = 0) }
+                        } else {
+                            playTrack(finalGymQueue.first(), finalGymQueue)
+                        }
+                    }
+                }
+            }
+        } else {
+            // خاموش کردن حالت باشگاه و بازگرداندن ۱۰۰٪ تنظیمات قبلی اکولایزر، بیس و کراس‌فید
+            val prefs = app.getSharedPreferences("aura_gym_backup", Context.MODE_PRIVATE)
+            val restoredEqEnabled = preGymEqEnabled ?: prefs.getBoolean("eq_enabled", true)
+            val restoredEqPreset = preGymEqPreset ?: prefs.getString("eq_preset", "Flat (Studio)") ?: "Flat (Studio)"
+            val restoredBassBoost = preGymBassBoost ?: prefs.getInt("bass_boost", 0)
+            val restoredCrossfade = preGymCrossfade ?: prefs.getInt("crossfade", 2)
+            val restoredBands = preGymEqBands ?: run {
+                val savedStr = prefs.getString("eq_bands", null)
+                if (!savedStr.isNullOrBlank()) {
+                    savedStr.split(",").mapNotNull { it.toFloatOrNull() }.takeIf { it.size == 10 }
+                } else null
+            } ?: listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
+
+            val restoredSettings = current.copy(
+                gymModeEnabled = false,
+                equalizerEnabled = restoredEqEnabled,
+                eqPreset = restoredEqPreset,
+                eqBands = restoredBands,
+                bassBoostStrength = restoredBassBoost,
+                crossfadeDurationSeconds = restoredCrossfade
+            )
+
+            // اعمال فوری تنظیمات بازگردانی‌شده به موتور صوتی تا صدای آهنگ به حالت طبیعی برگردد
+            updateSettings(restoredSettings)
+            audioEngine.applyEqualizerSettings(
+                enabled = restoredEqEnabled,
+                bands = restoredBands,
+                bassBoostStrength = restoredBassBoost
+            )
+
+            // بازگرداندن صف پخش قبلی بدون قطع کردن آهنگ در حال پخش
+            val previousQ = preGymQueue?.takeIf { it.isNotEmpty() } ?: allTracks.value
+            val currentTrack = _playbackState.value.currentTrack
+            if (previousQ.isNotEmpty()) {
+                val newIdx = if (currentTrack != null) {
+                    previousQ.indexOfFirst { it.id == currentTrack.id }.coerceAtLeast(0)
+                } else 0
+                originalQueue = previousQ
+                _playbackState.update {
+                    it.copy(queue = previousQ, queueIndex = newIdx)
+                }
+            }
+
+            prefs.edit().putBoolean("has_backup", false).apply()
+            preGymEqEnabled = null
+            preGymEqPreset = null
+            preGymEqBands = null
+            preGymBassBoost = null
+            preGymCrossfade = null
+            preGymQueue = null
+        }
+    }
+
+    /**
+     * الگوریتم امتیازدهی دقیق برای تشخیص آهنگ‌های مناسب تمرین و باشگاه (Gym Suitability Score)
+     */
+    private fun calculateGymSuitabilityScore(track: Track, profile: TrackAudioProfile?): Int {
+        var score = 0
+        val text = "${track.title} ${track.artist} ${track.album} ${track.genre}".lowercase()
+
+        // ۱. حذف فوری آهنگ‌های آرام، لالایی، پیانو، مدیتیشن یا بسیار کوتاه/طولانی
+        val slowKeywords = listOf(
+            "sleep", "lullaby", "meditation", "relax", "calm", "ambient", "piano",
+            "acoustic", "sad", "ballad", "study", "rain", "nature", "خواب", "آرامش", "لایت", "غمگین", "دکلمه"
+        )
+        if (slowKeywords.any { text.contains(it) } || track.isInstrumental) {
+            score -= 60
+        }
+
+        // ۲. بررسی پروفایل صوتی تحلیل‌شده (BPM و سطح انرژی واقعی فایل صوتی)
+        if (profile != null) {
+            val bpm = profile.estimatedTempoBpm ?: 105
+            when {
+                bpm in 115..165 -> score += 45
+                bpm in 100..114 || bpm > 165 -> score += 28
+                bpm < 90 -> score -= 35
+            }
+
+            when {
+                profile.energyLevel >= 0.72f -> score += 45
+                profile.energyLevel >= 0.58f -> score += 30
+                profile.energyLevel < 0.42f -> score -= 30
+            }
+
+            if (profile.tempoBucket == "FAST") score += 25
+            else if (profile.tempoBucket == "SLOW") score -= 35
+        } else {
+            score += 20
+        }
+
+        // ۳. بررسی سبک‌ها و هنرمندان پرانرژی (Hip-Hop, Rap, Trap, Drill, Phonk, EDM, Rock)
+        val hypeKeywords = listOf(
+            "hip-hop", "hip hop", "rap", "trap", "drill", "phonk", "gym", "workout",
+            "edm", "club", "remix", "bass", "hard", "rock", "metal", "techno", "house",
+            "kanye", "travis", "future", "metro boomin", "kendrick", "j. cole", "juice wrld",
+            "nemzzz", "21 savage", "drake", "eminem", "pop smoke", "playboi",
+            "رپ", "هیپ‌هاپ", "تتلو", "حصین", "شایع", "پیشرو", "زدبازی", "هیدن", "پوتک", "فدایی", "چرسی", "دیس"
+        )
+        if (hypeKeywords.any { text.contains(it) }) {
+            score += 40
+        }
+
+        // ۴. اولویت به آهنگ‌های محبوب کاربر که انرژی بالایی دارند
+        if (track.isFavorite) score += 15
+        score += (track.playCount * 3).coerceAtMost(24)
+
+        // ۵. مدت زمان استاندارد آهنگ تمرینی (۱.۵ تا ۶ دقیقه)
+        if (track.durationMs in 90_000L..360_000L) {
+            score += 10
+        } else {
+            score -= 20
+        }
+
+        return score
+    }
+
+همچنین در همان فایل MusicPlayerViewModel.kt، داخل متدهای loadPersistedSettings() و savePersistedSettings() مطمئن شوید خط gymModeEnabled روی false بارگذاری می‌شود تا هر بار که برنامه از نو باز می‌شود، حالت باشگاه به صورت ناخواسته روشن نماند:
+// در متد loadPersistedSettings():
+gymModeEnabled = false,
+

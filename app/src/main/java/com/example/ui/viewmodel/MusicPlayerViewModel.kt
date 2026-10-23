@@ -909,51 +909,206 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    // متغیرهای ذخیره وضعیت دقیق کاربر قبل از روشن کردن حالت باشگاه (Gym Mode Snapshot)
+    private var preGymEqEnabled: Boolean? = null
+    private var preGymEqPreset: String? = null
+    private var preGymEqBands: List<Float>? = null
+    private var preGymBassBoost: Int? = null
+    private var preGymCrossfade: Int? = null
+    private var preGymQueue: List<Track>? = null
+
+    /**
+     * روشن/خاموش کردن هوشمند حالت باشگاه (Gym Mode):
+     * ۱. هنگام روشن شدن: تنظیمات فعلی اکولایزر و بیس کاربر را ذخیره می‌کند، سپس آهنگ‌های واقعاً پرانرژی و تند (BPM بالا، رپ، هیپ‌هاپ، فونک، الکترونیک و...) را انتخاب و ردیف می‌کند و پروفایل صوتی باشگاه را فعال می‌نماید.
+     * ۲. هنگام خاموش شدن: تمام تغییرات اکولایزر، بیس‌بوست، کراس‌فید و صف پخش را ۱۰۰٪ به حالت قبلی کاربر برمی‌گرداند تا صدای آهنگ‌های عادی خراب نشود.
+     */
     fun toggleGymMode() {
         val current = _appSettings.value
-        val enabling = !current.gymModeEnabled
-        val updated = if (enabling) {
-            current.copy(
-                gymModeEnabled = true,
-                equalizerEnabled = true,
-                eqPreset = "Extreme Sub-Bass",
-                eqBands = listOf(10.5f, 9.5f, 7.0f, 3.5f, 0.5f, 0.0f, 1.0f, 2.5f, 3.5f, 4.0f),
-                bassBoostStrength = 850,
-                beatFocusEnabled = true,
-                gaplessEnabled = true,
-                smartSilenceTrimEnabled = true
-            )
-        } else {
-            current.copy(
-                gymModeEnabled = false,
-                beatFocusEnabled = false
-            )
-        }
-        updateSettings(updated)
+        val enablingGym = !current.gymModeEnabled
 
-        if (enabling) {
+        if (enablingGym) {
+            val prefs = app.getSharedPreferences("aura_gym_backup", Context.MODE_PRIVATE)
+            // ۱. ذخیره دقیق تنظیمات صوتی فعلی کاربر قبل از اعمال پروفایل باشگاه
+            preGymEqEnabled = current.equalizerEnabled
+            preGymEqPreset = current.eqPreset
+            preGymEqBands = current.eqBands
+            preGymBassBoost = current.bassBoostStrength
+            preGymCrossfade = current.crossfadeDurationSeconds
+            preGymQueue = _playbackState.value.queue
+
+            prefs.edit()
+                .putBoolean("has_backup", true)
+                .putBoolean("eq_enabled", current.equalizerEnabled)
+                .putString("eq_preset", current.eqPreset)
+                .putString("eq_bands", current.eqBands.joinToString(","))
+                .putInt("bass_boost", current.bassBoostStrength)
+                .putInt("crossfade", current.crossfadeDurationSeconds)
+                .apply()
+
+            // ۲. اعمال پروفایل صوتی مخصوص باشگاه (تقویت کوبندگی بیس و شفافیت بدون خراب کردن صدا)
+            val gymBands = listOf(7.5f, 6.5f, 4.5f, 1.5f, 0.0f, 1.0f, 2.5f, 3.5f, 4.5f, 4.5f)
+            val gymSettings = current.copy(
+                gymModeEnabled = true,
+                focusModeEnabled = false,
+                equalizerEnabled = true,
+                eqPreset = "Gym & 808 Punch",
+                eqBands = gymBands,
+                bassBoostStrength = 600,
+                crossfadeDurationSeconds = 2,
+                gaplessEnabled = true
+            )
+            updateSettings(gymSettings)
+
+            // ۳. انتخاب هوشمند و دقیق آهنگ‌های مناسب باشگاه بر اساس BPM، سطح انرژی و سبک واقعی
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 val all = allTracks.value
-                if (all.isNotEmpty()) {
-                    val highEnergyQueue = all.filter { trk ->
-                        val prof = repository.getAudioProfile(trk.id)
-                        if (prof != null) {
-                            (prof.estimatedTempoBpm ?: 0) >= 110 || prof.energyLevel >= 0.58f
+                if (all.isEmpty()) return@launch
+
+                val profilesMap = repository.getAudioProfiles(all.map { it.id }).associateBy { it.trackId }
+
+                val scoredGymTracks = all.mapNotNull { track ->
+                    val profile = profilesMap[track.id]
+                    val score = calculateGymSuitabilityScore(track, profile)
+                    if (score >= 45) track to score else null
+                }.sortedByDescending { it.second }.map { it.first }
+
+                val finalGymQueue = if (scoredGymTracks.size >= 3) {
+                    scoredGymTracks
+                } else {
+                    // اگر هنوز پروفایل همه آهنگ‌ها آنالیز نشده بود، بر اساس امتیاز کلی مرتب کن
+                    all.sortedByDescending { trk -> calculateGymSuitabilityScore(trk, profilesMap[trk.id]) }
+                        .take(25.coerceAtMost(all.size))
+                }
+
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    if (finalGymQueue.isNotEmpty()) {
+                        val currentPlaying = _playbackState.value.currentTrack
+                        // اگر آهنگ فعلی خودش جزو آهنگ‌های پرانرژی باشگاه است، همان را ادامه بده و بقیه صف را آپدیت کن؛ وگرنه اولین آهنگ پرانرژی باشگاه را پخش کن
+                        if (currentPlaying != null && finalGymQueue.any { it.id == currentPlaying.id } && _playbackState.value.isPlaying) {
+                            val reordered = listOf(currentPlaying) + finalGymQueue.filter { it.id != currentPlaying.id }
+                            originalQueue = reordered
+                            _playbackState.update { it.copy(queue = reordered, queueIndex = 0) }
                         } else {
-                            // Heuristic fallback for unanalyzed tracks: energetic duration & non-slow tracks
-                            trk.durationMs in 90_000L..320_000L
-                        }
-                    }.ifEmpty { all }
-                    val sortedPump = highEnergyQueue.sortedByDescending { it.playCount }
-                    val firstTrack = sortedPump.firstOrNull()
-                    if (firstTrack != null) {
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            playTrack(firstTrack, sortedPump)
+                            playTrack(finalGymQueue.first(), finalGymQueue)
                         }
                     }
                 }
             }
+        } else {
+            // خاموش کردن حالت باشگاه و بازگرداندن ۱۰۰٪ تنظیمات قبلی اکولایزر، بیس و کراس‌فید
+            val prefs = app.getSharedPreferences("aura_gym_backup", Context.MODE_PRIVATE)
+            val restoredEqEnabled = preGymEqEnabled ?: prefs.getBoolean("eq_enabled", true)
+            val restoredEqPreset = preGymEqPreset ?: prefs.getString("eq_preset", "Flat (Studio)") ?: "Flat (Studio)"
+            val restoredBassBoost = preGymBassBoost ?: prefs.getInt("bass_boost", 0)
+            val restoredCrossfade = preGymCrossfade ?: prefs.getInt("crossfade", 2)
+            val restoredBands = preGymEqBands ?: run {
+                val savedStr = prefs.getString("eq_bands", null)
+                if (!savedStr.isNullOrBlank()) {
+                    savedStr.split(",").mapNotNull { it.toFloatOrNull() }.takeIf { it.size == 10 }
+                } else null
+            } ?: listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
+
+            val restoredSettings = current.copy(
+                gymModeEnabled = false,
+                equalizerEnabled = restoredEqEnabled,
+                eqPreset = restoredEqPreset,
+                eqBands = restoredBands,
+                bassBoostStrength = restoredBassBoost,
+                crossfadeDurationSeconds = restoredCrossfade
+            )
+
+            // اعمال فوری تنظیمات بازگردانی‌شده به موتور صوتی تا صدای آهنگ به حالت طبیعی برگردد
+            updateSettings(restoredSettings)
+            audioEngine.applyEqualizerSettings(
+                enabled = restoredEqEnabled,
+                bands = restoredBands,
+                bassBoostStrength = restoredBassBoost
+            )
+
+            // بازگرداندن صف پخش قبلی بدون قطع کردن آهنگ در حال پخش
+            val previousQ = preGymQueue?.takeIf { it.isNotEmpty() } ?: allTracks.value
+            val currentTrack = _playbackState.value.currentTrack
+            if (previousQ.isNotEmpty()) {
+                val newIdx = if (currentTrack != null) {
+                    previousQ.indexOfFirst { it.id == currentTrack.id }.coerceAtLeast(0)
+                } else 0
+                originalQueue = previousQ
+                _playbackState.update {
+                    it.copy(queue = previousQ, queueIndex = newIdx)
+                }
+            }
+
+            prefs.edit().putBoolean("has_backup", false).apply()
+            preGymEqEnabled = null
+            preGymEqPreset = null
+            preGymEqBands = null
+            preGymBassBoost = null
+            preGymCrossfade = null
+            preGymQueue = null
         }
+    }
+
+    /**
+     * الگوریتم امتیازدهی دقیق برای تشخیص آهنگ‌های مناسب تمرین و باشگاه (Gym Suitability Score)
+     */
+    private fun calculateGymSuitabilityScore(track: Track, profile: TrackAudioProfile?): Int {
+        var score = 0
+        val text = "${track.title} ${track.artist} ${track.album} ${track.genre}".lowercase()
+
+        // ۱. حذف فوری آهنگ‌های آرام، لالایی، پیانو، مدیتیشن یا بسیار کوتاه/طولانی
+        val slowKeywords = listOf(
+            "sleep", "lullaby", "meditation", "relax", "calm", "ambient", "piano",
+            "acoustic", "sad", "ballad", "study", "rain", "nature", "خواب", "آرامش", "لایت", "غمگین", "دکلمه"
+        )
+        if (slowKeywords.any { text.contains(it) } || track.isInstrumental) {
+            score -= 60
+        }
+
+        // ۲. بررسی پروفایل صوتی تحلیل‌شده (BPM و سطح انرژی واقعی فایل صوتی)
+        if (profile != null) {
+            val bpm = profile.estimatedTempoBpm ?: 105
+            when {
+                bpm in 115..165 -> score += 45
+                bpm in 100..114 || bpm > 165 -> score += 28
+                bpm < 90 -> score -= 35
+            }
+
+            when {
+                profile.energyLevel >= 0.72f -> score += 45
+                profile.energyLevel >= 0.58f -> score += 30
+                profile.energyLevel < 0.42f -> score -= 30
+            }
+
+            if (profile.tempoBucket == "FAST") score += 25
+            else if (profile.tempoBucket == "SLOW") score -= 35
+        } else {
+            score += 20
+        }
+
+        // ۳. بررسی سبک‌ها و هنرمندان پرانرژی (Hip-Hop, Rap, Trap, Drill, Phonk, EDM, Rock)
+        val hypeKeywords = listOf(
+            "hip-hop", "hip hop", "rap", "trap", "drill", "phonk", "gym", "workout",
+            "edm", "club", "remix", "bass", "hard", "rock", "metal", "techno", "house",
+            "kanye", "travis", "future", "metro boomin", "kendrick", "j. cole", "juice wrld",
+            "nemzzz", "21 savage", "drake", "eminem", "pop smoke", "playboi",
+            "رپ", "هیپ‌هاپ", "تتلو", "حصین", "شایع", "پیشرو", "زدبازی", "هیدن", "پوتک", "فدایی", "چرسی", "دیس"
+        )
+        if (hypeKeywords.any { text.contains(it) }) {
+            score += 40
+        }
+
+        // ۴. اولویت به آهنگ‌های محبوب کاربر که انرژی بالایی دارند
+        if (track.isFavorite) score += 15
+        score += (track.playCount * 3).coerceAtMost(24)
+
+        // ۵. مدت زمان استاندارد آهنگ تمرینی (۱.۵ تا ۶ دقیقه)
+        if (track.durationMs in 90_000L..360_000L) {
+            score += 10
+        } else {
+            score -= 20
+        }
+
+        return score
     }
 
     private fun applySettingsToEngines(settings: AppSettings) {
@@ -1021,7 +1176,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             continuousMixEnabled = prefs.getBoolean("continuous_mix", false),
             focusModeEnabled = prefs.getBoolean("focus_mode", false),
             selectedNowPlayingStyle = prefs.getString("np_style", "default") ?: "default",
-            gymModeEnabled = prefs.getBoolean("gym_mode", false),
+            gymModeEnabled = false,
             beatFocusEnabled = prefs.getBoolean("beat_focus", false),
             vocalCrystalEnabled = prefs.getBoolean("vocal_crystal", false),
             smartSilenceTrimEnabled = prefs.getBoolean("smart_silence_trim", true)
