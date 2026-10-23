@@ -1,5 +1,7 @@
 package com.example.ui.components
 
+import android.content.Context
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
@@ -7,6 +9,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,8 +20,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloseFullscreen
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,6 +36,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
@@ -75,14 +81,11 @@ fun LyricsView(
 }
 
 /**
- * Ultra-Luxury Cinematic Synced Lyrics (Apple Music Grade):
+ * Ultra-Luxury Cinematic Synced Lyrics (Apple Music Grade) + Studio Freestyle Pad:
  * - Pure Offscreen Alpha Mask (NO hardcoded black boxes, works dynamically over any cover/atmosphere)
  * - 3-Tier Optical Depth of Field (Active focused / Neighboring / Distant blurred)
  * - Sub-millisecond Word-Level Horizontal Gradient Sweep with dynamic luminous bloom
- * - Soft Spring-Damped Auto-Scroll with anti-jitter
- * - Dedicated atmospheric floating glass backdrop
- * - Fullscreen Cinematic Mode toggle
- * - Tactile Tap-To-Seek with haptic ripple
+ * - Built-in Freestyle Pad (دفترچه یادداشت سریع تکست و تایم‌کد روی بیت)
  */
 @Composable
 fun LyricsView(
@@ -97,13 +100,22 @@ fun LyricsView(
     baseFontSize: Float = 22f,
     activeTrackId: String = ""
 ) {
+    val context = LocalContext.current
     val listState = rememberLazyListState()
     val haptic = LocalHapticFeedback.current
     var isCinematicFullscreen by remember { mutableStateOf(false) }
+    var isFreestylePadOpen by remember { mutableStateOf(false) }
+
+    val freestylePrefs = remember {
+        context.getSharedPreferences("aura_freestyle_pad", Context.MODE_PRIVATE)
+    }
+    var freestyleText by remember(activeTrackId) {
+        mutableStateOf(freestylePrefs.getString("note_$activeTrackId", "") ?: "")
+    }
 
     // Live continuous clock ticker for 60fps sub-millisecond sweep and sync
     var liveClockMs by remember { mutableLongStateOf(currentPositionProvider()) }
-    LaunchedEffect(activeTrackId, lyrics.isNotEmpty()) {
+    LaunchedEffect(activeTrackId, lyrics.isNotEmpty(), isFreestylePadOpen) {
         while (isActive) {
             liveClockMs = currentPositionProvider()
             kotlinx.coroutines.delay(16L)
@@ -157,79 +169,203 @@ fun LyricsView(
         }
     }
 
-    if (lyrics.isEmpty()) {
-        Box(
-            modifier = modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
+    Box(modifier = modifier.fillMaxSize()) {
+        if (isFreestylePadOpen) {
+            // دفترچه یادداشت سریع تکست و فری‌استایل روی بیت (Freestyle Pad)
+            Column(
                 modifier = Modifier
-                    .padding(horizontal = 28.dp)
+                    .fillMaxSize()
+                    .padding(horizontal = 18.dp, vertical = 14.dp)
                     .liquidGlass(
                         shape = RoundedCornerShape(24.dp),
                         thickness = GlassThickness.REGULAR,
                         tintColor = palette.primary,
-                        tintAlpha = 0.14f
+                        tintAlpha = 0.22f
                     )
-                    .padding(32.dp),
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.EditNote,
+                            contentDescription = null,
+                            tint = Color(0xFF00F5D4),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "Freestyle & Beat Pad",
+                                color = Color.White,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = "دفترچه تکست‌نویسی و ثبت تایم‌کد روی بیت",
+                                color = Color(0xFFB0B5C8),
+                                fontSize = 10.5.sp
+                            )
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        // Stamp current beat timecode [mm:ss.xx]
+                        Surface(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                val min = (liveClockMs / 1000) / 60
+                                val sec = (liveClockMs / 1000) % 60
+                                val cs = (liveClockMs % 1000) / 10
+                                val stamp = "[%02d:%02d.%02d] ".format(min, sec, cs)
+                                val prefix = if (freestyleText.isEmpty() || freestyleText.endsWith("\n")) "" else "\n"
+                                val updated = freestyleText + prefix + stamp
+                                freestyleText = updated
+                                freestylePrefs.edit().putString("note_$activeTrackId", updated).apply()
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF00F5D4).copy(alpha = 0.20f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00F5D4))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(Icons.Default.Timer, contentDescription = null, tint = Color(0xFF00F5D4), modifier = Modifier.size(14.dp))
+                                Text(
+                                    text = "+ تایم‌کد بیت",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        TextButton(onClick = { isFreestylePadOpen = false }) {
+                            Text("بستن", color = palette.accent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = freestyleText,
+                    onValueChange = { newText ->
+                        freestyleText = newText
+                        freestylePrefs.edit().putString("note_$activeTrackId", newText).apply()
+                    },
+                    placeholder = {
+                        Text(
+                            text = "ورس، قافیه یا ایده خود را هنگام لوپ شدن بیت اینجا بنویسید...\nبا دکمه «+ تایم‌کد بیت» ثانیه دقیق ورود بیت درج می‌شود.",
+                            color = Color(0xFF888EA8),
+                            fontSize = 12.5.sp
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    textStyle = TextStyle(
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        lineHeight = 22.sp
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF00F5D4),
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.16f),
+                        focusedContainerColor = Color(0x66080B14),
+                        unfocusedContainerColor = Color(0x44080B14)
+                    )
+                )
+            }
+            return@Box
+        }
+
+        if (lyrics.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 28.dp)
+                        .liquidGlass(
+                            shape = RoundedCornerShape(24.dp),
+                            thickness = GlassThickness.REGULAR,
+                            tintColor = palette.primary,
+                            tintAlpha = 0.14f
+                        )
+                        .padding(28.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(64.dp)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(palette.primary.copy(alpha = 0.20f)),
-                        contentAlignment = Alignment.Center
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.MusicNote,
-                            contentDescription = null,
-                            tint = palette.accent,
-                            modifier = Modifier.size(32.dp)
+                        Box(
+                            modifier = Modifier
+                                .size(60.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(palette.primary.copy(alpha = 0.20f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MusicNote,
+                                contentDescription = null,
+                                tint = palette.accent,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(
+                            text = "No Synced Lyrics",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.3.sp
+                            )
                         )
-                    }
-                    Spacer(modifier = Modifier.height(18.dp))
-                    Text(
-                        text = "No Synced Lyrics",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.3.sp
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Add synced LRC lyrics or open the Freestyle Pad to write verses on the beat.",
+                            style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A5BA)),
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
                         )
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Add lyrics or import an LRC file to experience cinematic karaoke.",
-                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A5BA)),
-                        textAlign = TextAlign.Center,
-                        lineHeight = 18.sp
-                    )
-                    Spacer(modifier = Modifier.height(20.dp))
-                    Button(
-                        onClick = onOpenEditor,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = palette.primary
-                        ),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.testTag("open_lyrics_editor_btn")
-                    ) {
-                        Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Open Lyrics Editor", fontWeight = FontWeight.SemiBold)
+                        Spacer(modifier = Modifier.height(18.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(
+                                onClick = onOpenEditor,
+                                colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.testTag("open_lyrics_editor_btn")
+                            ) {
+                                Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Lyrics Editor", fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
+                            }
+                            OutlinedButton(
+                                onClick = { isFreestylePadOpen = true },
+                                shape = RoundedCornerShape(16.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00F5D4))
+                            ) {
+                                Icon(imageVector = Icons.Default.EditNote, contentDescription = null, tint = Color(0xFF00F5D4), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Freestyle Pad", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                            }
+                        }
                     }
                 }
             }
+            return@Box
         }
-        return
-    }
 
-    val effectiveFontSize = if (isCinematicFullscreen) baseFontSize + 4f else baseFontSize
+        val effectiveFontSize = if (isCinematicFullscreen) baseFontSize + 4f else baseFontSize
 
-    Box(modifier = modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
@@ -386,25 +522,60 @@ fun LyricsView(
             }
         }
 
-        // Fullscreen Cinematic Toggle Button
-        IconButton(
-            onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                isCinematicFullscreen = !isCinematicFullscreen
-            },
+        // Top Bar Controls: Freestyle Pad & Fullscreen Cinematic Toggle
+        Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = 16.dp, end = 16.dp)
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(Color(0x55101020))
+                .padding(top = 14.dp, end = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = if (isCinematicFullscreen) Icons.Default.CloseFullscreen else Icons.Default.Fullscreen,
-                contentDescription = "Toggle Fullscreen Lyrics",
-                tint = palette.accent,
-                modifier = Modifier.size(18.dp)
-            )
+            Surface(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    isFreestylePadOpen = true
+                },
+                shape = RoundedCornerShape(50),
+                color = Color(0x88101426),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00F5D4).copy(alpha = 0.65f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.EditNote,
+                        contentDescription = "Freestyle Pad",
+                        tint = Color(0xFF00F5D4),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Freestyle Pad",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            IconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    isCinematicFullscreen = !isCinematicFullscreen
+                },
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color(0x55101020))
+            ) {
+                Icon(
+                    imageVector = if (isCinematicFullscreen) Icons.Default.CloseFullscreen else Icons.Default.Fullscreen,
+                    contentDescription = "Toggle Fullscreen Lyrics",
+                    tint = palette.accent,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
     }
 }

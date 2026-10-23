@@ -1,5 +1,10 @@
 package com.example.ui.theme
 
+import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
@@ -14,6 +19,7 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -22,6 +28,92 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
+
+/**
+ * Shared hardware gyroscope / rotation vector manager for real-time Apple Wallet-style
+ * specular light reflection & 3D parallax across LiquidGlass cards and album covers.
+ */
+object HardwareGyroscopeManager : SensorEventListener {
+    private var sensorManager: SensorManager? = null
+    private var activeListeners = 0
+    private val rotationMatrix = FloatArray(9)
+    private val orientationAngles = FloatArray(3)
+
+    // Normalized tilt values in [-1f, 1f]
+    var roll by mutableFloatStateOf(0f)
+        private set
+    var pitch by mutableFloatStateOf(0f)
+        private set
+
+    fun acquire(context: Context) {
+        synchronized(this) {
+            activeListeners++
+            if (activeListeners == 1) {
+                try {
+                    val sm = context.applicationContext.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+                    sensorManager = sm
+                    val sensor = sm?.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
+                        ?: sm?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+                        ?: sm?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+                    if (sensor != null) {
+                        sm?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    fun release() {
+        synchronized(this) {
+            activeListeners = (activeListeners - 1).coerceAtLeast(0)
+            if (activeListeners == 0) {
+                try {
+                    sensorManager?.unregisterListener(this)
+                } catch (_: Exception) {}
+                sensorManager = null
+            }
+        }
+    }
+
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event == null) return
+        when (event.sensor.type) {
+            Sensor.TYPE_GAME_ROTATION_VECTOR, Sensor.TYPE_ROTATION_VECTOR -> {
+                try {
+                    SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+                    SensorManager.getOrientation(rotationMatrix, orientationAngles)
+                    // orientationAngles[1] = pitch (radians), orientationAngles[2] = roll (radians)
+                    val targetPitch = (orientationAngles[1] / (PI.toFloat() * 0.35f)).coerceIn(-1f, 1f)
+                    val targetRoll = (orientationAngles[2] / (PI.toFloat() * 0.35f)).coerceIn(-1f, 1f)
+                    pitch += (targetPitch - pitch) * 0.14f
+                    roll += (targetRoll - roll) * 0.14f
+                } catch (_: Exception) {}
+            }
+            Sensor.TYPE_ACCELEROMETER -> {
+                val gx = (event.values.getOrNull(0) ?: 0f) / 9.81f
+                val gy = (event.values.getOrNull(1) ?: 0f) / 9.81f
+                val targetRoll = (-gx).coerceIn(-1f, 1f)
+                val targetPitch = (gy - 0.5f).coerceIn(-1f, 1f)
+                pitch += (targetPitch - pitch) * 0.12f
+                roll += (targetRoll - roll) * 0.12f
+            }
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+}
+
+@Composable
+fun rememberGyroscopeTilt(): Pair<Float, Float> {
+    val context = LocalContext.current
+    DisposableEffect(context) {
+        HardwareGyroscopeManager.acquire(context)
+        onDispose {
+            HardwareGyroscopeManager.release()
+        }
+    }
+    return HardwareGyroscopeManager.roll to HardwareGyroscopeManager.pitch
+}
 
 val LocalAppTheme = compositionLocalOf { AppTheme.PURE_LIQUID_GLASS }
 
@@ -151,6 +243,7 @@ fun Modifier.liquidGlass(
         with(density) { configuration.screenHeightDp.dp.toPx().coerceAtLeast(1f) }
     }
 
+    val (gyroRoll, gyroPitch) = rememberGyroscopeTilt()
     var windowY by remember { mutableFloatStateOf(0f) }
 
     val smoothScrollRatio by animateFloatAsState(
@@ -210,9 +303,10 @@ fun Modifier.liquidGlass(
                     )
                 }
             } else {
-                val sweepProgress = (1f - smoothScrollRatio) * 1.55f - 0.25f
+                // Combine vertical scroll with real-time hardware gyroscope roll & pitch
+                val sweepProgress = ((1f - smoothScrollRatio) * 1.45f - 0.22f) + (gyroRoll * 0.48f)
                 val beamCenterX = w * sweepProgress
-                val beamCenterY = h * (0.2f + smoothScrollRatio * 0.6f)
+                val beamCenterY = h * (0.22f + smoothScrollRatio * 0.56f + gyroPitch * 0.35f)
                 val beamWidth = (w * 0.52f).coerceAtLeast(160f)
 
                 val baseAlpha = when (thickness) {
@@ -234,18 +328,18 @@ fun Modifier.liquidGlass(
                 val specularReflectionBrush = Brush.linearGradient(
                     colorStops = arrayOf(
                         0.00f to Color.Transparent,
-                        0.35f to safeTint.copy(alpha = 0.05f),
-                        0.46f to Color.White.copy(alpha = 0.10f),
-                        0.50f to Color.White.copy(alpha = 0.18f),
-                        0.54f to secondaryAccent.copy(alpha = 0.08f),
-                        0.65f to Color.Transparent,
+                        0.34f to safeTint.copy(alpha = 0.06f),
+                        0.45f to Color.White.copy(alpha = 0.12f),
+                        0.50f to Color.White.copy(alpha = 0.22f),
+                        0.55f to secondaryAccent.copy(alpha = 0.10f),
+                        0.66f to Color.Transparent,
                         1.00f to Color.Transparent
                     ),
                     start = Offset(beamCenterX - beamWidth, beamCenterY - beamWidth * 0.7f),
                     end = Offset(beamCenterX + beamWidth, beamCenterY + beamWidth * 0.7f)
                 )
 
-                val rimAngle = (smoothScrollRatio * PI).toFloat()
+                val rimAngle = ((smoothScrollRatio * PI) + (gyroRoll * 1.35f) + (gyroPitch * 0.85f)).toFloat()
                 val rimStart = Offset(
                     x = (w * 0.5f) + cos(rimAngle) * w * 0.6f,
                     y = (h * 0.5f) + sin(rimAngle) * h * 0.6f
@@ -258,8 +352,8 @@ fun Modifier.liquidGlass(
                 val dynamicBorderBrush = Brush.linearGradient(
                     colorStops = arrayOf(
                         0.00f to activeTint.copy(alpha = 0.85f),
-                        0.35f to Color.White.copy(alpha = 0.85f),
-                        0.65f to secondaryAccent.copy(alpha = 0.75f),
+                        0.35f to Color.White.copy(alpha = 0.88f),
+                        0.65f to secondaryAccent.copy(alpha = 0.78f),
                         1.00f to activeTint.copy(alpha = 0.60f)
                     ),
                     start = rimStart,

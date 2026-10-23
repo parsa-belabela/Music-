@@ -67,6 +67,9 @@ fun EqualizerSheet(
     var gapless by remember { mutableStateOf(settings.gaplessEnabled) }
     var currentSpeed by remember { mutableFloatStateOf(settings.playbackSpeed) }
     var activePresetName by remember { mutableStateOf(settings.eqPreset) }
+    var beatFocusEnabled by remember { mutableStateOf(settings.beatFocusEnabled) }
+    var vocalCrystalEnabled by remember { mutableStateOf(settings.vocalCrystalEnabled) }
+    var smartSilenceTrim by remember { mutableStateOf(settings.smartSilenceTrimEnabled) }
 
     val bandFrequencies = remember {
         listOf("31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k")
@@ -205,11 +208,15 @@ fun EqualizerSheet(
                             activePresetName = "Flat (Studio)"
                             for (i in 0 until 10) bandGains[i] = 0f
                             bassBoost = 0f
+                            beatFocusEnabled = false
+                            vocalCrystalEnabled = false
                             onUpdateSettings(
                                 settings.copy(
                                     eqPreset = "Flat (Studio)",
                                     eqBands = List(10) { 0f },
-                                    bassBoostStrength = 0
+                                    bassBoostStrength = 0,
+                                    beatFocusEnabled = false,
+                                    vocalCrystalEnabled = false
                                 )
                             )
                         }
@@ -286,9 +293,121 @@ fun EqualizerSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // ۲. منحنی زنده پاسخ فرکانسی (شامل تأثیر Sub-Bass Boost روی منحنی)
+                // ۱.۵ سوییچ‌های استودیویی تفکیک وکال و تقویت بیت (Studio Isolation Toggles)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // 808 & Beat Focus Toggle Card
+                    Surface(
+                        onClick = {
+                            val next = !beatFocusEnabled
+                            beatFocusEnabled = next
+                            if (next) eqEnabled = true
+                            onUpdateSettings(
+                                settings.copy(
+                                    equalizerEnabled = if (next) true else eqEnabled,
+                                    beatFocusEnabled = next
+                                )
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(18.dp),
+                        color = if (beatFocusEnabled) Color(0xFFFF1E56).copy(alpha = 0.24f) else Color(0xFF131628),
+                        border = androidx.compose.foundation.BorderStroke(
+                            width = if (beatFocusEnabled) 1.5.dp else 1.dp,
+                            color = if (beatFocusEnabled) Color(0xFFFF1E56) else Color.White.copy(alpha = 0.12f)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (isFa) "🥁 تمرکز روی بیت (808)" else "🥁 808 & Beat Focus",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 12.sp
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(if (beatFocusEnabled) Color(0xFFFF1E56) else Color(0x44FFFFFF))
+                                )
+                            }
+                            Text(
+                                text = if (isFa) "تضعیف ملایم میدرنج و برجسته‌سازی کیک و بیت" else "Scoops mid vocals & punches 808 kick",
+                                color = Color(0xFFB4B9CE),
+                                fontSize = 10.sp,
+                                lineHeight = 13.sp
+                            )
+                        }
+                    }
+
+                    // Vocal Crystal Toggle Card
+                    Surface(
+                        onClick = {
+                            val next = !vocalCrystalEnabled
+                            vocalCrystalEnabled = next
+                            if (next) eqEnabled = true
+                            onUpdateSettings(
+                                settings.copy(
+                                    equalizerEnabled = if (next) true else eqEnabled,
+                                    vocalCrystalEnabled = next
+                                )
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(18.dp),
+                        color = if (vocalCrystalEnabled) Color(0xFF00F5D4).copy(alpha = 0.22f) else Color(0xFF131628),
+                        border = androidx.compose.foundation.BorderStroke(
+                            width = if (vocalCrystalEnabled) 1.5.dp else 1.dp,
+                            color = if (vocalCrystalEnabled) Color(0xFF00F5D4) else Color.White.copy(alpha = 0.12f)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (isFa) "🎙️ شفاف‌سازی وکال" else "🎙️ Vocal Crystal",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 12.sp
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(if (vocalCrystalEnabled) Color(0xFF00F5D4) else Color(0x44FFFFFF))
+                                )
+                            }
+                            Text(
+                                text = if (isFa) "تقویت باند 1kHz-4kHz برای وضوح صدای خواننده" else "Boosts 1kHz-4kHz vocal clarity & rhymes",
+                                color = Color(0xFFB4B9CE),
+                                fontSize = 10.sp,
+                                lineHeight = 13.sp
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // ۲. منحنی زنده پاسخ فرکانسی (شامل تأثیر Sub-Bass Boost و حالت‌های استودیویی روی منحنی)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -317,7 +436,23 @@ fun EqualizerSheet(
                             val points = List(count) { i ->
                                 val px = (i.toFloat() / (count - 1)) * (w - 20f) + 10f
                                 val subBoostExtra = if (i <= 2) (bassNorm * (3 - i) * 2.2f) else 0f
-                                val totalGain = (bandGains[i] + subBoostExtra).coerceIn(-12f, 14f)
+                                val beatFocusExtra = if (beatFocusEnabled) {
+                                    when (i) {
+                                        0, 1, 2 -> 3.5f
+                                        4, 5, 6 -> -2.8f
+                                        8, 9 -> 2.0f
+                                        else -> 0f
+                                    }
+                                } else 0f
+                                val vocalCrystalExtra = if (vocalCrystalEnabled) {
+                                    when (i) {
+                                        3 -> -1.4f
+                                        5, 6, 7 -> 4.0f
+                                        8, 9 -> 1.8f
+                                        else -> 0f
+                                    }
+                                } else 0f
+                                val totalGain = (bandGains[i] + subBoostExtra + beatFocusExtra + vocalCrystalExtra).coerceIn(-12f, 14f)
                                 val py = (zeroY - (totalGain / 14f) * (h * 0.44f)).coerceIn(4f, h - 4f)
                                 Offset(px, py)
                             }
@@ -446,7 +581,7 @@ fun EqualizerSheet(
                                 )
                             }
                             Text(
-                                text = "${(bassBoost / 10).toInt()}%",
+                                 text = "${(bassBoost / 10).toInt()}%",
                                 color = palette.accent,
                                 fontWeight = FontWeight.Black,
                                 fontSize = 18.sp
@@ -513,6 +648,42 @@ fun EqualizerSheet(
                                     )
                                 )
                             }
+                        }
+
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.10f))
+
+                        // حذف هوشمند سکوت آخر آهنگ‌ها (Smart Silence-Trimming DJ Mix)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (isFa) "🎧 میکس هوشمند و حذف سکوت انتهای آهنگ" else "🎧 Smart Silence-Trimming DJ Mix",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    text = if (isFa) "تشخیص افت حجم صدا زیر ۱۵٪ در انتهای ترک و شروع خودکار آهنگ بعدی روی ضرب"
+                                    else "Detects trailing <15% volume drop & transitions seamlessly on the beat",
+                                    color = Color(0xFFB4B9CE),
+                                    fontSize = 10.5.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Switch(
+                                checked = smartSilenceTrim,
+                                onCheckedChange = {
+                                    smartSilenceTrim = it
+                                    onUpdateSettings(settings.copy(smartSilenceTrimEnabled = it))
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = palette.accent
+                                )
+                            )
                         }
                     }
                 }

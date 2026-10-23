@@ -92,6 +92,10 @@ fun NowPlayingScreen(
     onOpenVipPaywall: (String?) -> Unit = {},
     onSelectNowPlayingStyle: (String) -> Unit = {},
     onUpdateTrackArtwork: (Track, String?) -> Unit = { _, _ -> },
+    loopStartMs: Long? = null,
+    loopEndMs: Long? = null,
+    onSetAbLoop: (Long?, Long?) -> Unit = { _, _ -> },
+    onClearAbLoop: () -> Unit = {},
     analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() },
     currentPositionProvider: () -> Long = { playbackState.currentPositionMs }
 ) {
@@ -158,6 +162,7 @@ fun NowPlayingScreen(
 
     // موتور ۱۲۰ فریم بر ثانیه برای چرخش نرم قاب کاور و بالا/پایین رفتن دقیق آن با بیس واقعی آهنگ
     var rotationPhaseRad by remember { mutableFloatStateOf(0f) }
+    var smoothAngularSpeed by remember { mutableFloatStateOf(0.48f) }
     var smoothBassLevel by remember { mutableFloatStateOf(0f) }
     var smoothKickImpact by remember { mutableFloatStateOf(0f) }
     var smoothEnergyLevel by remember { mutableFloatStateOf(0.2f) }
@@ -195,10 +200,13 @@ fun NowPlayingScreen(
 
                 if (isPlaying) {
                     val bpmFactor = (trackBaseBpm / 110f).coerceIn(0.6f, 1.6f)
-                    val angularSpeed = 0.35f + (smoothEnergyLevel * 1.45f * bpmFactor) + (smoothKickImpact * 0.9f)
-                    rotationPhaseRad = (rotationPhaseRad + angularSpeed * dtSec) % (2f * PI.toFloat() * 100f)
+                    // سرعت چرخش ۳۵٪ بیشتر شده و نرم و هماهنگ با بیت و انرژی آهنگ تغییر می‌کند
+                    val targetAngularSpeed = (0.35f + (smoothEnergyLevel * 1.45f * bpmFactor) + (smoothKickImpact * 0.9f)) * 1.35f
+                    smoothAngularSpeed += (targetAngularSpeed - smoothAngularSpeed) * (dtSec * 7f).coerceIn(0f, 1f)
+                    rotationPhaseRad = (rotationPhaseRad + smoothAngularSpeed * dtSec) % (2f * PI.toFloat() * 100f)
                 } else {
-                    rotationPhaseRad = (rotationPhaseRad + 0.06f * dtSec) % (2f * PI.toFloat() * 100f)
+                    smoothAngularSpeed += (0.08f - smoothAngularSpeed) * (dtSec * 5f).coerceIn(0f, 1f)
+                    rotationPhaseRad = (rotationPhaseRad + smoothAngularSpeed * dtSec) % (2f * PI.toFloat() * 100f)
                 }
             }
         }
@@ -449,6 +457,43 @@ fun NowPlayingScreen(
                                     paintPrimary
                                 )
                             }
+
+                            // ذرات معلق و غبار ستاره‌ای (Shader Starlight Dust) پشت کاور، هماهنگ با فرکانس‌های بالا (High/Mid) و انفجار کیک
+                            val liveAudio = latestAnalysisProvider()
+                            val highSparkle = if (isPlaying) liveAudio.high.coerceIn(0f, 1f) else 0.08f
+                            val midDrift = if (isPlaying) liveAudio.mid.coerceIn(0f, 1f) else 0.05f
+                            val particleCount = 34
+                            for (pIdx in 0 until particleCount) {
+                                val seedAngle = (pIdx * 137.5f * (PI.toFloat() / 180f)) + (rotationPhaseRad * (0.22f + (pIdx % 5) * 0.06f))
+                                val ringRatio = 0.34f + ((pIdx * 29) % 100) / 175f
+                                val kickRadialBurst = smoothKickImpact * (26f + (pIdx % 4) * 14f)
+                                val highWaveOffset = sin(rotationPhaseRad * 2.1f + pIdx) * (8f + highSparkle * 22f)
+                                val orbitRadius = (size.minDimension * ringRatio) + kickRadialBurst + highWaveOffset
+
+                                val px = cx + cos(seedAngle) * orbitRadius
+                                val py = cy + sin(seedAngle) * orbitRadius - (midDrift * 14f * ((pIdx % 3) - 1))
+
+                                val pAlpha = (0.24f + highSparkle * 0.55f + smoothKickImpact * 0.20f)
+                                    .coerceIn(0.12f, 0.92f) * (if (isPlaying) 1f else 0.35f)
+                                val pRadius = (1.6f + (pIdx % 4) * 1.15f + highSparkle * 2.6f + smoothKickImpact * 1.8f)
+
+                                val starColor = when (pIdx % 3) {
+                                    0 -> Color.White.copy(alpha = pAlpha)
+                                    1 -> coverAccent.copy(alpha = pAlpha)
+                                    else -> coverPrimary.copy(alpha = pAlpha)
+                                }
+
+                                drawCircle(
+                                    color = starColor.copy(alpha = (pAlpha * 0.32f).coerceIn(0f, 1f)),
+                                    radius = pRadius * 2.6f,
+                                    center = Offset(px, py)
+                                )
+                                drawCircle(
+                                    color = starColor,
+                                    radius = pRadius,
+                                    center = Offset(px, py)
+                                )
+                            }
                         }
 
                         // قاب سه‌بعدی کاور آهنگ (بدون ژست Swipe تا لمس کردن هیچ نقطه‌ای باعث پرش به آهنگ بعدی نشود)
@@ -650,8 +695,112 @@ fun NowPlayingScreen(
                     analysisDataProvider = analysisDataProvider,
                     onSeekTo = onSeekTo,
                     waveformEnvelope = waveformFloats,
+                    loopStartMs = loopStartMs,
+                    loopEndMs = loopEndMs,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                // نوار کنترل لوپ استودیویی (A-B Beat Looper) برای تکرار دقیق بخشی از بیت یا ورس
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val isFa = appSettings.language == AppLanguage.PERSIAN
+                    fun fmtLoopMs(ms: Long): String {
+                        val s = (ms / 1000).coerceAtLeast(0)
+                        return "%d:%02d".format(s / 60, s % 60)
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // دکمه ثبت نقطه شروع لوپ (Point A)
+                        Surface(
+                            onClick = {
+                                triggerHaptic()
+                                val nowPos = currentPositionProvider().coerceIn(0L, dur)
+                                val validB = if (loopEndMs != null && loopEndMs > nowPos + 400L) loopEndMs else null
+                                onSetAbLoop(nowPos, validB)
+                            },
+                            shape = RoundedCornerShape(50),
+                            color = if (loopStartMs != null) Color(0xFF00F5D4).copy(alpha = 0.22f) else Color(0x1AFFFFFF),
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = 1.dp,
+                                color = if (loopStartMs != null) Color(0xFF00F5D4) else Color.White.copy(alpha = 0.18f)
+                            )
+                        ) {
+                            Text(
+                                text = if (loopStartMs != null) {
+                                    "A • ${fmtLoopMs(loopStartMs)}"
+                                } else {
+                                    if (isFa) "نقطه A (شروع لوپ)" else "Loop A"
+                                },
+                                color = if (loopStartMs != null) Color(0xFF00F5D4) else Color(0xFFD0D5E8),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 4.dp)
+                            )
+                        }
+
+                        // دکمه ثبت نقطه پایان لوپ (Point B)
+                        Surface(
+                            onClick = {
+                                triggerHaptic()
+                                val nowPos = currentPositionProvider().coerceIn(0L, dur)
+                                val startA = loopStartMs ?: (nowPos - 4000L).coerceAtLeast(0L)
+                                if (nowPos > startA + 350L) {
+                                    onSetAbLoop(startA, nowPos)
+                                }
+                            },
+                            shape = RoundedCornerShape(50),
+                            color = if (loopEndMs != null) Color(0xFFFF1E56).copy(alpha = 0.24f) else Color(0x1AFFFFFF),
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = 1.dp,
+                                color = if (loopEndMs != null) Color(0xFFFF1E56) else Color.White.copy(alpha = 0.18f)
+                            )
+                        ) {
+                            Text(
+                                text = if (loopEndMs != null) {
+                                    "B • ${fmtLoopMs(loopEndMs)}"
+                                } else {
+                                    if (isFa) "نقطه B (پایان لوپ)" else "Loop B"
+                                },
+                                color = if (loopEndMs != null) Color(0xFFFF1E56) else Color(0xFFD0D5E8),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    if (loopStartMs != null || loopEndMs != null) {
+                        Surface(
+                            onClick = {
+                                triggerHaptic()
+                                onClearAbLoop()
+                            },
+                            shape = RoundedCornerShape(50),
+                            color = Color(0x28FFFFFF),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.25f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear Loop", tint = Color.White, modifier = Modifier.size(13.dp))
+                                Text(
+                                    text = if (isFa) "لغو لوپ A-B" else "Clear A-B",
+                                    color = Color.White,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),

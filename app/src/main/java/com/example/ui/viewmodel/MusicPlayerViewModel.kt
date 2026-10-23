@@ -127,6 +127,16 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     val showDuplicatesReview = MutableStateFlow(false)
 
     val connectedAudioDevice = audioEngine.connectedDevice
+    val loopStartMs = audioEngine.loopStartMs
+    val loopEndMs = audioEngine.loopEndMs
+
+    fun setAbLoop(startMs: Long?, endMs: Long?) {
+        audioEngine.setAbLoop(startMs, endMs)
+    }
+
+    fun clearAbLoop() {
+        audioEngine.clearAbLoop()
+    }
 
     private var lyricsJob: Job? = null
     private var sleepTimerJob: Job? = null
@@ -370,6 +380,11 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 repository.saveAudioProfile(profile)
             }
             _currentTrackAudioProfile.value = profile
+            val envFloats = profile.waveformEnvelope
+                .split(",")
+                .mapNotNull { it.trim().toFloatOrNull() }
+                .toFloatArray()
+            audioEngine.setTrackWaveformEnvelope(envFloats)
         }
 
         // توجه: دیگر در لحظه شروع آهنگ recordPlay صدا زده نمیشود تا آهنگهای اسکیپشده شمارش نشوند!
@@ -894,11 +909,65 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun toggleGymMode() {
+        val current = _appSettings.value
+        val enabling = !current.gymModeEnabled
+        val updated = if (enabling) {
+            current.copy(
+                gymModeEnabled = true,
+                equalizerEnabled = true,
+                eqPreset = "Extreme Sub-Bass",
+                eqBands = listOf(10.5f, 9.5f, 7.0f, 3.5f, 0.5f, 0.0f, 1.0f, 2.5f, 3.5f, 4.0f),
+                bassBoostStrength = 850,
+                beatFocusEnabled = true,
+                gaplessEnabled = true,
+                smartSilenceTrimEnabled = true
+            )
+        } else {
+            current.copy(
+                gymModeEnabled = false,
+                beatFocusEnabled = false
+            )
+        }
+        updateSettings(updated)
+
+        if (enabling) {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val all = allTracks.value
+                if (all.isNotEmpty()) {
+                    val highEnergyQueue = all.filter { trk ->
+                        val prof = repository.getAudioProfile(trk.id)
+                        if (prof != null) {
+                            (prof.estimatedTempoBpm ?: 0) >= 110 || prof.energyLevel >= 0.58f
+                        } else {
+                            // Heuristic fallback for unanalyzed tracks: energetic duration & non-slow tracks
+                            trk.durationMs in 90_000L..320_000L
+                        }
+                    }.ifEmpty { all }
+                    val sortedPump = highEnergyQueue.sortedByDescending { it.playCount }
+                    val firstTrack = sortedPump.firstOrNull()
+                    if (firstTrack != null) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            playTrack(firstTrack, sortedPump)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private fun applySettingsToEngines(settings: AppSettings) {
         audioEngine.crossfadeSeconds = settings.crossfadeDurationSeconds
         audioEngine.gaplessEnabled = settings.gaplessEnabled
         audioEngine.continuousMixEnabled = settings.continuousMixEnabled
-        audioEngine.applyEqualizerSettings(settings.equalizerEnabled, settings.eqBands, settings.bassBoostStrength)
+        audioEngine.smartSilenceTrimEnabled = settings.smartSilenceTrimEnabled
+        audioEngine.applyEqualizerSettings(
+            enabled = settings.equalizerEnabled,
+            bands = settings.eqBands,
+            bassBoostStrength = settings.bassBoostStrength,
+            beatFocus = settings.beatFocusEnabled,
+            vocalCrystal = settings.vocalCrystalEnabled
+        )
         if (audioEngine.currentPlaybackSpeed != settings.playbackSpeed) {
             audioEngine.setPlaybackSpeed(settings.playbackSpeed)
         }
@@ -951,7 +1020,11 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             playbackSpeed = prefs.getFloat("playback_speed", 1.0f),
             continuousMixEnabled = prefs.getBoolean("continuous_mix", false),
             focusModeEnabled = prefs.getBoolean("focus_mode", false),
-            selectedNowPlayingStyle = prefs.getString("np_style", "default") ?: "default"
+            selectedNowPlayingStyle = prefs.getString("np_style", "default") ?: "default",
+            gymModeEnabled = prefs.getBoolean("gym_mode", false),
+            beatFocusEnabled = prefs.getBoolean("beat_focus", false),
+            vocalCrystalEnabled = prefs.getBoolean("vocal_crystal", false),
+            smartSilenceTrimEnabled = prefs.getBoolean("smart_silence_trim", true)
         )
     }
 
@@ -981,6 +1054,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             .putBoolean("continuous_mix", settings.continuousMixEnabled)
             .putBoolean("focus_mode", settings.focusModeEnabled)
             .putString("np_style", settings.selectedNowPlayingStyle)
+            .putBoolean("gym_mode", settings.gymModeEnabled)
+            .putBoolean("beat_focus", settings.beatFocusEnabled)
+            .putBoolean("vocal_crystal", settings.vocalCrystalEnabled)
+            .putBoolean("smart_silence_trim", settings.smartSilenceTrimEnabled)
             .commit()
     }
 

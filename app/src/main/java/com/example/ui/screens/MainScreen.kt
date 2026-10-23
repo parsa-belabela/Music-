@@ -81,6 +81,8 @@ fun MainScreen(
     val showSleepTimer by viewModel.showSleepTimer.collectAsStateWithLifecycle()
     val editingTrackMetadata by viewModel.editingTrackMetadata.collectAsStateWithLifecycle()
     val connectedDevice by viewModel.connectedAudioDevice.collectAsStateWithLifecycle()
+    val loopStartMs by viewModel.loopStartMs.collectAsStateWithLifecycle()
+    val loopEndMs by viewModel.loopEndMs.collectAsStateWithLifecycle()
     val showShareCard by viewModel.showShareCard.collectAsStateWithLifecycle()
     val showHearingProfileTest by viewModel.showHearingProfileTest.collectAsStateWithLifecycle()
     val showDuplicatesReview by viewModel.showDuplicatesReview.collectAsStateWithLifecycle()
@@ -338,6 +340,7 @@ fun MainScreen(
                             onOpenDuplicatesReview = { viewModel.showDuplicatesReview.value = true },
                             currentPositionProvider = { viewModel.currentPositionMs.value },
                             onSeekTo = { viewModel.seekTo(it) },
+                            onToggleGymMode = { viewModel.toggleGymMode() },
                             bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()
                         )
@@ -492,7 +495,11 @@ fun MainScreen(
                         },
                         connectedDevice = connectedDevice,
                         onShareSong = { trk -> viewModel.showShareCard(trk) },
-                        onPlaybackSpeedChange = { speed -> viewModel.setPlaybackSpeed(speed) }
+                        onPlaybackSpeedChange = { speed -> viewModel.setPlaybackSpeed(speed) },
+                        loopStartMs = loopStartMs,
+                        loopEndMs = loopEndMs,
+                        onSetAbLoop = { a, b -> viewModel.setAbLoop(a, b) },
+                        onClearAbLoop = { viewModel.clearAbLoop() }
                     )
                 }
             }
@@ -504,6 +511,7 @@ fun MainScreen(
                 track = trk,
                 palette = palette,
                 language = lang,
+                lyrics = currentLyrics,
                 onDismiss = { viewModel.dismissShareCard() }
             )
         }

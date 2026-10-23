@@ -59,5 +59,10 @@ data class AppSettings(
     val appIconTheme: String = "pure_liquid_glass",
     val unlockedNowPlayingStyles: String = "default",
     val selectedNowPlayingStyle: String = "default",
-    val personalEqBands: List<Float> = listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
+    val personalEqBands: List<Float> = listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f),
+    val gymModeEnabled: Boolean = false,
+    val beatFocusEnabled: Boolean = false,
+    val vocalCrystalEnabled: Boolean = false,
+    val smartSilenceTrimEnabled: Boolean = true
 )
+

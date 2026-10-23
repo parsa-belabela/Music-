@@ -73,9 +73,72 @@ class AudioEngine(private val context: Context) {
     private var isEqEnabled: Boolean = true
     private var currentEqBands: List<Float> = listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
     private var currentBassBoostStrength: Int = 0
+    var beatFocusEnabled: Boolean = false
+        private set
+    var vocalCrystalEnabled: Boolean = false
+        private set
+    var smartSilenceTrimEnabled: Boolean = true
     var currentPlaybackSpeed: Float = 1.0f
         private set
     var continuousMixEnabled: Boolean = false
+
+    // A-B Beat Looper State
+    private val _loopStartMs = MutableStateFlow<Long?>(null)
+    val loopStartMs: StateFlow<Long?> = _loopStartMs.asStateFlow()
+
+    private val _loopEndMs = MutableStateFlow<Long?>(null)
+    val loopEndMs: StateFlow<Long?> = _loopEndMs.asStateFlow()
+
+    // Smart Silence-Trimming DJ Mix State
+    private var activeWaveformEnvelope: FloatArray? = null
+    private var smartTrimTargetMs: Long? = null
+    private var smartTrimTriggeredForCurrentTrack: Boolean = false
+
+    fun setAbLoop(startMs: Long?, endMs: Long?) {
+        _loopStartMs.value = startMs
+        _loopEndMs.value = endMs
+    }
+
+    fun clearAbLoop() {
+        _loopStartMs.value = null
+        _loopEndMs.value = null
+    }
+
+    fun setTrackWaveformEnvelope(envelope: FloatArray?) {
+        activeWaveformEnvelope = envelope
+        recalculateSmartTrimPoint()
+    }
+
+    private fun recalculateSmartTrimPoint() {
+        val env = activeWaveformEnvelope
+        val dur = _duration.value
+        if (env == null || env.isEmpty() || dur < 25000L) {
+            smartTrimTargetMs = null
+            return
+        }
+        // Scan backwards from the end of the waveform (within the last ~15% / max 14 seconds)
+        // to find where amplitude drops below 15% (< 0.15f) and stays quiet
+        val n = env.size
+        var firstQuietIdx = n
+        val minScanIdx = (n * 0.84f).toInt().coerceIn(0, n - 1)
+        for (i in (n - 1) downTo minScanIdx) {
+            if (env[i] < 0.155f) {
+                firstQuietIdx = i
+            } else {
+                break
+            }
+        }
+        if (firstQuietIdx < n) {
+            val trimFraction = firstQuietIdx.toFloat() / n.toFloat()
+            val candidateMs = (dur * trimFraction).toLong()
+            // Clamp so we never trim more than 12 seconds or less than 800ms before the end
+            val earliestAllowed = (dur - 12000L).coerceAtLeast(dur / 2)
+            val latestAllowed = (dur - 750L).coerceAtLeast(earliestAllowed)
+            smartTrimTargetMs = candidateMs.coerceIn(earliestAllowed, latestAllowed)
+        } else {
+            smartTrimTargetMs = null
+        }
+    }
 
     private var deviceCallback: AudioDeviceCallback? = null
 
@@ -329,6 +392,10 @@ class AudioEngine(private val context: Context) {
         _status.value = if (autoPlay) PlayerStatus.BUFFERING else PlayerStatus.PAUSED
         _currentPosition.value = startPositionMs
         _duration.value = track.durationMs.coerceAtLeast(1L)
+        _loopStartMs.value = null
+        _loopEndMs.value = null
+        smartTrimTriggeredForCurrentTrack = false
+        recalculateSmartTrimPoint()
         isSeekingInProgress = false
         pendingSeekPos = null
         seekWatchdogJob?.cancel()
@@ -813,10 +880,18 @@ class AudioEngine(private val context: Context) {
         applyCurrentEffects()
     }
 
-    fun applyEqualizerSettings(enabled: Boolean, bands: List<Float>, bassBoostStrength: Int) {
+    fun applyEqualizerSettings(
+        enabled: Boolean,
+        bands: List<Float>,
+        bassBoostStrength: Int,
+        beatFocus: Boolean = beatFocusEnabled,
+        vocalCrystal: Boolean = vocalCrystalEnabled
+    ) {
         isEqEnabled = enabled
         currentEqBands = bands
         currentBassBoostStrength = bassBoostStrength.coerceIn(0, 1000)
+        beatFocusEnabled = beatFocus
+        vocalCrystalEnabled = vocalCrystal
         applyCurrentEffects()
         applyVolume()
     }
@@ -881,6 +956,24 @@ class AudioEngine(private val context: Context) {
                         if (isEqEnabled && bassNormalized > 0f && centerFreqHz <= 180f) {
                             val subBassShelfFactor = ((180f - centerFreqHz) / 150f).coerceIn(0f, 1f)
                             gainDb += (bassNormalized * 9.5f * subBassShelfFactor)
+                        }
+
+                        // استودیو: تمرکز روی بیت و 808 (808 & Beat Focus) - تضعیف ملایم وکال میانی و تقویت پانچ کیک و ساب‌بیس
+                        if (beatFocusEnabled) {
+                            when {
+                                centerFreqHz <= 150f -> gainDb += 4.2f
+                                centerFreqHz in 420f..2400f -> gainDb -= 3.0f
+                                centerFreqHz >= 7500f -> gainDb += 2.2f
+                            }
+                        }
+
+                        // استودیو: شفاف‌سازی وکال (Vocal Crystal) - تقویت باند حضور صدای خواننده (1kHz تا 4kHz) و شفافیت بالا
+                        if (vocalCrystalEnabled) {
+                            when {
+                                centerFreqHz in 160f..320f -> gainDb -= 1.6f
+                                centerFreqHz in 900f..4500f -> gainDb += 4.5f
+                                centerFreqHz > 4500f -> gainDb += 2.0f
+                            }
                         }
 
                         // مقیاسدهی دقیق به میلیبل سختافزار
@@ -950,6 +1043,26 @@ class AudioEngine(private val context: Context) {
                                 if (realPos >= 0L) {
                                     val safeMax = _duration.value.coerceAtLeast(realPos)
                                     _currentPosition.value = realPos.coerceIn(0L, safeMax)
+
+                                    // 1. A-B Beat Looper enforcement
+                                    val loopA = _loopStartMs.value
+                                    val loopB = _loopEndMs.value
+                                    if (loopA != null && loopB != null && loopB > loopA + 350L && realPos >= loopB) {
+                                        seekTo(loopA)
+                                    } else if (
+                                        // 2. Smart Silence-Trimming DJ Mix enforcement
+                                        smartSilenceTrimEnabled &&
+                                        loopB == null &&
+                                        repeatMode != RepeatMode.ONE &&
+                                        !smartTrimTriggeredForCurrentTrack
+                                    ) {
+                                        val trimPoint = smartTrimTargetMs
+                                        if (trimPoint != null && realPos >= trimPoint) {
+                                            smartTrimTriggeredForCurrentTrack = true
+                                            Log.d(tag, "Smart Silence-Trimming DJ Mix triggered at ${realPos}ms (duration=${_duration.value}ms)")
+                                            onTrackCompleted?.invoke()
+                                        }
+                                    }
                                 }
                             }
                         }

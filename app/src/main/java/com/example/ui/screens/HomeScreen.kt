@@ -75,6 +75,7 @@ fun HomeScreen(
     duplicateCount: Int = 0,
     onOpenDuplicatesReview: () -> Unit = {},
     onToggleFocusMode: () -> Unit = {},
+    onToggleGymMode: () -> Unit = {},
     currentPositionProvider: () -> Long = { playbackState.currentPositionMs },
     onSeekTo: (Long) -> Unit = {},
     modifier: Modifier = Modifier
@@ -97,14 +98,14 @@ fun HomeScreen(
         contentPadding = PaddingValues(top = 16.dp, bottom = maxOf(bottomPadding + 20.dp, 120.dp)),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        // App Header & Greeting
+        // App Header & Greeting + Gym / High-Energy Pump Mode Toggle
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = Localization.getString("aura_music", lang),
                         style = MaterialTheme.typography.labelMedium.copy(
@@ -123,6 +124,42 @@ fun HomeScreen(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // دکمه اختصاصی حالت باشگاه و انرژی بالا (Gym / High-Energy Pump Mode)
+                    val isGymActive = appSettings.gymModeEnabled
+                    Surface(
+                        onClick = onToggleGymMode,
+                        shape = RoundedCornerShape(50),
+                        color = if (isGymActive) Color(0xFFFF1E56).copy(alpha = 0.28f) else Color(0x22FFFFFF),
+                        border = androidx.compose.foundation.BorderStroke(
+                            width = if (isGymActive) 1.5.dp else 1.dp,
+                            color = if (isGymActive) Color(0xFFFF1E56) else palette.primary.copy(alpha = 0.55f)
+                        ),
+                        modifier = Modifier.testTag("gym_mode_toggle_btn")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FitnessCenter,
+                                contentDescription = "Gym Pump Mode",
+                                tint = if (isGymActive) Color(0xFFFF1E56) else palette.accent,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Text(
+                                text = if (lang == AppLanguage.PERSIAN) {
+                                    if (isGymActive) "🔥 باشگاه فعال" else "حالت باشگاه"
+                                } else {
+                                    if (isGymActive) "🔥 PUMP ON" else "Gym Mode"
+                                },
+                                color = Color.White,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 11.5.sp
+                            )
+                        }
+                    }
+
                     Box(
                         modifier = Modifier
                             .size(38.dp)

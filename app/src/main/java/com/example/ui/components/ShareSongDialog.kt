@@ -37,6 +37,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.audio.AmbientPalette
 import com.example.data.model.AppLanguage
+import com.example.data.model.LyricsLine
 import com.example.data.model.Track
 import com.example.util.SongShareCardGenerator
 import kotlinx.coroutines.launch
@@ -47,6 +48,7 @@ fun ShareSongDialog(
     track: Track,
     palette: AmbientPalette,
     language: AppLanguage,
+    lyrics: List<LyricsLine> = emptyList(),
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -54,6 +56,32 @@ fun ShareSongDialog(
     val isFa = language == AppLanguage.PERSIAN
     var isGeneratingCard by remember { mutableStateOf(false) }
     var selectedCardThemeIdx by remember { mutableIntStateOf(0) }
+    var showLyricPicker by remember { mutableStateOf(false) }
+
+    // Available lyric lines (from synced lyrics or freestyle pad notes)
+    val availableLines = remember(lyrics, track.id) {
+        val fromLyrics = lyrics.map { it.text.trim() }.filter { it.isNotBlank() }
+        if (fromLyrics.isNotEmpty()) {
+            fromLyrics
+        } else {
+            val prefs = context.getSharedPreferences("aura_freestyle_pad", android.content.Context.MODE_PRIVATE)
+            val note = prefs.getString("note_${track.id}", "") ?: ""
+            note.lines()
+                .map { it.replace(Regex("\\[\\d+:\\d+(?:\\.\\d+)?]"), "").trim() }
+                .filter { it.isNotBlank() }
+        }
+    }
+
+    val selectedLyricIndices = remember(track.id) {
+        mutableStateListOf<Int>().apply {
+            if (availableLines.isNotEmpty()) {
+                add(0)
+                if (availableLines.size > 1) add(1)
+            }
+        }
+    }
+
+    val selectedLyricStrings = selectedLyricIndices.sorted().mapNotNull { availableLines.getOrNull(it) }.take(3)
 
     val cardThemes = remember(palette) {
         listOf(
@@ -77,6 +105,7 @@ fun ShareSongDialog(
                     context = context,
                     track = track,
                     palette = customPalette,
+                    selectedLyricLines = selectedLyricStrings,
                     lang = language
                 )
                 isGeneratingCard = false
@@ -112,13 +141,13 @@ fun ShareSongDialog(
                 .fillMaxSize()
                 .background(Color(0xF504050A))
                 .systemBarsPadding()
-                .padding(20.dp),
+                .padding(horizontal = 20.dp, vertical = 14.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // هدر بالا
                 Row(
@@ -135,10 +164,10 @@ fun ShareSongDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (isFa) "کارت استوری اینستاگرام (Spotify Style)" else "Spotify-Style Story Card",
+                            text = if (isFa) "پوستر استوری و لیریک (Spotify Lyric Card)" else "Spotify Lyric & Story Card",
                             color = Color.White,
                             fontWeight = FontWeight.ExtraBold,
-                            fontSize = 16.sp
+                            fontSize = 15.5.sp
                         )
                     }
 
@@ -156,8 +185,8 @@ fun ShareSongDialog(
                 // پیش‌نمایش کارت گرافیکی ۹:۱۶ استوری مشابه اسپاتیفای
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(0.88f)
-                        .aspectRatio(9f / 14.2f)
+                        .fillMaxWidth(0.86f)
+                        .aspectRatio(9f / 13.8f)
                         .shadow(28.dp, RoundedCornerShape(32.dp), spotColor = activeGradient[0])
                         .clip(RoundedCornerShape(32.dp))
                         .background(Brush.verticalGradient(activeGradient))
@@ -184,7 +213,7 @@ fun ShareSongDialog(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(24.dp),
+                            .padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -218,7 +247,7 @@ fun ShareSongDialog(
                         // کاور وسط کارت با سایه عمیق
                         Box(
                             modifier = Modifier
-                                .size(195.dp)
+                                .size(if (selectedLyricStrings.isNotEmpty()) 148.dp else 185.dp)
                                 .shadow(24.dp, RoundedCornerShape(24.dp))
                                 .clip(RoundedCornerShape(24.dp))
                                 .background(Color(0xFF10121E))
@@ -243,57 +272,159 @@ fun ShareSongDialog(
                             }
                         }
 
-                        // اطلاعات آهنگ و موج صوتی گرافیکی پایین کارت
+                        // بخش لیریک انتخاب‌شده (Spotify Lyric Card) یا موج صوتی
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(22.dp))
-                                .background(Color.Black.copy(alpha = 0.45f))
-                                .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(22.dp))
-                                .padding(16.dp)
+                                .background(Color.Black.copy(alpha = 0.48f))
+                                .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(22.dp))
+                                .padding(14.dp)
                         ) {
                             Text(
                                 text = track.title,
                                 color = Color.White,
                                 fontWeight = FontWeight.Black,
-                                fontSize = 20.sp,
+                                fontSize = 18.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 textAlign = TextAlign.Center
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = track.artist,
                                 color = Color.White.copy(alpha = 0.85f),
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
 
-                            Spacer(modifier = Modifier.height(12.dp))
+                            if (selectedLyricStrings.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(Color.White.copy(alpha = 0.10f))
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    selectedLyricStrings.forEach { lineText ->
+                                        Text(
+                                            text = "“ $lineText ”",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 12.5.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                }
+                            } else {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                // موج صوتی Spotify-Code Style
+                                Canvas(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.85f)
+                                        .height(24.dp)
+                                ) {
+                                    val bars = 28
+                                    val gap = 4.dp.toPx()
+                                    val barW = (size.width - gap * (bars - 1)) / bars
+                                    for (i in 0 until bars) {
+                                        val norm = (sin(i * 0.45f + track.title.hashCode()) * 0.4f + 0.55f).coerceIn(0.2f, 1f)
+                                        val h = size.height * norm
+                                        val x = i * (barW + gap)
+                                        val y = (size.height - h) / 2f
+                                        drawRoundRect(
+                                            color = Color.White.copy(alpha = 0.90f),
+                                            topLeft = Offset(x, y),
+                                            size = Size(barW, h),
+                                            cornerRadius = CornerRadius(barW / 2f, barW / 2f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
-                            // موج صوتی Spotify-Code Style
-                            Canvas(
-                                modifier = Modifier
-                                    .fillMaxWidth(0.85f)
-                                    .height(26.dp)
+                // انتخابگر تا ۳ خط از متن آهنگ (Spotify Lyric Card Picker)
+                if (availableLines.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(0.88f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (isFa) "انتخاب متن آهنگ روی پوستر (حداکثر ۳ خط):" else "Select up to 3 lyric lines:",
+                                color = Color.White.copy(alpha = 0.9f),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            TextButton(
+                                onClick = { showLyricPicker = !showLyricPicker },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                             ) {
-                                val bars = 28
-                                val gap = 4.dp.toPx()
-                                val barW = (size.width - gap * (bars - 1)) / bars
-                                for (i in 0 until bars) {
-                                    val norm = (sin(i * 0.45f + track.title.hashCode()) * 0.4f + 0.55f).coerceIn(0.2f, 1f)
-                                    val h = size.height * norm
-                                    val x = i * (barW + gap)
-                                    val y = (size.height - h) / 2f
-                                    drawRoundRect(
-                                        color = Color.White.copy(alpha = 0.90f),
-                                        topLeft = Offset(x, y),
-                                        size = Size(barW, h),
-                                        cornerRadius = CornerRadius(barW / 2f, barW / 2f)
-                                    )
+                                Text(
+                                    text = if (showLyricPicker) {
+                                        if (isFa) "بستن لیست" else "Hide Lines"
+                                    } else {
+                                        if (isFa) "انتخاب خطوط (${selectedLyricIndices.size}/3)" else "Pick Lines (${selectedLyricIndices.size}/3)"
+                                    },
+                                    color = activeGradient[0],
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+
+                        if (showLyricPicker) {
+                            androidx.compose.foundation.lazy.LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 115.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xFF101322))
+                                    .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(14.dp))
+                                    .padding(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                items(availableLines.size) { idx ->
+                                    val isChosen = idx in selectedLyricIndices
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(if (isChosen) activeGradient[0].copy(alpha = 0.25f) else Color.Transparent)
+                                            .clickable {
+                                                if (isChosen) {
+                                                    selectedLyricIndices.remove(idx)
+                                                } else if (selectedLyricIndices.size < 3) {
+                                                    selectedLyricIndices.add(idx)
+                                                }
+                                            }
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = availableLines[idx],
+                                            color = if (isChosen) Color.White else Color(0xFFB0B5C8),
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isChosen) FontWeight.ExtraBold else FontWeight.Medium,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -334,7 +465,7 @@ fun ShareSongDialog(
                     enabled = !isGeneratingCard,
                     modifier = Modifier
                         .fillMaxWidth(0.88f)
-                        .height(52.dp),
+                        .height(50.dp),
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = activeGradient[0])
                 ) {
@@ -348,7 +479,7 @@ fun ShareSongDialog(
                         Icon(Icons.Default.Share, contentDescription = null, tint = Color.White)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (isFa) "اشتراک‌گذاری در استوری اینستاگرام و..." else "Share High-Res Story Card",
+                            text = if (isFa) "اشتراک‌گذاری پوستر استوری در اینستاگرام و..." else "Share High-Res Story Poster",
                             color = Color.White,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 14.sp
