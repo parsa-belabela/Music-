@@ -1,6 +1,5 @@
 package com.example.ui.screens
 
-import android.content.Intent
 import android.graphics.BlurMaskFilter
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -12,7 +11,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -28,8 +26,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -37,7 +38,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -102,7 +102,6 @@ fun NowPlayingScreen(
     var showMoreMenu by remember { mutableStateOf(false) }
     var showRadialMenu by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
-    val isFa = appSettings.language == AppLanguage.PERSIAN
 
     val triggerHaptic = {
         if (appSettings.hapticFeedbackEnabled) {
@@ -130,28 +129,13 @@ fun NowPlayingScreen(
         label = "coverAccent"
     )
 
-    val highContrastAccent = remember(coverAccent) {
-        val lum = 0.299f * coverAccent.red + 0.587f * coverAccent.green + 0.114f * coverAccent.blue
-        if (lum < 0.35f) Color(0xFF00E5FF) else coverAccent
-    }
-
-    val dynamicCoverPalette = remember(coverPrimary, coverSecondary, highContrastAccent, palette) {
+    val dynamicCoverPalette = remember(coverPrimary, coverSecondary, coverAccent, palette) {
         palette.copy(
             primary = coverPrimary,
             secondary = coverSecondary,
-            accent = highContrastAccent,
+            accent = coverAccent,
             haloGlow = coverPrimary.copy(alpha = 0.85f)
         )
-    }
-
-    // اشتراک‌گذاری مستقیم فایل یا متن معمولی آهنگ
-    val shareRegularAudio = {
-        val text = "🎵 ${track.title} — ${track.artist}\nAlbum: ${track.album}"
-        val sendIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, text)
-        }
-        context.startActivity(Intent.createChooser(sendIntent, if (isFa) "اشتراک‌گذاری آهنگ" else "Share Track"))
     }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -161,7 +145,7 @@ fun NowPlayingScreen(
             try {
                 context.contentResolver.takePersistableUriPermission(
                     uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             } catch (_: Exception) {}
             onUpdateTrackArtwork(track, uri.toString())
@@ -172,16 +156,18 @@ fun NowPlayingScreen(
         audioProfile?.waveformEnvelope?.split(",")?.mapNotNull { it.trim().toFloatOrNull() }?.toFloatArray()
     }
 
-    var dynamicPhaseRad by remember { mutableFloatStateOf(0f) }
-    var smoothReactiveEnergy by remember { mutableFloatStateOf(0.35f) }
-    var smoothReactiveKick by remember { mutableFloatStateOf(0.1f) }
+    // موتور ۱۲۰ فریم بر ثانیه برای چرخش نرم قاب کاور و بالا/پایین رفتن دقیق آن با بیس واقعی آهنگ
+    var rotationPhaseRad by remember { mutableFloatStateOf(0f) }
+    var smoothBassLevel by remember { mutableFloatStateOf(0f) }
+    var smoothKickImpact by remember { mutableFloatStateOf(0f) }
+    var smoothEnergyLevel by remember { mutableFloatStateOf(0.2f) }
 
     val latestAnalysisProvider by rememberUpdatedState(analysisDataProvider)
     val trackBaseBpm = remember(audioProfile?.estimatedTempoBpm) {
-        (audioProfile?.estimatedTempoBpm ?: 105).coerceIn(60, 180)
+        (audioProfile?.estimatedTempoBpm ?: 105).coerceIn(65, 175)
     }
     val trackBaseEnergy = remember(audioProfile?.energyLevel) {
-        (audioProfile?.energyLevel ?: 0.55f).coerceIn(0.20f, 0.95f)
+        (audioProfile?.energyLevel ?: 0.5f).coerceIn(0.15f, 0.95f)
     }
 
     LaunchedEffect(isPlaying, track.id) {
@@ -192,23 +178,27 @@ fun NowPlayingScreen(
                 lastFrameNanos = nowNanos
 
                 val audio = latestAnalysisProvider()
-                val targetEnergy = if (isPlaying) {
-                    (audio.totalEnergy * 0.55f + audio.mid * 0.25f + trackBaseEnergy * 0.20f).coerceIn(0.20f, 1.0f)
-                } else {
-                    0.08f
-                }
+                val rawBass = if (isPlaying) audio.bass.coerceIn(0f, 1f) else 0f
+                val rawKick = if (isPlaying) audio.kickPulse.coerceIn(0f, 1f) else 0f
+                val rawEnergy = if (isPlaying) {
+                    (audio.totalEnergy * 0.6f + rawBass * 0.4f).coerceIn(0.05f, 1f)
+                } else 0.03f
 
-                smoothReactiveEnergy += (targetEnergy - smoothReactiveEnergy) * (dtSec * 6f).coerceIn(0f, 1f)
+                // واکنش سریع به ضربه بیس (Fast Attack) و برگشت نرم (Smooth Release) برای بالا و پایین رفتن کاور
+                val bassLerp = if (rawBass > smoothBassLevel) (dtSec * 18f) else (dtSec * 7.5f)
+                smoothBassLevel += (rawBass - smoothBassLevel) * bassLerp.coerceIn(0f, 1f)
 
-                val targetKick = if (isPlaying) (audio.kickPulse * 0.8f + audio.bass * 0.2f).coerceIn(0f, 1f) else 0f
-                smoothReactiveKick += (targetKick - smoothReactiveKick) * (dtSec * 12f).coerceIn(0f, 1f)
+                val kickLerp = if (rawKick > smoothKickImpact) (dtSec * 22f) else (dtSec * 9f)
+                smoothKickImpact += (rawKick - smoothKickImpact) * kickLerp.coerceIn(0f, 1f)
+
+                smoothEnergyLevel += (rawEnergy - smoothEnergyLevel) * (dtSec * 8f).coerceIn(0f, 1f)
 
                 if (isPlaying) {
-                    val bpmFactor = (trackBaseBpm / 105f).coerceIn(0.65f, 1.65f)
-                    val angularVelocity = (0.55f + (smoothReactiveEnergy * 1.85f * bpmFactor))
-                    dynamicPhaseRad = (dynamicPhaseRad + angularVelocity * dtSec) % (2f * PI.toFloat() * 100f)
+                    val bpmFactor = (trackBaseBpm / 110f).coerceIn(0.6f, 1.6f)
+                    val angularSpeed = 0.35f + (smoothEnergyLevel * 1.45f * bpmFactor) + (smoothKickImpact * 0.9f)
+                    rotationPhaseRad = (rotationPhaseRad + angularSpeed * dtSec) % (2f * PI.toFloat() * 100f)
                 } else {
-                    dynamicPhaseRad = (dynamicPhaseRad + 0.12f * dtSec) % (2f * PI.toFloat() * 100f)
+                    rotationPhaseRad = (rotationPhaseRad + 0.06f * dtSec) % (2f * PI.toFloat() * 100f)
                 }
             }
         }
@@ -223,6 +213,7 @@ fun NowPlayingScreen(
         label = "artworkPlayScale"
     )
 
+    // حذف کامل ژست‌های لمسی تغییر آهنگ از روی صفحه تا کلیک در سمت راست، بالا یا پایین صفحه هرگز باعث رفتن به آهنگ بعدی نشود
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -244,6 +235,7 @@ fun NowPlayingScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
+            // ۱. هدر بالایی پلیر
             AnimatedVisibility(
                 visible = !isImmersive,
                 enter = fadeIn() + expandVertically(),
@@ -259,7 +251,7 @@ fun NowPlayingScreen(
                             .width(42.dp)
                             .height(4.dp)
                             .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.45f))
+                            .background(Color.White.copy(alpha = 0.38f))
                     )
 
                     Row(
@@ -278,7 +270,7 @@ fun NowPlayingScreen(
                                     shape = CircleShape,
                                     thickness = GlassThickness.THIN,
                                     tintColor = coverPrimary,
-                                    tintAlpha = 0.22f
+                                    tintAlpha = 0.18f
                                 )
                                 .testTag("collapse_now_playing_button")
                         ) {
@@ -302,7 +294,7 @@ fun NowPlayingScreen(
                                         shape = RoundedCornerShape(28.dp),
                                         thickness = GlassThickness.THIN,
                                         tintColor = coverPrimary,
-                                        tintAlpha = 0.22f
+                                        tintAlpha = 0.16f
                                     )
                                     .padding(3.dp)
                             ) {
@@ -311,18 +303,18 @@ fun NowPlayingScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     SegmentPillItem(
-                                        title = if (isFa) "کاور آهنگ" else "Artwork",
+                                        title = if (appSettings.language == AppLanguage.PERSIAN) "کاور آهنگ" else "Artwork",
                                         isSelected = centerView == NowPlayingCenterView.ARTWORK_AND_HALO,
-                                        activeColor = highContrastAccent,
+                                        activeColor = coverPrimary,
                                         onClick = {
                                             triggerHaptic()
                                             centerView = NowPlayingCenterView.ARTWORK_AND_HALO
                                         }
                                     )
                                     SegmentPillItem(
-                                        title = if (isFa) "متن آهنگ" else "Lyrics",
+                                        title = if (appSettings.language == AppLanguage.PERSIAN) "متن آهنگ" else "Lyrics",
                                         isSelected = centerView == NowPlayingCenterView.LYRICS,
-                                        activeColor = highContrastAccent,
+                                        activeColor = coverPrimary,
                                         onClick = {
                                             triggerHaptic()
                                             centerView = NowPlayingCenterView.LYRICS
@@ -341,7 +333,7 @@ fun NowPlayingScreen(
                                         shape = CircleShape,
                                         thickness = GlassThickness.THIN,
                                         tintColor = coverPrimary,
-                                        tintAlpha = 0.22f
+                                        tintAlpha = 0.18f
                                     )
                             ) {
                                 Icon(
@@ -360,13 +352,13 @@ fun NowPlayingScreen(
                                         shape = RoundedCornerShape(18.dp),
                                         thickness = GlassThickness.THICK,
                                         tintColor = coverPrimary,
-                                        tintAlpha = 0.28f,
+                                        tintAlpha = 0.25f,
                                         borderWidth = 1.dp
                                     )
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text(if (isFa) "تغییر کاور آهنگ" else "Change Song Artwork", color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = highContrastAccent) },
+                                    text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "تغییر کاور آهنگ" else "Change Song Artwork", color = Color.White) },
+                                    leadingIcon = { Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = coverAccent) },
                                     onClick = {
                                         showMoreMenu = false
                                         photoPickerLauncher.launch(
@@ -375,43 +367,35 @@ fun NowPlayingScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text(if (isFa) "کارت استوری اینستاگرام (Spotify Card)" else "Share Story Card", color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = highContrastAccent) },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        onShareSong(track)
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(if (isFa) "اشتراک‌گذاری معمولی آهنگ" else "Share Audio / Info", color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = highContrastAccent) },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        shareRegularAudio()
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(if (isFa) "اکولایزر و تنظیمات صدا" else "Equalizer & DSP", color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null, tint = highContrastAccent) },
+                                    text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "اکولایزر و تنظیمات صدا" else "Equalizer & DSP", color = Color.White) },
+                                    leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null, tint = coverAccent) },
                                     onClick = {
                                         showMoreMenu = false
                                         onOpenEqualizer()
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text(if (isFa) "تایمر خواب" else "Sleep Timer", color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Default.Snooze, contentDescription = null, tint = highContrastAccent) },
+                                    text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "تایمر خواب" else "Sleep Timer", color = Color.White) },
+                                    leadingIcon = { Icon(Icons.Default.Snooze, contentDescription = null, tint = coverAccent) },
                                     onClick = {
                                         showMoreMenu = false
                                         onOpenSleepTimer()
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text(if (isFa) "ویرایش اطلاعات آهنگ" else "Edit Metadata", color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = highContrastAccent) },
+                                    text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "ویرایش اطلاعات آهنگ" else "Edit Metadata", color = Color.White) },
+                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = coverAccent) },
                                     onClick = {
                                         showMoreMenu = false
                                         onOpenMetadataEditor(track)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(if (appSettings.language == AppLanguage.PERSIAN) "اشتراک‌گذاری کارت استوری" else "Share Story Card", color = Color.White) },
+                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = coverAccent) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        onShareSong(track)
                                     }
                                 )
                             }
@@ -420,7 +404,7 @@ fun NowPlayingScreen(
                 }
             }
 
-            // استیج مرکزی کاور با نور متحرک هماهنگ با فضای کلی آهنگ
+            // ۲. استیج مرکزی: چرخش سه‌بعدی قاب کاور + بالا و پایین شدن زنده و ریتمیک با بیس واقعی آهنگ
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -430,88 +414,75 @@ fun NowPlayingScreen(
             ) {
                 when (centerView) {
                     NowPlayingCenterView.ARTWORK_AND_HALO -> {
-                        var artworkSwipeAccum by remember { mutableFloatStateOf(0f) }
-
-                        // محاسبه حرکت عمودی بالا و پایین (Vertical Bobbing) متناسب با حال و هوای آهنگ:
-                        // در آهنگ آرام: نوسان بسیار نرم و کوتاه | در آهنگ پرانرژی: نوسان زندهتر ولی کنترلشده
-                        val moodIntensity = (smoothReactiveEnergy * 0.7f + smoothReactiveKick * 0.3f).coerceIn(0.08f, 1f)
-                        val verticalBobbingPx = if (isPlaying) {
-                            (sin(dynamicPhaseRad * 1.15f) * (5.5f + moodIntensity * 9.5f)) +
-                                (cos(dynamicPhaseRad * 2.3f) * (smoothReactiveKick * 5.0f))
+                        // محاسبه جهش عمودی (Up & Down Bass Bounce) مستقیماً بر اساس بیس و کیک واقعی آهنگ
+                        // هر بار که بیس می‌کوبد، قاب کاور در حین چرخش با نرمی بالا و پایین می‌جهد
+                        val bassVerticalBouncePx = if (isPlaying) {
+                            val waveFloat = sin(rotationPhaseRad * 1.4f) * (6f + smoothBassLevel * 12f)
+                            val bassLift = -(smoothBassLevel * 22f + smoothKickImpact * 18f)
+                            waveFloat + bassLift
                         } else {
-                            sin(dynamicPhaseRad) * 2.0f
+                            sin(rotationPhaseRad) * 3f
                         }
 
-                        val dynamicTiltAmplitude = 1.0f + (moodIntensity * 4.2f)
+                        val dynamicTiltDeg = if (isPlaying) {
+                            1.8f + (smoothEnergyLevel * 4.5f) + (smoothBassLevel * 2.5f)
+                        } else 0.5f
 
-                        // هاله نوری قوی و کاملاً همرنگ با کاور آهنگ در اطراف و پشت کاور
+                        // هاله نوری پشت کاور که همزمان با قاب کاور بالا و پایین می‌رود
                         Canvas(modifier = Modifier.fillMaxSize()) {
                             val cx = size.width / 2f
-                            val cy = (size.height / 2f) + verticalBobbingPx
-                            val haloScale = 1f + (moodIntensity * 0.22f) + (smoothReactiveKick * 0.16f)
-                            val baseR = size.minDimension * 0.44f * haloScale
+                            val cy = (size.height / 2f) + bassVerticalBouncePx
+                            val pulseExpand = 1f + (smoothBassLevel * 0.22f) + (smoothKickImpact * 0.18f)
+                            val baseR = size.minDimension * 0.40f * pulseExpand
 
                             drawIntoCanvas { canvas ->
-                                // لایه اول: رنگ اصلی کاور با غلظت بالا دقیقاً دور کاور
-                                val primaryPaint = Paint().apply {
+                                val paintPrimary = Paint().apply {
                                     asFrameworkPaint().apply {
                                         isAntiAlias = true
-                                        maskFilter = BlurMaskFilter(105f, BlurMaskFilter.Blur.NORMAL)
-                                        color = coverPrimary.copy(alpha = if (isPlaying) 0.88f else 0.50f).toArgb()
+                                        maskFilter = BlurMaskFilter(90f, BlurMaskFilter.Blur.NORMAL)
+                                        color = coverPrimary.copy(alpha = if (isPlaying) 0.65f else 0.30f).toArgb()
                                     }
                                 }
                                 canvas.drawCircle(
                                     Offset(cx, cy),
-                                    baseR * 1.05f,
-                                    primaryPaint
-                                )
-
-                                // لایه دوم: رنگ دوم کاور که همراه با کاور بالا و پایین میرود
-                                val secondaryPaint = Paint().apply {
-                                    asFrameworkPaint().apply {
-                                        isAntiAlias = true
-                                        maskFilter = BlurMaskFilter(90f, BlurMaskFilter.Blur.NORMAL)
-                                        color = coverSecondary.copy(alpha = if (isPlaying) 0.78f else 0.40f).toArgb()
-                                    }
-                                }
-                                canvas.drawCircle(
-                                    Offset(cx + 18f * cos(dynamicPhaseRad * 0.7f), cy + 16f * sin(dynamicPhaseRad * 0.7f)),
-                                    baseR * 0.92f,
-                                    secondaryPaint
+                                    baseR,
+                                    paintPrimary
                                 )
                             }
                         }
 
-                        // قاب سهبعدی کاور با حرکت بالا و پایین ملایم و چرخش هماهنگ با موزیک
+                        // قاب سه‌بعدی کاور آهنگ (بدون ژست Swipe تا لمس کردن هیچ نقطه‌ای باعث پرش به آهنگ بعدی نشود)
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight(0.76f)
                                 .aspectRatio(1f)
                                 .graphicsLayer {
-                                    val beatScaleBoost = smoothReactiveKick * 0.032f + moodIntensity * 0.015f
-                                    val totalScale = artworkBaseScale + (if (isPlaying) beatScaleBoost else 0f)
+                                    val bassScalePunch = if (isPlaying) {
+                                        (smoothBassLevel * 0.045f + smoothKickImpact * 0.035f)
+                                    } else 0f
+                                    val totalScale = artworkBaseScale + bassScalePunch
+
                                     scaleX = totalScale
                                     scaleY = totalScale
-                                    translationY = verticalBobbingPx
-                                    translationX = cos(dynamicPhaseRad * 0.6f) * (if (isPlaying) 3.5f * moodIntensity else 0f)
-                                    rotationX = sin(dynamicPhaseRad) * (if (isPlaying) dynamicTiltAmplitude else 0.4f)
-                                    rotationY = cos(dynamicPhaseRad) * (if (isPlaying) dynamicTiltAmplitude else 0.4f)
-                                    rotationZ = sin(dynamicPhaseRad * 0.5f) * (if (isPlaying) moodIntensity * 1.8f else 0f)
+                                    translationY = bassVerticalBouncePx
+                                    rotationX = sin(rotationPhaseRad) * dynamicTiltDeg
+                                    rotationY = cos(rotationPhaseRad) * dynamicTiltDeg
+                                    rotationZ = sin(rotationPhaseRad * 0.5f) * (if (isPlaying) smoothBassLevel * 2.4f else 0f)
                                 }
                                 .shadow(
-                                    elevation = if (isPlaying) 36.dp else 18.dp,
+                                    elevation = if (isPlaying) 34.dp else 16.dp,
                                     shape = RoundedCornerShape(32.dp),
                                     spotColor = coverPrimary,
                                     ambientColor = coverSecondary
                                 )
                                 .border(
-                                    width = 2.2.dp,
+                                    width = 2.dp,
                                     brush = Brush.linearGradient(
                                         colors = listOf(
+                                            Color.White.copy(alpha = 0.85f),
                                             coverPrimary,
-                                            Color.White.copy(alpha = 0.75f),
-                                            coverSecondary,
-                                            coverAccent
+                                            coverAccent,
+                                            Color.White.copy(alpha = 0.65f)
                                         )
                                     ),
                                     shape = RoundedCornerShape(32.dp)
@@ -519,25 +490,6 @@ fun NowPlayingScreen(
                                 .padding(3.dp)
                                 .clip(RoundedCornerShape(29.dp))
                                 .background(Color(0xFF10121E))
-                                .pointerInput(track.id) {
-                                    detectHorizontalDragGestures(
-                                        onHorizontalDrag = { change, dragAmount ->
-                                            change.consume()
-                                            artworkSwipeAccum += dragAmount
-                                        },
-                                        onDragEnd = {
-                                            if (artworkSwipeAccum > 110f) {
-                                                triggerHaptic()
-                                                onPrevious()
-                                            } else if (artworkSwipeAccum < -110f) {
-                                                triggerHaptic()
-                                                onNext()
-                                            }
-                                            artworkSwipeAccum = 0f
-                                        },
-                                        onDragCancel = { artworkSwipeAccum = 0f }
-                                    )
-                                }
                                 .pointerInput(track.id) {
                                     detectTapGestures(
                                         onDoubleTap = {
@@ -580,10 +532,10 @@ fun NowPlayingScreen(
                                 .fillMaxSize()
                                 .liquidGlass(
                                     shape = RoundedCornerShape(30.dp),
-                                    thickness = GlassThickness.THICK,
+                                    thickness = GlassThickness.REGULAR,
                                     tintColor = coverPrimary,
-                                    tintAlpha = 0.22f,
-                                    secondaryAccent = highContrastAccent
+                                    tintAlpha = 0.18f,
+                                    secondaryAccent = coverAccent
                                 )
                                 .padding(14.dp)
                         ) {
@@ -604,7 +556,7 @@ fun NowPlayingScreen(
                 }
             }
 
-            // داک پایینی با کنتراست ۱۰۰٪ تضمین‌شده برای تمام متن‌ها، خطوط متحرک و آیکن‌ها
+            // ۳. داک شیشه‌ای پایینی پلیر
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -612,9 +564,9 @@ fun NowPlayingScreen(
                         shape = RoundedCornerShape(32.dp),
                         thickness = GlassThickness.THICK,
                         tintColor = coverPrimary,
-                        tintAlpha = 0.25f,
+                        tintAlpha = 0.22f,
                         borderWidth = 1.4.dp,
-                        secondaryAccent = highContrastAccent
+                        secondaryAccent = coverAccent
                     )
                     .padding(horizontal = 18.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -634,23 +586,20 @@ fun NowPlayingScreen(
                                 style = MaterialTheme.typography.headlineSmall.copy(
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Color.White,
-                                    fontSize = 20.sp,
-                                    shadow = Shadow(
-                                        color = Color.Black.copy(alpha = 0.85f),
-                                        offset = Offset(0f, 2f),
-                                        blurRadius = 6f
-                                    )
+                                    fontSize = 20.sp
                                 ),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false)
                             )
 
-                            // خطوط متحرک کنار اسم آهنگ داخل کپسول تیره ضد محو شدن با حرکت پرانرژی و کاملاً محسوس
+                            // خطوط متحرک کنار اسم آهنگ: بدون هیچ بک‌گراندی، با کنتراست ۱۰۰٪ که هیچ‌وقت محو نمی‌شوند
                             LiveCoverEnergyBars(
                                 isPlaying = isPlaying,
-                                moodEnergy = smoothReactiveEnergy,
-                                accentColor = highContrastAccent
+                                bass = smoothBassLevel,
+                                kick = smoothKickImpact,
+                                primaryColor = coverPrimary,
+                                accentColor = coverAccent
                             )
                         }
 
@@ -659,14 +608,9 @@ fun NowPlayingScreen(
                         Text(
                             text = "${track.artist} • ${track.album}",
                             style = MaterialTheme.typography.bodyMedium.copy(
-                                color = Color(0xFFE2E8F0),
+                                color = Color.White.copy(alpha = 0.85f),
                                 fontSize = 13.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                shadow = Shadow(
-                                    color = Color.Black.copy(alpha = 0.75f),
-                                    offset = Offset(0f, 1f),
-                                    blurRadius = 4f
-                                )
+                                fontWeight = FontWeight.Medium
                             ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -686,7 +630,7 @@ fun NowPlayingScreen(
                                 shape = CircleShape,
                                 thickness = GlassThickness.THIN,
                                 tintColor = if (track.isFavorite) Color(0xFFFF1744) else coverPrimary,
-                                tintAlpha = if (track.isFavorite) 0.35f else 0.18f
+                                tintAlpha = if (track.isFavorite) 0.35f else 0.16f
                             )
                     ) {
                         Icon(
@@ -724,14 +668,14 @@ fun NowPlayingScreen(
                             .liquidGlass(
                                 shape = CircleShape,
                                 thickness = GlassThickness.THIN,
-                                tintColor = if (playbackState.isShuffle) highContrastAccent else coverPrimary,
-                                tintAlpha = if (playbackState.isShuffle) 0.35f else 0.16f
+                                tintColor = if (playbackState.isShuffle) coverAccent else coverPrimary,
+                                tintAlpha = if (playbackState.isShuffle) 0.30f else 0.12f
                             )
                     ) {
                         Icon(
                             imageVector = Icons.Default.Shuffle,
                             contentDescription = "Shuffle",
-                            tint = if (playbackState.isShuffle) highContrastAccent else Color.White,
+                            tint = if (playbackState.isShuffle) coverAccent else Color.White,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -747,7 +691,7 @@ fun NowPlayingScreen(
                                 shape = CircleShape,
                                 thickness = GlassThickness.THIN,
                                 tintColor = coverPrimary,
-                                tintAlpha = 0.22f
+                                tintAlpha = 0.18f
                             )
                     ) {
                         Icon(
@@ -762,7 +706,7 @@ fun NowPlayingScreen(
                         isPlaying = isPlaying,
                         primaryColor = coverPrimary,
                         secondaryColor = coverSecondary,
-                        accentColor = highContrastAccent,
+                        accentColor = coverAccent,
                         onClick = {
                             triggerHaptic()
                             onTogglePlay()
@@ -780,7 +724,7 @@ fun NowPlayingScreen(
                                 shape = CircleShape,
                                 thickness = GlassThickness.THIN,
                                 tintColor = coverPrimary,
-                                tintAlpha = 0.22f
+                                tintAlpha = 0.18f
                             )
                     ) {
                         Icon(
@@ -801,8 +745,8 @@ fun NowPlayingScreen(
                             .liquidGlass(
                                 shape = CircleShape,
                                 thickness = GlassThickness.THIN,
-                                tintColor = if (playbackState.repeatMode != PlaybackRepeatMode.OFF) highContrastAccent else coverPrimary,
-                                tintAlpha = if (playbackState.repeatMode != PlaybackRepeatMode.OFF) 0.35f else 0.16f
+                                tintColor = if (playbackState.repeatMode != PlaybackRepeatMode.OFF) coverAccent else coverPrimary,
+                                tintAlpha = if (playbackState.repeatMode != PlaybackRepeatMode.OFF) 0.30f else 0.12f
                             )
                     ) {
                         val repIcon = when (playbackState.repeatMode) {
@@ -813,7 +757,7 @@ fun NowPlayingScreen(
                         Icon(
                             imageVector = repIcon,
                             contentDescription = "Repeat",
-                            tint = if (playbackState.repeatMode != PlaybackRepeatMode.OFF) highContrastAccent else Color.White,
+                            tint = if (playbackState.repeatMode != PlaybackRepeatMode.OFF) coverAccent else Color.White,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -824,7 +768,6 @@ fun NowPlayingScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // ردیف ابزارهای پایین شامل هر دو قابلیت: ۱. کارت استوری گرافیکی (Story Card) ۲. اشتراک‌گذاری معمولی آهنگ
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -837,8 +780,8 @@ fun NowPlayingScreen(
                             .liquidGlass(
                                 shape = RoundedCornerShape(20.dp),
                                 thickness = GlassThickness.THIN,
-                                tintColor = if (centerView == NowPlayingCenterView.LYRICS) highContrastAccent else coverPrimary,
-                                tintAlpha = if (centerView == NowPlayingCenterView.LYRICS) 0.35f else 0.18f
+                                tintColor = if (centerView == NowPlayingCenterView.LYRICS) coverAccent else coverPrimary,
+                                tintAlpha = if (centerView == NowPlayingCenterView.LYRICS) 0.32f else 0.14f
                             )
                             .clickable {
                                 triggerHaptic()
@@ -848,88 +791,32 @@ fun NowPlayingScreen(
                                     NowPlayingCenterView.LYRICS
                                 }
                             }
-                            .padding(horizontal = 12.dp, vertical = 7.dp)
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.Lyrics,
                                 contentDescription = null,
                                 tint = Color.White,
-                                modifier = Modifier.size(15.dp)
+                                modifier = Modifier.size(16.dp)
                             )
-                            Spacer(modifier = Modifier.width(5.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (isFa) "متن" else "Lyrics",
+                                text = if (appSettings.language == AppLanguage.PERSIAN) "متن ترانه" else "Lyrics",
                                 color = Color.White,
-                                fontSize = 11.5.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                     }
 
-                    // دکمه اختصاصی ساخت و اشتراک‌گذاری کارت استوری گرافیکی (مشابه Spotify Story Card)
-                    Box(
-                        modifier = Modifier
-                            .liquidGlass(
-                                shape = RoundedCornerShape(20.dp),
-                                thickness = GlassThickness.THIN,
-                                tintColor = highContrastAccent,
-                                tintAlpha = 0.28f
-                            )
-                            .clickable {
-                                triggerHaptic()
-                                onShareSong(track)
-                            }
-                            .padding(horizontal = 12.dp, vertical = 7.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = "Story Card",
-                                tint = highContrastAccent,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = if (isFa) "کارت استوری" else "Story Card",
-                                color = Color.White,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                        }
-                    }
-
-                    // دکمه اشتراک‌گذاری معمولی آهنگ
-                    IconButton(
-                        onClick = {
-                            triggerHaptic()
-                            shareRegularAudio()
-                        },
-                        modifier = Modifier
-                            .size(36.dp)
-                            .liquidGlass(
-                                shape = CircleShape,
-                                thickness = GlassThickness.THIN,
-                                tintColor = coverPrimary,
-                                tintAlpha = 0.18f
-                            )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "Share Audio",
-                            tint = Color.White,
-                            modifier = Modifier.size(17.dp)
-                        )
-                    }
-
-                    // دکمه سرعت پخش
                     Box(
                         modifier = Modifier
                             .liquidGlass(
                                 shape = RoundedCornerShape(20.dp),
                                 thickness = GlassThickness.THIN,
                                 tintColor = coverPrimary,
-                                tintAlpha = 0.18f
+                                tintAlpha = 0.14f
                             )
                             .clickable {
                                 triggerHaptic()
@@ -941,36 +828,57 @@ fun NowPlayingScreen(
                                 }
                                 onPlaybackSpeedChange(nextSpeed)
                             }
-                            .padding(horizontal = 10.dp, vertical = 7.dp)
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
                     ) {
                         Text(
                             text = "${appSettings.playbackSpeed}x",
                             color = Color.White,
-                            fontSize = 11.5.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
-                    // دکمه صف پخش
+                    IconButton(
+                        onClick = {
+                            triggerHaptic()
+                            onShareSong(track)
+                        },
+                        modifier = Modifier
+                            .size(38.dp)
+                            .liquidGlass(
+                                shape = CircleShape,
+                                thickness = GlassThickness.THIN,
+                                tintColor = coverPrimary,
+                                tintAlpha = 0.14f
+                            )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Share",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
                     IconButton(
                         onClick = {
                             triggerHaptic()
                             onOpenQueue()
                         },
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(38.dp)
                             .liquidGlass(
                                 shape = CircleShape,
                                 thickness = GlassThickness.THIN,
                                 tintColor = coverPrimary,
-                                tintAlpha = 0.18f
+                                tintAlpha = 0.14f
                             )
                     ) {
                         Icon(
                             imageVector = Icons.Default.QueueMusic,
                             contentDescription = "Queue",
                             tint = Color.White,
-                            modifier = Modifier.size(19.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -1023,7 +931,7 @@ private fun CoverReactivePlayButton(
     )
 
     val luminance = (0.299f * primaryColor.red + 0.587f * primaryColor.green + 0.114f * primaryColor.blue)
-    val iconColor = if (luminance > 0.60f) Color(0xFF070912) else Color.White
+    val iconColor = if (luminance > 0.72f) Color(0xFF090B14) else Color.White
 
     Box(
         modifier = Modifier.size(72.dp),
@@ -1035,7 +943,7 @@ private fun CoverReactivePlayButton(
                     asFrameworkPaint().apply {
                         isAntiAlias = true
                         maskFilter = BlurMaskFilter(32f, BlurMaskFilter.Blur.NORMAL)
-                        color = primaryColor.copy(alpha = 0.78f).toArgb()
+                        color = primaryColor.copy(alpha = 0.75f).toArgb()
                     }
                 }
                 canvas.drawCircle(
@@ -1055,17 +963,17 @@ private fun CoverReactivePlayButton(
                     Brush.linearGradient(
                         colors = listOf(
                             primaryColor,
-                            accentColor.copy(alpha = 0.92f),
+                            accentColor.copy(alpha = 0.90f),
                             secondaryColor
                         )
                     )
                 )
                 .border(
-                    width = 1.8.dp,
+                    width = 1.6.dp,
                     brush = Brush.verticalGradient(
                         listOf(
-                            Color.White.copy(alpha = 0.92f),
-                            Color.White.copy(alpha = 0.30f)
+                            Color.White.copy(alpha = 0.85f),
+                            Color.White.copy(alpha = 0.25f)
                         )
                     ),
                     shape = CircleShape
@@ -1089,84 +997,96 @@ private fun CoverReactivePlayButton(
 }
 
 /**
- * خطوط متحرک کنار اسم آهنگ:
- * - دارای کپسول پس‌زمینه تیره و حاشیه نوری تا هرگز با نورهای پس‌زمینه محو نشوند
- * - دارای حرکت پرسرعت، واضح و کاملاً محسوس هماهنگ با فضای آهنگ
+ * خطوط اکولایزر کنار نام آهنگ:
+ * - بدون هیچ‌گونه کادر یا بک‌گراند اضافه (فقط خود خط‌ها)
+ * - دارای حاشیه کنتراست تیره میکروسکوپی در پشت هر خط تا روی هر نوری (حتی سفید خالص) ۱۰۰٪ واضح بمانند و هرگز محو نشوند
+ * - حرکت تند، زنده و کاملاً محسوس هماهنگ با بیس و ریتم آهنگ
  */
 @Composable
 private fun LiveCoverEnergyBars(
     isPlaying: Boolean,
-    moodEnergy: Float,
+    bass: Float,
+    kick: Float,
+    primaryColor: Color,
     accentColor: Color
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "FastVividEqualizerBars")
-    val speedMultiplier = (0.75f + moodEnergy * 0.65f).coerceIn(0.75f, 1.4f)
-
-    val anim1 by infiniteTransition.animateFloat(
-        initialValue = 0.18f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween((210 / speedMultiplier).toInt().coerceAtLeast(120), easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "bar1"
-    )
-    val anim2 by infiniteTransition.animateFloat(
-        initialValue = 0.95f,
-        targetValue = 0.20f,
-        animationSpec = infiniteRepeatable(
-            animation = tween((170 / speedMultiplier).toInt().coerceAtLeast(100), easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "bar2"
-    )
-    val anim3 by infiniteTransition.animateFloat(
-        initialValue = 0.25f,
+    val transition = rememberInfiniteTransition(label = "CrispEnergyBars")
+    val w1 by transition.animateFloat(
+        initialValue = 0.22f,
         targetValue = 0.98f,
-        animationSpec = infiniteRepeatable(
-            animation = tween((250 / speedMultiplier).toInt().coerceAtLeast(130), easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "bar3"
+        animationSpec = infiniteRepeatable(tween(210, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "w1"
     )
-    val anim4 by infiniteTransition.animateFloat(
-        initialValue = 0.88f,
-        targetValue = 0.22f,
-        animationSpec = infiniteRepeatable(
-            animation = tween((190 / speedMultiplier).toInt().coerceAtLeast(110), easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "bar4"
+    val w2 by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(tween(165, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "w2"
+    )
+    val w3 by transition.animateFloat(
+        initialValue = 0.18f,
+        targetValue = 0.92f,
+        animationSpec = infiniteRepeatable(tween(250, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "w3"
+    )
+    val w4 by transition.animateFloat(
+        initialValue = 0.28f,
+        targetValue = 0.96f,
+        animationSpec = infiniteRepeatable(tween(190, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "w4"
     )
 
-    val bars = if (isPlaying) listOf(anim1, anim2, anim3, anim4) else listOf(0.22f, 0.35f, 0.22f, 0.30f)
+    val boost = (bass * 0.35f + kick * 0.25f).coerceIn(0f, 0.45f)
+    val heights = if (isPlaying) {
+        listOf(
+            (w1 * 0.75f + boost).coerceIn(0.20f, 1f),
+            (w2 * 0.80f + boost).coerceIn(0.24f, 1f),
+            (w3 * 0.75f + boost).coerceIn(0.20f, 1f),
+            (w4 * 0.78f + boost).coerceIn(0.22f, 1f)
+        )
+    } else {
+        listOf(0.22f, 0.22f, 0.22f, 0.22f)
+    }
 
-    Box(
+    Canvas(
         modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xD9070912))
-            .border(1.dp, accentColor.copy(alpha = 0.70f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 7.dp, vertical = 4.dp),
-        contentAlignment = Alignment.Center
+            .width(22.dp)
+            .height(18.dp)
     ) {
-        Row(
-            modifier = Modifier.height(16.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
-        ) {
-            bars.forEach { ratio ->
-                Box(
-                    modifier = Modifier
-                        .width(3.2.dp)
-                        .fillMaxHeight(ratio.coerceIn(0.18f, 1f))
-                        .clip(CircleShape)
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.White, accentColor)
-                            )
-                        )
-                )
-            }
+        val barCount = heights.size
+        val barWidth = 3.2.dp.toPx()
+        val spacing = (size.width - (barCount * barWidth)) / (barCount - 1).coerceAtLeast(1)
+
+        heights.forEachIndexed { idx, ratio ->
+            val barH = (size.height * ratio).coerceAtLeast(barWidth)
+            val x = idx * (barWidth + spacing)
+            val y = (size.height - barH) / 2f
+            val corner = CornerRadius(barWidth / 2f, barWidth / 2f)
+
+            // ۱. لایه محافظ کنتراست (Outline Shadow) دقیقاً هم‌شکل خودِ خط (بدون هیچ بک‌گراند مستطیلی)
+            // باعث می‌شود حتی اگر نور پس‌زمینه کاملاً سفید یا هم‌رنگ خط باشد، خط هرگز محو نشود
+            drawRoundRect(
+                color = Color(0xCC05070E),
+                topLeft = Offset(x - 1.dp.toPx(), y - 1.dp.toPx()),
+                size = Size(barWidth + 2.dp.toPx(), barH + 2.dp.toPx()),
+                cornerRadius = CornerRadius((barWidth + 2.dp.toPx()) / 2f)
+            )
+
+            // ۲. خودِ خط نوری با هسته روشن و درخشان
+            drawRoundRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White,
+                        accentColor,
+                        primaryColor
+                    ),
+                    startY = y,
+                    endY = y + barH
+                ),
+                topLeft = Offset(x, y),
+                size = Size(barWidth, barH),
+                cornerRadius = corner
+            )
         }
     }
 }
@@ -1179,7 +1099,7 @@ private fun SegmentPillItem(
     onClick: () -> Unit
 ) {
     val lum = (0.299f * activeColor.red + 0.587f * activeColor.green + 0.114f * activeColor.blue)
-    val selectedTextColor = if (lum > 0.62f) Color(0xFF070912) else Color.White
+    val selectedTextColor = if (lum > 0.72f) Color(0xFF090B14) else Color.White
 
     Box(
         modifier = Modifier
@@ -1191,8 +1111,8 @@ private fun SegmentPillItem(
     ) {
         Text(
             text = title,
-            color = if (isSelected) selectedTextColor else Color.White.copy(alpha = 0.85f),
-            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+            color = if (isSelected) selectedTextColor else Color(0xFFB0B6CA),
+            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
             fontSize = 12.sp
         )
     }
