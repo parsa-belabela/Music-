@@ -30,8 +30,8 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -92,12 +92,12 @@ fun NowPlayingScreen(
     onOpenVipPaywall: (String?) -> Unit = {},
     onSelectNowPlayingStyle: (String) -> Unit = {},
     onUpdateTrackArtwork: (Track, String?) -> Unit = { _, _ -> },
+    analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() },
+    currentPositionProvider: () -> Long = { playbackState.currentPositionMs },
     loopStartMs: Long? = null,
     loopEndMs: Long? = null,
-    onSetAbLoop: (Long?, Long?) -> Unit = { _, _ -> },
-    onClearAbLoop: () -> Unit = {},
-    analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() },
-    currentPositionProvider: () -> Long = { playbackState.currentPositionMs }
+    onSetAbLoop: (Long, Long) -> Unit = { _, _ -> },
+    onClearAbLoop: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val track = playbackState.currentTrack ?: return
@@ -160,9 +160,7 @@ fun NowPlayingScreen(
         audioProfile?.waveformEnvelope?.split(",")?.mapNotNull { it.trim().toFloatOrNull() }?.toFloatArray()
     }
 
-    // موتور ۱۲۰ فریم بر ثانیه برای چرخش نرم قاب کاور و بالا/پایین رفتن دقیق آن با بیس واقعی آهنگ
     var rotationPhaseRad by remember { mutableFloatStateOf(0f) }
-    var smoothAngularSpeed by remember { mutableFloatStateOf(0.48f) }
     var smoothBassLevel by remember { mutableFloatStateOf(0f) }
     var smoothKickImpact by remember { mutableFloatStateOf(0f) }
     var smoothEnergyLevel by remember { mutableFloatStateOf(0.2f) }
@@ -170,9 +168,6 @@ fun NowPlayingScreen(
     val latestAnalysisProvider by rememberUpdatedState(analysisDataProvider)
     val trackBaseBpm = remember(audioProfile?.estimatedTempoBpm) {
         (audioProfile?.estimatedTempoBpm ?: 105).coerceIn(65, 175)
-    }
-    val trackBaseEnergy = remember(audioProfile?.energyLevel) {
-        (audioProfile?.energyLevel ?: 0.5f).coerceIn(0.15f, 0.95f)
     }
 
     LaunchedEffect(isPlaying, track.id) {
@@ -189,7 +184,6 @@ fun NowPlayingScreen(
                     (audio.totalEnergy * 0.6f + rawBass * 0.4f).coerceIn(0.05f, 1f)
                 } else 0.03f
 
-                // واکنش سریع به ضربه بیس (Fast Attack) و برگشت نرم (Smooth Release) برای بالا و پایین رفتن کاور
                 val bassLerp = if (rawBass > smoothBassLevel) (dtSec * 18f) else (dtSec * 7.5f)
                 smoothBassLevel += (rawBass - smoothBassLevel) * bassLerp.coerceIn(0f, 1f)
 
@@ -200,13 +194,10 @@ fun NowPlayingScreen(
 
                 if (isPlaying) {
                     val bpmFactor = (trackBaseBpm / 110f).coerceIn(0.6f, 1.6f)
-                    // سرعت چرخش ۳۵٪ بیشتر شده و نرم و هماهنگ با بیت و انرژی آهنگ تغییر می‌کند
-                    val targetAngularSpeed = (0.35f + (smoothEnergyLevel * 1.45f * bpmFactor) + (smoothKickImpact * 0.9f)) * 1.35f
-                    smoothAngularSpeed += (targetAngularSpeed - smoothAngularSpeed) * (dtSec * 7f).coerceIn(0f, 1f)
-                    rotationPhaseRad = (rotationPhaseRad + smoothAngularSpeed * dtSec) % (2f * PI.toFloat() * 100f)
+                    val angularSpeed = 0.35f + (smoothEnergyLevel * 1.45f * bpmFactor) + (smoothKickImpact * 0.9f)
+                    rotationPhaseRad = (rotationPhaseRad + angularSpeed * dtSec) % (2f * PI.toFloat() * 100f)
                 } else {
-                    smoothAngularSpeed += (0.08f - smoothAngularSpeed) * (dtSec * 5f).coerceIn(0f, 1f)
-                    rotationPhaseRad = (rotationPhaseRad + smoothAngularSpeed * dtSec) % (2f * PI.toFloat() * 100f)
+                    rotationPhaseRad = (rotationPhaseRad + 0.06f * dtSec) % (2f * PI.toFloat() * 100f)
                 }
             }
         }
@@ -221,7 +212,6 @@ fun NowPlayingScreen(
         label = "artworkPlayScale"
     )
 
-    // حذف کامل ژست‌های لمسی تغییر آهنگ از روی صفحه تا کلیک در سمت راست، بالا یا پایین صفحه هرگز باعث رفتن به آهنگ بعدی نشود
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -243,7 +233,6 @@ fun NowPlayingScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // ۱. هدر بالایی پلیر
             AnimatedVisibility(
                 visible = !isImmersive,
                 enter = fadeIn() + expandVertically(),
@@ -412,7 +401,6 @@ fun NowPlayingScreen(
                 }
             }
 
-            // ۲. استیج مرکزی: چرخش سه‌بعدی قاب کاور + بالا و پایین شدن زنده و ریتمیک با بیس واقعی آهنگ
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -422,8 +410,6 @@ fun NowPlayingScreen(
             ) {
                 when (centerView) {
                     NowPlayingCenterView.ARTWORK_AND_HALO -> {
-                        // محاسبه جهش عمودی (Up & Down Bass Bounce) مستقیماً بر اساس بیس و کیک واقعی آهنگ
-                        // هر بار که بیس می‌کوبد، قاب کاور در حین چرخش با نرمی بالا و پایین می‌جهد
                         val bassVerticalBouncePx = if (isPlaying) {
                             val waveFloat = sin(rotationPhaseRad * 1.4f) * (6f + smoothBassLevel * 12f)
                             val bassLift = -(smoothBassLevel * 22f + smoothKickImpact * 18f)
@@ -436,7 +422,6 @@ fun NowPlayingScreen(
                             1.8f + (smoothEnergyLevel * 4.5f) + (smoothBassLevel * 2.5f)
                         } else 0.5f
 
-                        // هاله نوری پشت کاور که همزمان با قاب کاور بالا و پایین می‌رود
                         Canvas(modifier = Modifier.fillMaxSize()) {
                             val cx = size.width / 2f
                             val cy = (size.height / 2f) + bassVerticalBouncePx
@@ -457,46 +442,8 @@ fun NowPlayingScreen(
                                     paintPrimary
                                 )
                             }
-
-                            // ذرات معلق و غبار ستاره‌ای (Shader Starlight Dust) پشت کاور، هماهنگ با فرکانس‌های بالا (High/Mid) و انفجار کیک
-                            val liveAudio = latestAnalysisProvider()
-                            val highSparkle = if (isPlaying) liveAudio.high.coerceIn(0f, 1f) else 0.08f
-                            val midDrift = if (isPlaying) liveAudio.mid.coerceIn(0f, 1f) else 0.05f
-                            val particleCount = 34
-                            for (pIdx in 0 until particleCount) {
-                                val seedAngle = (pIdx * 137.5f * (PI.toFloat() / 180f)) + (rotationPhaseRad * (0.22f + (pIdx % 5) * 0.06f))
-                                val ringRatio = 0.34f + ((pIdx * 29) % 100) / 175f
-                                val kickRadialBurst = smoothKickImpact * (26f + (pIdx % 4) * 14f)
-                                val highWaveOffset = sin(rotationPhaseRad * 2.1f + pIdx) * (8f + highSparkle * 22f)
-                                val orbitRadius = (size.minDimension * ringRatio) + kickRadialBurst + highWaveOffset
-
-                                val px = cx + cos(seedAngle) * orbitRadius
-                                val py = cy + sin(seedAngle) * orbitRadius - (midDrift * 14f * ((pIdx % 3) - 1))
-
-                                val pAlpha = (0.24f + highSparkle * 0.55f + smoothKickImpact * 0.20f)
-                                    .coerceIn(0.12f, 0.92f) * (if (isPlaying) 1f else 0.35f)
-                                val pRadius = (1.6f + (pIdx % 4) * 1.15f + highSparkle * 2.6f + smoothKickImpact * 1.8f)
-
-                                val starColor = when (pIdx % 3) {
-                                    0 -> Color.White.copy(alpha = pAlpha)
-                                    1 -> coverAccent.copy(alpha = pAlpha)
-                                    else -> coverPrimary.copy(alpha = pAlpha)
-                                }
-
-                                drawCircle(
-                                    color = starColor.copy(alpha = (pAlpha * 0.32f).coerceIn(0f, 1f)),
-                                    radius = pRadius * 2.6f,
-                                    center = Offset(px, py)
-                                )
-                                drawCircle(
-                                    color = starColor,
-                                    radius = pRadius,
-                                    center = Offset(px, py)
-                                )
-                            }
                         }
 
-                        // قاب سه‌بعدی کاور آهنگ (بدون ژست Swipe تا لمس کردن هیچ نقطه‌ای باعث پرش به آهنگ بعدی نشود)
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight(0.76f)
@@ -601,7 +548,6 @@ fun NowPlayingScreen(
                 }
             }
 
-            // ۳. داک شیشه‌ای پایینی پلیر
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -638,7 +584,6 @@ fun NowPlayingScreen(
                                 modifier = Modifier.weight(1f, fill = false)
                             )
 
-                            // خطوط متحرک کنار اسم آهنگ: بدون هیچ بک‌گراندی، با کنتراست ۱۰۰٪ که هیچ‌وقت محو نمی‌شوند
                             LiveCoverEnergyBars(
                                 isPlaying = isPlaying,
                                 bass = smoothBassLevel,
@@ -700,134 +645,23 @@ fun NowPlayingScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // نوار کنترل لوپ استودیویی (A-B Beat Looper) برای تکرار دقیق بخشی از بیت یا ورس
+                // دکمه‌های کنترل پخش با وضعیت کاملاً مشخص برای Shuffle و Repeat حتی روی کاورهای سفید
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val isFa = appSettings.language == AppLanguage.PERSIAN
-                    fun fmtLoopMs(ms: Long): String {
-                        val s = (ms / 1000).coerceAtLeast(0)
-                        return "%d:%02d".format(s / 60, s % 60)
-                    }
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // دکمه ثبت نقطه شروع لوپ (Point A)
-                        Surface(
-                            onClick = {
-                                triggerHaptic()
-                                val nowPos = currentPositionProvider().coerceIn(0L, dur)
-                                val validB = if (loopEndMs != null && loopEndMs > nowPos + 400L) loopEndMs else null
-                                onSetAbLoop(nowPos, validB)
-                            },
-                            shape = RoundedCornerShape(50),
-                            color = if (loopStartMs != null) Color(0xFF00F5D4).copy(alpha = 0.22f) else Color(0x1AFFFFFF),
-                            border = androidx.compose.foundation.BorderStroke(
-                                width = 1.dp,
-                                color = if (loopStartMs != null) Color(0xFF00F5D4) else Color.White.copy(alpha = 0.18f)
-                            )
-                        ) {
-                            Text(
-                                text = if (loopStartMs != null) {
-                                    "A • ${fmtLoopMs(loopStartMs)}"
-                                } else {
-                                    if (isFa) "نقطه A (شروع لوپ)" else "Loop A"
-                                },
-                                color = if (loopStartMs != null) Color(0xFF00F5D4) else Color(0xFFD0D5E8),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 4.dp)
-                            )
-                        }
-
-                        // دکمه ثبت نقطه پایان لوپ (Point B)
-                        Surface(
-                            onClick = {
-                                triggerHaptic()
-                                val nowPos = currentPositionProvider().coerceIn(0L, dur)
-                                val startA = loopStartMs ?: (nowPos - 4000L).coerceAtLeast(0L)
-                                if (nowPos > startA + 350L) {
-                                    onSetAbLoop(startA, nowPos)
-                                }
-                            },
-                            shape = RoundedCornerShape(50),
-                            color = if (loopEndMs != null) Color(0xFFFF1E56).copy(alpha = 0.24f) else Color(0x1AFFFFFF),
-                            border = androidx.compose.foundation.BorderStroke(
-                                width = 1.dp,
-                                color = if (loopEndMs != null) Color(0xFFFF1E56) else Color.White.copy(alpha = 0.18f)
-                            )
-                        ) {
-                            Text(
-                                text = if (loopEndMs != null) {
-                                    "B • ${fmtLoopMs(loopEndMs)}"
-                                } else {
-                                    if (isFa) "نقطه B (پایان لوپ)" else "Loop B"
-                                },
-                                color = if (loopEndMs != null) Color(0xFFFF1E56) else Color(0xFFD0D5E8),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-
-                    if (loopStartMs != null || loopEndMs != null) {
-                        Surface(
-                            onClick = {
-                                triggerHaptic()
-                                onClearAbLoop()
-                            },
-                            shape = RoundedCornerShape(50),
-                            color = Color(0x28FFFFFF),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.25f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear Loop", tint = Color.White, modifier = Modifier.size(13.dp))
-                                Text(
-                                    text = if (isFa) "لغو لوپ A-B" else "Clear A-B",
-                                    color = Color.White,
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
+                    ModeToggleControlButton(
+                        icon = Icons.Default.Shuffle,
+                        isActive = playbackState.isShuffle,
+                        badgeText = if (playbackState.shuffleMode == ShuffleMode.INTELLIGENT) "AI" else null,
+                        primaryColor = coverPrimary,
+                        accentColor = coverAccent,
                         onClick = {
                             triggerHaptic()
                             onToggleShuffle()
-                        },
-                        modifier = Modifier
-                            .size(42.dp)
-                            .liquidGlass(
-                                shape = CircleShape,
-                                thickness = GlassThickness.THIN,
-                                tintColor = if (playbackState.isShuffle) coverAccent else coverPrimary,
-                                tintAlpha = if (playbackState.isShuffle) 0.30f else 0.12f
-                            )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Shuffle,
-                            contentDescription = "Shuffle",
-                            tint = if (playbackState.isShuffle) coverAccent else Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                        }
+                    )
 
                     IconButton(
                         onClick = {
@@ -884,32 +718,22 @@ fun NowPlayingScreen(
                         )
                     }
 
-                    IconButton(
+                    val repIcon = when (playbackState.repeatMode) {
+                        PlaybackRepeatMode.ONE -> Icons.Default.RepeatOne
+                        PlaybackRepeatMode.ALL -> Icons.Default.Repeat
+                        PlaybackRepeatMode.OFF -> Icons.Default.Repeat
+                    }
+                    ModeToggleControlButton(
+                        icon = repIcon,
+                        isActive = playbackState.repeatMode != PlaybackRepeatMode.OFF,
+                        badgeText = if (playbackState.repeatMode == PlaybackRepeatMode.ONE) "1" else null,
+                        primaryColor = coverPrimary,
+                        accentColor = coverAccent,
                         onClick = {
                             triggerHaptic()
                             onCycleRepeat()
-                        },
-                        modifier = Modifier
-                            .size(42.dp)
-                            .liquidGlass(
-                                shape = CircleShape,
-                                thickness = GlassThickness.THIN,
-                                tintColor = if (playbackState.repeatMode != PlaybackRepeatMode.OFF) coverAccent else coverPrimary,
-                                tintAlpha = if (playbackState.repeatMode != PlaybackRepeatMode.OFF) 0.30f else 0.12f
-                            )
-                    ) {
-                        val repIcon = when (playbackState.repeatMode) {
-                            PlaybackRepeatMode.ONE -> Icons.Default.RepeatOne
-                            PlaybackRepeatMode.ALL -> Icons.Default.Repeat
-                            PlaybackRepeatMode.OFF -> Icons.Default.Repeat
                         }
-                        Icon(
-                            imageVector = repIcon,
-                            contentDescription = "Repeat",
-                            tint = if (playbackState.repeatMode != PlaybackRepeatMode.OFF) coverAccent else Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                    )
                 }
 
                 LiquidGlassVolumeControl(
@@ -1060,6 +884,81 @@ fun NowPlayingScreen(
     }
 }
 
+/**
+ * دکمه اختصاصی برای Shuffle و Repeat با تشخیص خودکار روشنایی رنگ:
+ * - وقتی غیرفعال است: نیمه‌شفاف با آیکون خاکستری روشن
+ * - وقتی فعال است: دارای کادر درخشان، پس‌زمینه پررنگ با کنتراست تضمینی و نقطه نوری سبز/فیروزه‌ای در زیر آیکون (مشابه Spotify)
+ *   تا حتی زمانی که رنگ کاور سفید خالص است، در یک نگاه کاملاً مشخص باشد که فعال است
+ */
+@Composable
+private fun ModeToggleControlButton(
+    icon: ImageVector,
+    isActive: Boolean,
+    badgeText: String? = null,
+    primaryColor: Color,
+    accentColor: Color,
+    onClick: () -> Unit
+) {
+    val activeIndicatorColor = Color(0xFF00F5D4)
+    val accentLum = (0.299f * accentColor.red + 0.587f * accentColor.green + 0.114f * accentColor.blue)
+    val fillColor = if (accentLum > 0.78f) primaryColor else accentColor
+    val fillLum = (0.299f * fillColor.red + 0.587f * fillColor.green + 0.114f * fillColor.blue)
+    val activeIconTint = if (fillLum > 0.70f) Color(0xFF060812) else Color.White
+
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(
+                if (isActive) {
+                    Brush.linearGradient(
+                        listOf(
+                            fillColor.copy(alpha = 0.92f),
+                            primaryColor.copy(alpha = 0.85f)
+                        )
+                    )
+                } else {
+                    Brush.linearGradient(
+                        listOf(
+                            Color(0x33080A14),
+                            Color(0x22FFFFFF)
+                        )
+                    )
+                }
+            )
+            .border(
+                width = if (isActive) 1.5.dp else 0.8.dp,
+                color = if (isActive) activeIndicatorColor else Color.White.copy(alpha = 0.18f),
+                shape = CircleShape
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isActive) activeIconTint else Color.White.copy(alpha = 0.50f),
+                modifier = Modifier.size(20.dp)
+            )
+
+            if (isActive) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Box(
+                    modifier = Modifier
+                        .width(10.dp)
+                        .height(3.dp)
+                        .clip(CircleShape)
+                        .background(if (fillLum > 0.70f) Color(0xFF060812) else activeIndicatorColor)
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun CoverReactivePlayButton(
     isPlaying: Boolean,
@@ -1145,12 +1044,6 @@ private fun CoverReactivePlayButton(
     }
 }
 
-/**
- * خطوط اکولایزر کنار نام آهنگ:
- * - بدون هیچ‌گونه کادر یا بک‌گراند اضافه (فقط خود خط‌ها)
- * - دارای حاشیه کنتراست تیره میکروسکوپی در پشت هر خط تا روی هر نوری (حتی سفید خالص) ۱۰۰٪ واضح بمانند و هرگز محو نشوند
- * - حرکت تند، زنده و کاملاً محسوس هماهنگ با بیس و ریتم آهنگ
- */
 @Composable
 private fun LiveCoverEnergyBars(
     isPlaying: Boolean,
@@ -1212,8 +1105,6 @@ private fun LiveCoverEnergyBars(
             val y = (size.height - barH) / 2f
             val corner = CornerRadius(barWidth / 2f, barWidth / 2f)
 
-            // ۱. لایه محافظ کنتراست (Outline Shadow) دقیقاً هم‌شکل خودِ خط (بدون هیچ بک‌گراند مستطیلی)
-            // باعث می‌شود حتی اگر نور پس‌زمینه کاملاً سفید یا هم‌رنگ خط باشد، خط هرگز محو نشود
             drawRoundRect(
                 color = Color(0xCC05070E),
                 topLeft = Offset(x - 1.dp.toPx(), y - 1.dp.toPx()),
@@ -1221,7 +1112,6 @@ private fun LiveCoverEnergyBars(
                 cornerRadius = CornerRadius((barWidth + 2.dp.toPx()) / 2f)
             )
 
-            // ۲. خودِ خط نوری با هسته روشن و درخشان
             drawRoundRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(
