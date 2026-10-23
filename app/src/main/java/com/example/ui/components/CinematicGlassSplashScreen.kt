@@ -2,29 +2,29 @@ package com.example.ui.components
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.data.model.AppTheme
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
@@ -32,20 +32,116 @@ import kotlinx.coroutines.delay
 import kotlin.math.cos
 import kotlin.math.sin
 
+/**
+ * نشان و لوگوی اختصاصی، شیک و دوست‌داشتنی Aura Music
+ * (ترکیب هدفون کریستالی، قلب نوری و نت موسیقی شیشه‌ای)
+ */
+@Composable
+fun AuraBrandLogoBadge(
+    size: Dp = 44.dp,
+    cornerRadius: Dp = 15.dp,
+    animated: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "AuraLogoPulse")
+    val pulse by infiniteTransition.animateFloat(
+        initialValue = 0.96f,
+        targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "logoPulse"
+    )
+    val shimmerAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(6000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "logoShimmer"
+    )
+
+    val shape = RoundedCornerShape(cornerRadius)
+
+    Box(
+        modifier = modifier
+            .size(size)
+            .graphicsLayer {
+                if (animated) {
+                    scaleX = pulse
+                    scaleY = pulse
+                }
+            }
+            .clip(shape)
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFF240D3D),
+                        Color(0xFF120722),
+                        Color(0xFF090414)
+                    ),
+                    start = Offset.Zero,
+                    end = Offset(200f, 200f)
+                )
+            )
+            .border(
+                width = 1.4.dp,
+                brush = Brush.sweepGradient(
+                    colors = listOf(
+                        Color(0xFFFF2E93),
+                        Color(0xFFFF85A1),
+                        Color(0xFFFFFFFF),
+                        Color(0xFF00F5D4),
+                        Color(0xFFC77DFF),
+                        Color(0xFFFF2E93)
+                    )
+                ),
+                shape = shape
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        // هاله نوری لطیف پشت لوگو
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val rad = Math.toRadians(shimmerAngle.toDouble())
+            val glowCenter = Offset(
+                x = this.size.width * (0.5f + 0.18f * cos(rad).toFloat()),
+                y = this.size.height * (0.5f + 0.18f * sin(rad).toFloat())
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFFF2E93).copy(alpha = 0.42f),
+                        Color(0xFF00F5D4).copy(alpha = 0.22f),
+                        Color.Transparent
+                    ),
+                    center = glowCenter,
+                    radius = this.size.width * 0.65f
+                )
+            )
+        }
+
+        Image(
+            painter = painterResource(id = R.drawable.ic_launcher_foreground),
+            contentDescription = "Aura Music Logo",
+            modifier = Modifier.fillMaxSize(0.96f)
+        )
+    }
+}
+
 @Composable
 fun CinematicGlassSplashScreen(
     theme: AppTheme,
     onSplashFinished: () -> Unit
 ) {
-    var isVisible by remember { mutableStateOf(true) }
-
     LaunchedEffect(Unit) {
-        delay(1200)
+        delay(1250)
         onSplashFinished()
     }
 
     val infiniteTransition = rememberInfiniteTransition(label = "SplashOrb")
-    
+
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 0.94f,
         targetValue = 1.06f,
@@ -60,15 +156,15 @@ fun CinematicGlassSplashScreen(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(4000, easing = LinearEasing),
+            animation = tween(4200, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "rotation"
     )
 
     val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 0.85f,
+        initialValue = 0.45f,
+        targetValue = 0.90f,
         animationSpec = infiniteRepeatable(
             animation = tween(1000, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse
@@ -76,42 +172,47 @@ fun CinematicGlassSplashScreen(
         label = "glow"
     )
 
-    val themeColors = when (theme) {
-        AppTheme.PURE_LIQUID_GLASS -> listOf(Color(0xFF00E5FF), Color(0xFF8B5CF6), Color(0xFFFFFFFF))
-        AppTheme.CYBER_NIGHTS -> listOf(Color(0xFF00F0FF), Color(0xFFFF007F), Color(0xFF1E3A8A))
-        AppTheme.VELVET_NOIR -> listOf(Color(0xFFFFD700), Color(0xFFA855F7), Color(0xFF701A75))
-        AppTheme.SUNSET_RAVE -> listOf(Color(0xFFFF6D00), Color(0xFFFF007F), Color(0xFFFFD600))
-        AppTheme.DIGITAL_ACID -> listOf(Color(0xFF39FF14), Color(0xFF00FF66), Color(0xFF059669))
-        AppTheme.Y2K_CHROME -> listOf(Color(0xFFE2E8F0), Color(0xFF38BDF8), Color(0xFF818CF8))
-        AppTheme.MONOCHROME_NOIR -> listOf(Color(0xFFFFFFFF), Color(0xFF94A3B8), Color(0xFF1E293B))
-    }
+    val brandColors = listOf(
+        Color(0xFFFF2E93), // Rose Magenta
+        Color(0xFF00F5D4), // Crystal Aqua
+        Color(0xFFC77DFF)  // Dreamy Lavender
+    )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF04060C)),
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF140826),
+                        Color(0xFF090412),
+                        Color(0xFF040208)
+                    )
+                )
+            ),
         contentAlignment = Alignment.Center
     ) {
-        // Multi-point kinetic light field
+        // Multi-point kinetic aurora light field
         Canvas(modifier = Modifier.fillMaxSize()) {
             val center = Offset(size.width / 2f, size.height / 2f)
-            
-            // Outer dynamic aura halo
+
+            // Outer dynamic rose-aqua aura halo
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        themeColors[0].copy(alpha = glowAlpha * 0.45f),
-                        themeColors[1].copy(alpha = glowAlpha * 0.25f),
+                        brandColors[0].copy(alpha = glowAlpha * 0.42f),
+                        brandColors[2].copy(alpha = glowAlpha * 0.26f),
+                        brandColors[1].copy(alpha = glowAlpha * 0.14f),
                         Color.Transparent
                     ),
                     center = center,
-                    radius = size.width * 0.7f * pulseScale
+                    radius = size.width * 0.72f * pulseScale
                 )
             )
 
             // Orbiting chromatic satellites
             val rad = Math.toRadians(rotationAngle.toDouble())
-            val orbitRadius = size.width * 0.32f
+            val orbitRadius = size.width * 0.30f
             val sat1 = Offset(
                 center.x + (orbitRadius * cos(rad)).toFloat(),
                 center.y + (orbitRadius * sin(rad)).toFloat()
@@ -123,36 +224,37 @@ fun CinematicGlassSplashScreen(
 
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(themeColors[0].copy(alpha = 0.8f), Color.Transparent),
+                    colors = listOf(brandColors[0].copy(alpha = 0.75f), Color.Transparent),
                     center = sat1,
-                    radius = 90f
+                    radius = 110f
                 )
             )
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(themeColors[1].copy(alpha = 0.8f), Color.Transparent),
+                    colors = listOf(brandColors[1].copy(alpha = 0.75f), Color.Transparent),
                     center = sat2,
-                    radius = 90f
+                    radius = 110f
                 )
             )
 
-            // Rotating Prismatic Rings
+            // Rotating Prismatic Silk Ring
             drawCircle(
                 brush = Brush.sweepGradient(
                     colors = listOf(
-                        themeColors[0],
-                        themeColors[1],
-                        themeColors[2].copy(alpha = 0.8f),
-                        themeColors[0]
+                        brandColors[0],
+                        Color(0xFFFFD166),
+                        brandColors[1],
+                        brandColors[2],
+                        brandColors[0]
                     )
                 ),
                 center = center,
-                radius = 110.dp.toPx() * pulseScale,
-                style = Stroke(width = 2.dp.toPx())
+                radius = 114.dp.toPx() * pulseScale,
+                style = Stroke(width = 2.2.dp.toPx())
             )
         }
 
-        // Center Frosted Crystal Glass Capsule
+        // Center Luxury Emblem & Typography
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
@@ -160,22 +262,26 @@ fun CinematicGlassSplashScreen(
         ) {
             Box(
                 modifier = Modifier
-                    .size(120.dp)
+                    .size(136.dp)
+                    .graphicsLayer {
+                        scaleX = pulseScale
+                        scaleY = pulseScale
+                    }
                     .liquidGlass(
-                        shape = CircleShape,
+                        shape = RoundedCornerShape(38.dp),
                         thickness = GlassThickness.THICK,
-                        tintColor = themeColors[0],
-                        tintAlpha = 0.25f,
-                        borderWidth = 1.5.dp,
+                        tintColor = brandColors[0],
+                        tintAlpha = 0.24f,
+                        borderWidth = 1.8.dp,
+                        secondaryAccent = brandColors[1],
                         appTheme = theme
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.GraphicEq,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(54.dp)
+                Image(
+                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                    contentDescription = "Aura Music Emblem",
+                    modifier = Modifier.size(124.dp)
                 )
             }
 
@@ -193,11 +299,11 @@ fun CinematicGlassSplashScreen(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "PURE LIQUID GLASS • HI-FI AUDIO",
+                text = "VELVET LIQUID GLASS • HI-FI SOUND",
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 2.5.sp,
-                    color = themeColors[0].copy(alpha = 0.9f)
+                    letterSpacing = 2.4.sp,
+                    color = Color(0xFFFF85A1)
                 )
             )
 
@@ -214,7 +320,7 @@ fun CinematicGlassSplashScreen(
                         modifier = Modifier
                             .size(6.dp)
                             .clip(CircleShape)
-                            .background(themeColors[i % themeColors.size].copy(alpha = 0.3f + dotAlpha * 0.7f))
+                            .background(brandColors[i % brandColors.size].copy(alpha = 0.35f + dotAlpha * 0.65f))
                     )
                 }
             }

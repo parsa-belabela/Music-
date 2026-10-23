@@ -32,6 +32,7 @@ import com.example.data.model.AppSettings
 import com.example.data.model.PlaybackState
 import com.example.data.model.Playlist
 import com.example.data.model.Track
+import com.example.ui.components.AuraBrandLogoBadge
 import com.example.ui.components.DisintegrationOverlay
 import com.example.ui.components.TrackActionSheet
 import com.example.ui.components.TrackArtworkThumbnail
@@ -112,23 +113,29 @@ fun LibraryScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Text(
-                    text = Localization.getString("library", lang).uppercase(),
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        letterSpacing = 1.5.sp,
-                        color = palette.accent,
-                        fontWeight = FontWeight.Bold
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                AuraBrandLogoBadge(size = 48.dp, cornerRadius = 16.dp)
+
+                Column {
+                    Text(
+                        text = Localization.getString("library", lang).uppercase(),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            letterSpacing = 1.5.sp,
+                            color = palette.accent,
+                            fontWeight = FontWeight.Bold
+                        )
                     )
-                )
-                Text(
-                    text = "${Localization.getString("tracks", lang)} (${tracks.size})",
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
+                    Text(
+                        text = "${Localization.getString("tracks", lang)} (${tracks.size})",
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
                     )
-                )
-                Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                 // Live Real-Time Auto-Sync Status Badge
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -154,6 +161,7 @@ fun LibraryScreen(
                         color = Color(0xFFD0D8EA),
                         fontWeight = FontWeight.Medium
                     )
+                }
                 }
             }
 

@@ -51,6 +51,7 @@ import com.example.data.model.*
 import com.example.ui.components.TrackArtworkThumbnail
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
+import com.example.ui.theme.rememberGyroscopeTilt
 import com.example.util.Localization
 import com.example.util.WrappedEngine
 import kotlinx.coroutines.Dispatchers
@@ -871,10 +872,13 @@ private fun WrappedMiniMetric(value: String, label: String, color: Color) {
 }
 
 /**
- * استوری مینیمال، خلوت و فوق‌العاده شیک به سبک Apple Music Replay & Spotify Wrapped:
- * - بدون جدول‌ها و باکس‌های شلوغ و گیج‌کننده
- * - تمرکز روی یک المان بزرگ، تایپوگرافی درشت و کاور باکیفیت در هر اسلاید
- * - پخش خودکار بهترین قسمت آهنگ در پس‌زمینه
+ * استوری تمام‌صفحه فوق‌پریمیوم ۱۰ اسلایدی به سبک Spotify Wrapped & Apple Music Replay:
+ * - دارای داک کنترل شیشه‌ای شناور در پایین صفحه با فاصله امن تضمینی (هرگز زیر دکمه‌های گوشی نمی‌رود)
+ * - بک‌گراند چندلایه شامل ذرات نوری معلق (Bokeh Particles)، پرتوهای منشوری چرخان، حلقه‌های موج صوتی و هاله‌های نئونی بلر شده
+ * - واکنش سه‌بعدی کارت استوری به سنسور ژیروسکوپ گوشی (3D Hardware Gyroscope Parallax)
+ * - نوار پیشرفت ۱۰گانه در بالای صفحه با قابلیت لمس مستقیم هر بخش برای پرش سریع بین اسلایدها
+ * - پخش خودکار اوج آهنگ (Peak Chorus Hook) همزمان با نمایش استوری‌ها به همراه اکولایزر زنده در هدر
+ * - طراحی اختصاصی، پرجزئیات و متفاوت برای تک‌تک ۱۰ اسلاید (صفحه گرامافون چرخان، حلقه‌های نئونی، مدال‌های سه‌بعدی و کارت کلکسیونی)
  */
 @Composable
 private fun SpotifyWrappedStoryModal(
@@ -885,11 +889,14 @@ private fun SpotifyWrappedStoryModal(
     onShare: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val totalSlides = 6
+    val totalSlides = 10
     var currentSlide by remember { mutableIntStateOf(0) }
     var slideProgress by remember { mutableFloatStateOf(0f) }
     var isPausedByTouch by remember { mutableStateOf(false) }
     var isMuted by remember { mutableStateOf(false) }
+    var currentlyPlayingStoryTrackTitle by remember { mutableStateOf("") }
+
+    val (gyroRoll, gyroPitch) = rememberGyroscopeTilt()
 
     val app = remember { try { com.example.AuraApplication.instance } catch (_: Exception) { null } }
     val allTracks by (app?.repository?.allTracks ?: kotlinx.coroutines.flow.flowOf(emptyList()))
@@ -897,17 +904,19 @@ private fun SpotifyWrappedStoryModal(
 
     fun fmt(v: Any): String = if (isFa) WrappedEngine.toPersianDigits(v.toString()) else v.toString()
 
-    // پخش خودکار اوج آهنگ برتر همزمان با باز شدن استوری
+    // پخش خودکار بهترین قسمت آهنگ متناسب با هر اسلاید
     LaunchedEffect(currentSlide, isMuted, allTracks.size) {
         if (isMuted || app == null || allTracks.isEmpty()) return@LaunchedEffect
 
-        val targetTrackId = when (currentSlide) {
-            2 -> stats.topSongs.getOrNull(0)?.trackId
+        val targetTrackId: String? = when (currentSlide) {
+            0, 1, 2 -> stats.topSongs.getOrNull(0)?.trackId
             3 -> {
-                val artistName = stats.topArtists.firstOrNull()?.name
-                allTracks.firstOrNull { it.artist.equals(artistName, ignoreCase = true) }?.id
+                val topArtistName = stats.topArtists.firstOrNull()?.name
+                allTracks.firstOrNull { it.artist.equals(topArtistName, ignoreCase = true) }?.id
                     ?: stats.topSongs.getOrNull(0)?.trackId
             }
+            4 -> stats.topSongs.getOrNull(1)?.trackId ?: stats.topSongs.getOrNull(0)?.trackId
+            5 -> stats.topSongs.getOrNull(2)?.trackId ?: stats.topSongs.getOrNull(0)?.trackId
             else -> stats.topSongs.getOrNull(0)?.trackId
         }
 
@@ -916,10 +925,12 @@ private fun SpotifyWrappedStoryModal(
             ?: allTracks.firstOrNull()
 
         if (trackToPlay != null) {
-            val isSamePlaying = app.audioEngine.currentTrackId == trackToPlay.id &&
+            currentlyPlayingStoryTrackTitle = "${trackToPlay.title} • ${trackToPlay.artist}"
+            val currentEngineTrackId = app.audioEngine.currentTrackId
+            val isAlreadyPlayingSame = currentEngineTrackId == trackToPlay.id &&
                     app.audioEngine.status.value == com.example.data.model.PlayerStatus.PLAYING
 
-            if (!isSamePlaying || currentSlide == 2) {
+            if (!isAlreadyPlayingSame || currentSlide in listOf(2, 3, 4)) {
                 val profile = withContext(Dispatchers.IO) {
                     app.repository.getAudioProfile(trackToPlay.id)
                 }
@@ -929,9 +940,10 @@ private fun SpotifyWrappedStoryModal(
         }
     }
 
+    // تایمر پیش‌برنده اسلایدها (۸.۵ ثانیه برای هر اسلاید با قابلیت نگه داشتن انگشت برای توقف)
     LaunchedEffect(currentSlide, isPausedByTouch) {
         slideProgress = 0f
-        val durationMs = 7000L
+        val durationMs = 8500L
         val stepMs = 16L
         var elapsed = 0L
         while (elapsed < durationMs) {
@@ -948,20 +960,53 @@ private fun SpotifyWrappedStoryModal(
         }
     }
 
-    val slideAccent = remember(currentSlide, palette) {
+    // تم‌های نوری منحصربه‌فرد برای هر ۱۰ اسلاید
+    val slideColors = remember(currentSlide, palette) {
         when (currentSlide) {
-            0 -> palette.primary to palette.accent
-            1 -> Color(0xFF7B2CBF) to Color(0xFF00F5D4)
-            2 -> Color(0xFFFF1E56) to Color(0xFFFFBE0B)
-            3 -> Color(0xFF3A86FF) to Color(0xFF00E5FF)
-            4 -> Color(0xFF06D6A0) to Color(0xFF8338EC)
-            else -> palette.accent to palette.primary
+            0 -> Triple(palette.primary, Color(0xFF00F5D4), Color(0xFFFF2A85))
+            1 -> Triple(Color(0xFF7B2CBF), Color(0xFF00E5FF), Color(0xFFFFBE0B))
+            2 -> Triple(Color(0xFFFF1E56), Color(0xFFFFBE0B), Color(0xFF7209B7))
+            3 -> Triple(Color(0xFF3A86FF), Color(0xFF00F5D4), Color(0xFFFF006E))
+            4 -> Triple(Color(0xFF06D6A0), Color(0xFF118AB2), Color(0xFFFFD166))
+            5 -> Triple(Color(0xFFF72585), Color(0xFF7209B7), Color(0xFF4CC9F0))
+            6 -> Triple(Color(0xFFFF9E00), Color(0xFFFF0054), Color(0xFF00F5D4))
+            7 -> Triple(Color(0xFF00BBF9), Color(0xFF9B5DE5), Color(0xFFF15BB5))
+            8 -> Triple(Color(0xFFFF5400), Color(0xFFFFBD00), Color(0xFF8338EC))
+            else -> Triple(palette.accent, palette.primary, Color(0xFF00F5D4))
         }
     }
 
-    val cPrimary by animateColorAsState(slideAccent.first, tween(700), label = "storyPrimary")
-    val cSecondary by animateColorAsState(slideAccent.second, tween(700), label = "storySecondary")
+    val cPrimary by animateColorAsState(slideColors.first, tween(650), label = "cPrimary")
+    val cSecondary by animateColorAsState(slideColors.second, tween(650), label = "cSecondary")
+    val cTertiary by animateColorAsState(slideColors.third, tween(650), label = "cTertiary")
 
+    val infiniteTransition = rememberInfiniteTransition(label = "StoryMasterAnim")
+    val rotationDeg by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(12000, easing = LinearEasing), AnimRepeatMode.Restart),
+        label = "rotationDeg"
+    )
+    val vinylSpinDeg by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(5200, easing = LinearEasing), AnimRepeatMode.Restart),
+        label = "vinylSpinDeg"
+    )
+    val pulseFactor by infiniteTransition.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), AnimRepeatMode.Reverse),
+        label = "pulseFactor"
+    )
+
+    val cardHoldScale by animateFloatAsState(
+        targetValue = if (isPausedByTouch) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "cardHoldScale"
+    )
+
+    // استفاده از decorFitsSystemWindows = true به همراه پدینگ امن برای اینکه دکمه‌های پایین هرگز زیر نوار گوشی نروند
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -972,7 +1017,7 @@ private fun SpotifyWrappedStoryModal(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF05060C))
+                .background(Color(0xFF04050B))
                 .pointerInput(currentSlide) {
                     detectTapGestures(
                         onPress = {
@@ -981,7 +1026,8 @@ private fun SpotifyWrappedStoryModal(
                             isPausedByTouch = false
                         },
                         onTap = { offset ->
-                            if (offset.x < size.width * 0.32f) {
+                            val w = size.width
+                            if (offset.x < w * 0.32f) {
                                 if (currentSlide > 0) currentSlide--
                             } else {
                                 if (currentSlide < totalSlides - 1) currentSlide++ else onDismiss()
@@ -990,43 +1036,128 @@ private fun SpotifyWrappedStoryModal(
                     )
                 }
         ) {
-            // بک‌گراند بسیار نرم، خلوت و مخملی
+            // =========================================================================
+            // ۱. پس‌زمینه سینمایی چندلایه: پرتوهای منشوری + هاله‌های بلر گوسی + ذرات معلق (Bokeh)
+            // =========================================================================
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val w = size.width
                 val h = size.height
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(cPrimary.copy(alpha = 0.45f), Color.Transparent),
-                        center = Offset(w * 0.5f, h * 0.35f),
-                        radius = w * 0.85f
-                    ),
-                    radius = w * 0.85f,
-                    center = Offset(w * 0.5f, h * 0.35f)
-                )
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(cSecondary.copy(alpha = 0.30f), Color.Transparent),
-                        center = Offset(w * 0.5f, h * 0.75f),
-                        radius = w * 0.75f
-                    ),
-                    radius = w * 0.75f,
-                    center = Offset(w * 0.5f, h * 0.75f)
-                )
+                val rad = Math.toRadians(rotationDeg.toDouble())
+
+                // پرتوهای نوری چرخان منشوری در پس‌زمینه
+                rotate(rotationDeg * 0.5f, pivot = Offset(w * 0.5f, h * 0.38f)) {
+                    drawCircle(
+                        brush = Brush.sweepGradient(
+                            colors = listOf(
+                                cPrimary.copy(alpha = 0.25f),
+                                Color.Transparent,
+                                cSecondary.copy(alpha = 0.22f),
+                                Color.Transparent,
+                                cTertiary.copy(alpha = 0.20f),
+                                Color.Transparent,
+                                cPrimary.copy(alpha = 0.25f)
+                            ),
+                            center = Offset(w * 0.5f, h * 0.38f)
+                        ),
+                        radius = maxOf(w, h) * 0.92f,
+                        center = Offset(w * 0.5f, h * 0.38f)
+                    )
+                }
+
+                // حلقه‌های موج صوتی ظریف در مرکز استیج
+                for (ring in 1..3) {
+                    val ringRadius = (w * 0.28f * ring) * (0.95f + (pulseFactor - 0.94f) * 0.4f)
+                    drawCircle(
+                        color = cSecondary.copy(alpha = (0.09f / ring).coerceAtLeast(0.02f)),
+                        radius = ringRadius,
+                        center = Offset(w * 0.5f, h * 0.46f),
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+                }
+
+                // گوی‌های نوری بلر شده (Real Gaussian Blur)
+                drawIntoCanvas { canvas ->
+                    val p1 = Paint().apply {
+                        asFrameworkPaint().apply {
+                            isAntiAlias = true
+                            maskFilter = BlurMaskFilter(125f, BlurMaskFilter.Blur.NORMAL)
+                            color = cPrimary.copy(alpha = 0.54f).toArgb()
+                        }
+                    }
+                    val p2 = Paint().apply {
+                        asFrameworkPaint().apply {
+                            isAntiAlias = true
+                            maskFilter = BlurMaskFilter(115f, BlurMaskFilter.Blur.NORMAL)
+                            color = cSecondary.copy(alpha = 0.46f).toArgb()
+                        }
+                    }
+                    val p3 = Paint().apply {
+                        asFrameworkPaint().apply {
+                            isAntiAlias = true
+                            maskFilter = BlurMaskFilter(100f, BlurMaskFilter.Blur.NORMAL)
+                            color = cTertiary.copy(alpha = 0.34f).toArgb()
+                        }
+                    }
+                    canvas.drawCircle(
+                        Offset(w * (0.3f + 0.2f * cos(rad).toFloat()), h * (0.25f + 0.1f * sin(rad).toFloat())),
+                        w * 0.48f * pulseFactor,
+                        p1
+                    )
+                    canvas.drawCircle(
+                        Offset(w * (0.7f - 0.2f * sin(rad).toFloat()), h * (0.68f - 0.1f * cos(rad).toFloat())),
+                        w * 0.45f * pulseFactor,
+                        p2
+                    )
+                    canvas.drawCircle(
+                        Offset(w * 0.5f, h * 0.48f),
+                        w * 0.34f * pulseFactor,
+                        p3
+                    )
+                }
+
+                // ۲۸ ذره نوری معلق (Floating Bokeh & Starlight Particles) با هاله درخشان
+                for (i in 0 until 28) {
+                    val seed = i * 37.5f
+                    val px = ((sin(rad + seed) * 0.46f + 0.5f) * w).toFloat()
+                    val py = ((((rotationDeg / 360f) + (i / 28f)) % 1f) * h)
+                    val pRadius = (2.2f + (i % 4) * 2.1f).dp.toPx()
+                    val pColor = when (i % 3) {
+                        0 -> cPrimary
+                        1 -> cSecondary
+                        else -> Color.White
+                    }
+                    val alpha = 0.20f + (i % 3) * 0.12f
+                    drawCircle(
+                        color = pColor.copy(alpha = alpha * 0.35f),
+                        radius = pRadius * 2.2f,
+                        center = Offset(px, h - py)
+                    )
+                    drawCircle(
+                        color = pColor.copy(alpha = alpha),
+                        radius = pRadius,
+                        center = Offset(px, h - py)
+                    )
+                }
             }
 
+            // =========================================================================
+            // ۲. لایه محتوای اصلی با فاصله امن از بالا و پایین گوشی
+            // =========================================================================
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.systemBars)
-                    .padding(horizontal = 24.dp, vertical = 14.dp),
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // ۱. هدر مینیمال استوری
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // ---------------------------------------------------------------------
+                // الف) هدر استوری: نوارهای پیشرفت ۱۰گانه قابل لمس + کپسول شیشه‌ای اکولایزر آهنگ
+                // ---------------------------------------------------------------------
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         for (i in 0 until totalSlides) {
                             val fill = when {
@@ -1037,16 +1168,31 @@ private fun SpotifyWrappedStoryModal(
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(3.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.20f))
+                                    .height(12.dp)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        currentSlide = i
+                                    },
+                                contentAlignment = Alignment.Center
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxHeight()
-                                        .fillMaxWidth(fill)
-                                        .background(Color.White)
-                                )
+                                        .fillMaxWidth()
+                                        .height(4.5.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(Color.White.copy(alpha = 0.22f))
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .fillMaxWidth(fill)
+                                            .background(
+                                                Brush.horizontalGradient(listOf(Color.White, cSecondary, cPrimary))
+                                            )
+                                    )
+                                }
                             }
                         }
                     }
@@ -1056,13 +1202,83 @@ private fun SpotifyWrappedStoryModal(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = if (isFa) stats.period.displayNameFa else stats.period.displayNameEn,
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
+                        // نشانگر دوره، اکولایزر زنده و نام آهنگ در حال پخش
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(9.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .shadow(10.dp, CircleShape, spotColor = cPrimary)
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.linearGradient(listOf(cPrimary, cSecondary))
+                                    )
+                                    .border(1.2.dp, Color.White.copy(alpha = 0.8f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = if (isFa) stats.period.displayNameFa else stats.period.displayNameEn,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 13.5.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (isPausedByTouch) {
+                                        Surface(
+                                            color = Color.White.copy(alpha = 0.20f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = if (isFa) "توقف" else "PAUSED",
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Black,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                if (currentlyPlayingStoryTrackTitle.isNotBlank() && !isMuted) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        StoryLiveEqualizerBars(
+                                            isActive = !isPausedByTouch && !isMuted,
+                                            primaryColor = cSecondary,
+                                            secondaryColor = cPrimary
+                                        )
+                                        Text(
+                                            text = currentlyPlayingStoryTrackTitle,
+                                            color = cSecondary,
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
 
+                        // دکمه‌های قطع صدا و بستن استوری
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             IconButton(
                                 onClick = {
@@ -1070,250 +1286,419 @@ private fun SpotifyWrappedStoryModal(
                                     if (isMuted) app?.audioEngine?.pause() else app?.audioEngine?.play()
                                 },
                                 modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.12f))
+                                    .size(36.dp)
+                                    .liquidGlass(
+                                        shape = CircleShape,
+                                        thickness = GlassThickness.THIN,
+                                        tintColor = cPrimary,
+                                        tintAlpha = 0.25f
+                                    )
                             ) {
                                 Icon(
                                     imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
                                     contentDescription = "Mute",
                                     tint = Color.White,
-                                    modifier = Modifier.size(17.dp)
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
 
                             IconButton(
                                 onClick = onDismiss,
                                 modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.12f))
+                                    .size(36.dp)
+                                    .liquidGlass(
+                                        shape = CircleShape,
+                                        thickness = GlassThickness.THIN,
+                                        tintColor = cPrimary,
+                                        tintAlpha = 0.25f
+                                    )
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Close",
                                     tint = Color.White,
-                                    modifier = Modifier.size(17.dp)
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
                     }
                 }
 
-                // ۲. کارت مرکزی استوری: خلوت، شیک و بدون جزئیات شلوغ
+                // ---------------------------------------------------------------------
+                // ب) مرکز استوری: ۱۰ اسلاید گرافیکی، پرجزئیات و سه‌بعدی
+                // ---------------------------------------------------------------------
                 AnimatedContent(
                     targetState = currentSlide,
                     transitionSpec = {
-                        (fadeIn(tween(350)) + scaleIn(initialScale = 0.94f, animationSpec = tween(350)))
-                            .togetherWith(fadeOut(tween(200)))
+                        val forward = targetState >= initialState
+                        (fadeIn(tween(380)) +
+                            slideInHorizontally(
+                                initialOffsetX = { fullW -> if (forward) fullW / 5 else -fullW / 5 },
+                                animationSpec = tween(380, easing = FastOutSlowInEasing)
+                            ) +
+                            scaleIn(initialScale = 0.90f, animationSpec = spring(dampingRatio = 0.78f)))
+                            .togetherWith(
+                                fadeOut(tween(220)) +
+                                    slideOutHorizontally(
+                                        targetOffsetX = { fullW -> if (forward) -fullW / 6 else fullW / 6 },
+                                        animationSpec = tween(220)
+                                    )
+                            )
                     },
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth(),
-                    label = "MinimalStorySlide"
-                ) { slide ->
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    label = "RichStorySlide"
+                ) { slideIndex ->
                     Box(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .scale(cardHoldScale),
                         contentAlignment = Alignment.Center
                     ) {
-                        when (slide) {
-                            // اسلاید ۱: شروع ساده و شیک
-                            0 -> MinimalStoryPoster(accentColor = cSecondary) {
-                                Text(
-                                    text = if (isFa) "خلاصه موسیقی شما" else "YOUR MUSIC RECAP",
-                                    color = cSecondary,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    letterSpacing = 1.5.sp
-                                )
+                        when (slideIndex) {
+                            // =========================================================
+                            // اسلاید ۱: دروازه ورود هولوگرافیک (The Sonic Portal)
+                            // =========================================================
+                            0 -> RichStoryCardContainer(
+                                primaryColor = cPrimary,
+                                secondaryColor = cSecondary,
+                                tertiaryColor = cTertiary,
+                                gyroRoll = gyroRoll,
+                                gyroPitch = gyroPitch,
+                                stepBadge = "01 / 10 • AURA WRAPPED"
+                            ) {
+                                Box(
+                                    modifier = Modifier.size(138.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Canvas(modifier = Modifier.fillMaxSize()) {
+                                        rotate(vinylSpinDeg) {
+                                            drawCircle(
+                                                brush = Brush.sweepGradient(
+                                                    listOf(cPrimary, cSecondary, cTertiary, cPrimary)
+                                                ),
+                                                radius = size.minDimension / 2f,
+                                                style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round)
+                                            )
+                                        }
+                                        rotate(-vinylSpinDeg * 0.7f) {
+                                            drawCircle(
+                                                brush = Brush.sweepGradient(
+                                                    listOf(Color.White.copy(alpha = 0.6f), Color.Transparent, cSecondary, Color.Transparent)
+                                                ),
+                                                radius = size.minDimension * 0.41f,
+                                                style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                                            )
+                                        }
+                                        drawCircle(
+                                            brush = Brush.radialGradient(
+                                                listOf(cSecondary.copy(alpha = 0.34f), cPrimary.copy(alpha = 0.12f), Color.Transparent)
+                                            ),
+                                            radius = size.minDimension * 0.36f * pulseFactor
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.GraphicEq,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(56.dp)
+                                    )
+                                }
+
                                 Spacer(modifier = Modifier.height(16.dp))
+
                                 Text(
                                     text = if (isFa) stats.period.displayNameFa else stats.period.displayNameEn,
                                     color = Color.White,
                                     fontWeight = FontWeight.Black,
-                                    fontSize = 36.sp,
+                                    fontSize = 30.sp,
                                     textAlign = TextAlign.Center
                                 )
-                                Spacer(modifier = Modifier.height(14.dp))
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
                                 Text(
-                                    text = if (isFa) stats.audioPersonalityFa else stats.audioPersonalityEn,
-                                    color = Color.White.copy(alpha = 0.78f),
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 18.sp,
+                                    text = if (isFa)
+                                        "هر لحظه‌ای که پلی کردید، یک امضای صوتی منحصربه‌فرد ساخت. این داستان کامل موسیقی شماست."
+                                    else
+                                        "Every beat you played shaped your sonic universe. Here is your complete listening story.",
+                                    color = Color(0xFFD0D6EA),
+                                    fontSize = 14.sp,
+                                    lineHeight = 21.sp,
                                     textAlign = TextAlign.Center
                                 )
-                            }
 
-                            // اسلاید ۲: فقط عدد بزرگ دقایق گوش دادن
-                            1 -> MinimalStoryPoster(accentColor = cSecondary) {
-                                Text(
-                                    text = if (isFa) "مجموع زمان گوش دادن" else "TIME LISTENED",
-                                    color = cSecondary,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    letterSpacing = 1.5.sp
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = fmt(stats.totalListeningMinutes),
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 78.sp
-                                )
-                                Text(
-                                    text = if (isFa) "دقیقه" else "Minutes",
-                                    color = Color.White.copy(alpha = 0.85f),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 22.sp
-                                )
-                            }
+                                Spacer(modifier = Modifier.height(18.dp))
 
-                            // اسلاید ۳: آهنگ شماره ۱ شما (کاور بزرگ و تمیز)
-                            2 -> {
-                                val topSong = stats.topSongs.firstOrNull()
-                                MinimalStoryPoster(accentColor = cSecondary) {
-                                    Text(
-                                        text = if (isFa) "آهنگ شماره ۱ شما" else "YOUR #1 SONG",
-                                        color = cSecondary,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp,
-                                        letterSpacing = 1.5.sp
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    StoryGlassStatPill(
+                                        value = fmt(stats.uniqueTracksCount),
+                                        label = if (isFa) "آهنگ‌ها" else "Tracks",
+                                        accent = cSecondary,
+                                        modifier = Modifier.weight(1f)
                                     )
-                                    Spacer(modifier = Modifier.height(22.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .shadow(28.dp, RoundedCornerShape(28.dp), spotColor = cPrimary)
-                                            .clip(RoundedCornerShape(28.dp))
-                                    ) {
-                                        TrackArtworkThumbnail(
-                                            artworkUri = topSong?.artworkUri,
-                                            accentColor = cSecondary,
-                                            size = 190.dp,
-                                            shape = RoundedCornerShape(28.dp),
-                                            title = topSong?.title,
-                                            artist = topSong?.artist
+                                    StoryGlassStatPill(
+                                        value = fmt(stats.uniqueArtistsCount),
+                                        label = if (isFa) "هنرمندان" else "Artists",
+                                        accent = cPrimary,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    StoryGlassStatPill(
+                                        value = fmt(stats.daysWithAura),
+                                        label = if (isFa) "روز همراهی" else "Days",
+                                        accent = cTertiary,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+
+                            // =========================================================
+                            // اسلاید ۲: حلقه نئونی زمان گوش دادن (Total Sonic Minutes)
+                            // =========================================================
+                            1 -> RichStoryCardContainer(
+                                primaryColor = cPrimary,
+                                secondaryColor = cSecondary,
+                                tertiaryColor = cTertiary,
+                                gyroRoll = gyroRoll,
+                                gyroPitch = gyroPitch,
+                                stepBadge = "02 / 10 • TIME CAPSULE"
+                            ) {
+                                Box(
+                                    modifier = Modifier.size(168.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Canvas(modifier = Modifier.fillMaxSize()) {
+                                        val strokeW = 11.dp.toPx()
+                                        drawCircle(
+                                            color = Color.White.copy(alpha = 0.09f),
+                                            style = Stroke(width = strokeW)
+                                        )
+                                        rotate(vinylSpinDeg * 0.4f) {
+                                            drawArc(
+                                                brush = Brush.sweepGradient(
+                                                    listOf(cSecondary, cPrimary, cTertiary, cSecondary)
+                                                ),
+                                                startAngle = -90f,
+                                                sweepAngle = 295f,
+                                                useCenter = false,
+                                                style = Stroke(width = strokeW, cap = StrokeCap.Round)
+                                            )
+                                        }
+                                        drawCircle(
+                                            color = cSecondary.copy(alpha = 0.14f),
+                                            radius = size.minDimension * 0.36f * pulseFactor
                                         )
                                     }
-                                    Spacer(modifier = Modifier.height(22.dp))
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = fmt(stats.totalListeningMinutes),
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 40.sp
+                                        )
+                                        Text(
+                                            text = if (isFa) "دقیقه" else "MINUTES",
+                                            color = cSecondary,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 12.sp,
+                                            letterSpacing = 1.sp
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Text(
+                                    text = if (isFa)
+                                        "معادل ${fmt(String.format("%.1f", stats.totalListeningHours))} ساعت غرق شدن در دنیای موسیقی"
+                                    else
+                                        "That's ${String.format("%.1f", stats.totalListeningHours)} hours of pure musical immersion",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 17.sp,
+                                    textAlign = TextAlign.Center
+                                )
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    StoryGlassStatPill(
+                                        value = fmt(stats.totalTracksPlayed),
+                                        label = if (isFa) "مجموع دفعات پخش" else "Total Streams",
+                                        accent = cSecondary,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    StoryGlassStatPill(
+                                        value = "${fmt((stats.completionRate * 100).toInt())}%",
+                                        label = if (isFa) "گوش دادن کامل" else "Completion Rate",
+                                        accent = Color(0xFF10B981),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+
+                            // =========================================================
+                            // اسلاید ۳: آهنگ شماره ۱ با صفحه گرامافون چرخان و پخش زنده اوج آهنگ
+                            // =========================================================
+                            2 -> {
+                                val topSong = stats.topSongs.firstOrNull()
+                                RichStoryCardContainer(
+                                    primaryColor = cPrimary,
+                                    secondaryColor = cSecondary,
+                                    tertiaryColor = cTertiary,
+                                    gyroRoll = gyroRoll,
+                                    gyroPitch = gyroPitch,
+                                    stepBadge = "03 / 10 • #1 ANTHEM"
+                                ) {
+                                    Text(
+                                        text = if (isFa) "🔥 پادشاه بی‌رقیب پخش‌های شما" else "🔥 YOUR #1 MOST PLAYED TRACK",
+                                        color = Color(0xFFFFBE0B),
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 12.5.sp,
+                                        letterSpacing = 1.sp
+                                    )
+
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    // کاور آهنگ به همراه صفحه وینیل طلایی چرخان در پشت آن
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(162.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        // صفحه گرامافون چرخان که از سمت راست کاور بیرون زده است
+                                        Canvas(
+                                            modifier = Modifier
+                                                .size(146.dp)
+                                                .offset(x = 36.dp)
+                                        ) {
+                                            rotate(vinylSpinDeg) {
+                                                drawCircle(color = Color(0xFF0E101A))
+                                                drawCircle(
+                                                    brush = Brush.sweepGradient(
+                                                        listOf(
+                                                            Color(0xFFFFBE0B).copy(alpha = 0.65f),
+                                                            Color.White.copy(alpha = 0.15f),
+                                                            cPrimary.copy(alpha = 0.55f),
+                                                            Color(0xFFFFBE0B).copy(alpha = 0.65f)
+                                                        )
+                                                    ),
+                                                    style = Stroke(width = 2.5.dp.toPx())
+                                                )
+                                                drawCircle(
+                                                    color = Color.White.copy(alpha = 0.14f),
+                                                    radius = size.minDimension * 0.39f,
+                                                    style = Stroke(width = 1.4.dp.toPx())
+                                                )
+                                                drawCircle(
+                                                    color = Color(0xFFFFBE0B).copy(alpha = 0.25f),
+                                                    radius = size.minDimension * 0.28f,
+                                                    style = Stroke(width = 1.dp.toPx())
+                                                )
+                                                drawCircle(
+                                                    brush = Brush.radialGradient(
+                                                        listOf(Color(0xFFFFBE0B), cPrimary)
+                                                    ),
+                                                    radius = size.minDimension * 0.17f
+                                                )
+                                                drawCircle(
+                                                    color = Color.Black,
+                                                    radius = size.minDimension * 0.05f
+                                                )
+                                            }
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .offset(x = (-18).dp)
+                                                .shadow(26.dp, RoundedCornerShape(24.dp), spotColor = cPrimary)
+                                                .border(2.dp, Color.White.copy(alpha = 0.85f), RoundedCornerShape(24.dp))
+                                                .clip(RoundedCornerShape(24.dp))
+                                        ) {
+                                            TrackArtworkThumbnail(
+                                                artworkUri = topSong?.artworkUri,
+                                                accentColor = Color(0xFFFFBE0B),
+                                                size = 150.dp,
+                                                shape = RoundedCornerShape(24.dp),
+                                                title = topSong?.title,
+                                                artist = topSong?.artist
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(12.dp))
+
                                     Text(
                                         text = topSong?.title ?: "-",
                                         color = Color.White,
                                         fontWeight = FontWeight.Black,
-                                        fontSize = 26.sp,
+                                        fontSize = 22.sp,
                                         textAlign = TextAlign.Center,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    Spacer(modifier = Modifier.height(6.dp))
                                     Text(
                                         text = topSong?.artist ?: "",
-                                        color = Color.White.copy(alpha = 0.75f),
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 16.sp,
+                                        color = cSecondary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.5.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Text(
-                                        text = if (isFa) "${fmt(topSong?.playCount ?: 1)} بار پخش" else "${topSong?.playCount ?: 1} Plays",
-                                        color = cSecondary,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 14.sp
-                                    )
-                                }
-                            }
 
-                            // اسلاید ۴: هنرمند شماره ۱ شما
-                            3 -> {
-                                val topArtist = stats.topArtists.firstOrNull()
-                                MinimalStoryPoster(accentColor = cSecondary) {
-                                    Text(
-                                        text = if (isFa) "هنرمند شماره ۱ شما" else "YOUR #1 ARTIST",
-                                        color = cSecondary,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp,
-                                        letterSpacing = 1.5.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(22.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .shadow(28.dp, CircleShape, spotColor = cPrimary)
-                                            .clip(CircleShape)
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        TrackArtworkThumbnail(
-                                            artworkUri = topArtist?.artworkUri ?: stats.topSongs.firstOrNull()?.artworkUri,
-                                            accentColor = cSecondary,
-                                            size = 175.dp,
-                                            shape = CircleShape,
-                                            title = topArtist?.name
+                                        StoryGlassStatPill(
+                                            value = "${fmt(topSong?.playCount ?: 1)}x",
+                                            label = if (isFa) "تعداد تکرار" else "Times Played",
+                                            accent = Color(0xFFFFBE0B),
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        StoryGlassStatPill(
+                                            value = "${fmt(((topSong?.totalDurationMs ?: 180000L) / 60000L).coerceAtLeast(1L))}m",
+                                            label = if (isFa) "مجموع زمان پخش" else "Minutes Spent",
+                                            accent = cPrimary,
+                                            modifier = Modifier.weight(1f)
                                         )
                                     }
-                                    Spacer(modifier = Modifier.height(22.dp))
-                                    Text(
-                                        text = topArtist?.name ?: "-",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 28.sp,
-                                        textAlign = TextAlign.Center,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = if (isFa) "${fmt(topArtist?.count ?: 1)} بار پخش" else "${topArtist?.count ?: 1} Plays",
-                                        color = cSecondary,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp
-                                    )
-                                }
-                            }
 
-                            // اسلاید ۵: ۵ آهنگ برتر با چیدمان بسیار تمیز و ساده
-                            4 -> MinimalStoryPoster(accentColor = cSecondary) {
-                                Text(
-                                    text = if (isFa) "آهنگ‌های برتر شما" else "YOUR TOP SONGS",
-                                    color = cSecondary,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    letterSpacing = 1.5.sp
-                                )
-                                Spacer(modifier = Modifier.height(18.dp))
-                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    stats.topSongs.take(5).forEachIndexed { idx, s ->
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically
+                                    if (topSong != null) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Surface(
+                                            color = Color.White.copy(alpha = 0.12f),
+                                            shape = RoundedCornerShape(50),
+                                            border = BorderStroke(1.dp, Color(0xFFFFBE0B).copy(alpha = 0.6f)),
+                                            modifier = Modifier.clickable { onPlayTrack(topSong.trackId) }
                                         ) {
-                                            Text(
-                                                text = fmt(idx + 1),
-                                                color = cSecondary,
-                                                fontWeight = FontWeight.Black,
-                                                fontSize = 18.sp,
-                                                modifier = Modifier.width(28.dp)
-                                            )
-                                            TrackArtworkThumbnail(
-                                                artworkUri = s.artworkUri,
-                                                accentColor = cSecondary,
-                                                size = 44.dp,
-                                                shape = RoundedCornerShape(10.dp),
-                                                title = s.title
-                                            )
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = s.title,
-                                                    color = Color.White,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 15.sp,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.PlayCircleFilled,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFFFFBE0B),
+                                                    modifier = Modifier.size(16.dp)
                                                 )
                                                 Text(
-                                                    text = s.artist,
-                                                    color = Color.White.copy(alpha = 0.65f),
-                                                    fontSize = 12.sp,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
+                                                    text = if (isFa) "پخش کامل این آهنگ" else "Play Full Song",
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 11.5.sp
                                                 )
                                             }
                                         }
@@ -1321,51 +1706,570 @@ private fun SpotifyWrappedStoryModal(
                                 }
                             }
 
-                            // اسلاید ۶: کارت خلاصه پایانی شیک و خلوت
-                            else -> {
-                                val topSong = stats.topSongs.firstOrNull()
+                            // =========================================================
+                            // اسلاید ۴: هنرمند شماره ۱ شما با هاله تاج طلایی
+                            // =========================================================
+                            3 -> {
                                 val topArtist = stats.topArtists.firstOrNull()
-                                MinimalStoryPoster(accentColor = cSecondary) {
-                                    TrackArtworkThumbnail(
-                                        artworkUri = topSong?.artworkUri ?: topArtist?.artworkUri,
-                                        accentColor = cSecondary,
-                                        size = 115.dp,
-                                        shape = RoundedCornerShape(24.dp),
-                                        title = topSong?.title
-                                    )
-                                    Spacer(modifier = Modifier.height(18.dp))
+                                RichStoryCardContainer(
+                                    primaryColor = cPrimary,
+                                    secondaryColor = cSecondary,
+                                    tertiaryColor = cTertiary,
+                                    gyroRoll = gyroRoll,
+                                    gyroPitch = gyroPitch,
+                                    stepBadge = "04 / 10 • #1 HEADLINER"
+                                ) {
                                     Text(
-                                        text = if (isFa) stats.period.displayNameFa else stats.period.displayNameEn,
-                                        color = cSecondary,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
+                                        text = if (isFa) "👑 هنرمندی که بیشترین سهم را داشت" else "👑 YOUR #1 TOP ARTIST",
+                                        color = Color(0xFFFFD700),
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 12.5.sp
                                     )
-                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    Spacer(modifier = Modifier.height(14.dp))
+
+                                    Box(
+                                        modifier = Modifier.size(152.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Canvas(modifier = Modifier.fillMaxSize()) {
+                                            rotate(-vinylSpinDeg) {
+                                                drawCircle(
+                                                    brush = Brush.sweepGradient(
+                                                        listOf(Color(0xFFFFD700), cPrimary, cSecondary, Color(0xFFFFD700))
+                                                    ),
+                                                    style = Stroke(width = 4.5.dp.toPx())
+                                                )
+                                            }
+                                            drawCircle(
+                                                color = Color(0xFFFFD700).copy(alpha = 0.16f),
+                                                radius = size.minDimension * 0.48f * pulseFactor
+                                            )
+                                        }
+                                        TrackArtworkThumbnail(
+                                            artworkUri = topArtist?.artworkUri ?: stats.topSongs.firstOrNull()?.artworkUri,
+                                            accentColor = Color(0xFFFFD700),
+                                            size = 132.dp,
+                                            shape = CircleShape,
+                                            title = topArtist?.name
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(14.dp))
+
                                     Text(
-                                        text = "${fmt(stats.totalListeningMinutes)} ${if (isFa) "دقیقه موسیقی" else "Minutes Listened"}",
+                                        text = topArtist?.name ?: "-",
                                         color = Color.White,
                                         fontWeight = FontWeight.Black,
                                         fontSize = 26.sp,
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
-                                    Spacer(modifier = Modifier.height(14.dp))
-                                    Text(
-                                        text = "1. ${topSong?.title ?: "-"}",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
+                                        textAlign = TextAlign.Center,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = topArtist?.name ?: "",
-                                        color = Color.White.copy(alpha = 0.70f),
-                                        fontSize = 13.5.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        StoryGlassStatPill(
+                                            value = "${fmt(topArtist?.count ?: 1)}x",
+                                            label = if (isFa) "دفعات پخش" else "Artist Plays",
+                                            accent = Color(0xFFFFD700),
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        StoryGlassStatPill(
+                                            value = "${fmt(topArtist?.percentage?.toInt() ?: 100)}%",
+                                            label = if (isFa) "سهم از کل پخش" else "Listening Share",
+                                            accent = cSecondary,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // =========================================================
+                            // اسلاید ۵: جدول ۵ آهنگ برتر با مدال‌های طلا، نقره و برنز
+                            // =========================================================
+                            4 -> RichStoryCardContainer(
+                                primaryColor = cPrimary,
+                                secondaryColor = cSecondary,
+                                tertiaryColor = cTertiary,
+                                gyroRoll = gyroRoll,
+                                gyroPitch = gyroPitch,
+                                stepBadge = "05 / 10 • TOP 5 SONGS"
+                            ) {
+                                Text(
+                                    text = if (isFa) "🏆 ۵ قطعه طلایی پلی‌لیست شما" else "🏆 YOUR TOP 5 GOLDEN TRACKS",
+                                    color = cSecondary,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 13.sp
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                val maxPlays = (stats.topSongs.maxOfOrNull { it.playCount } ?: 1).coerceAtLeast(1)
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    stats.topSongs.take(5).forEachIndexed { idx, s ->
+                                        val medalColor = when (idx) {
+                                            0 -> Color(0xFFFFD700)
+                                            1 -> Color(0xFFE2E8F0)
+                                            2 -> Color(0xFFF59E0B)
+                                            else -> cSecondary
+                                        }
+                                        val frac = (s.playCount.toFloat() / maxPlays.toFloat()).coerceIn(0.2f, 1f)
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(14.dp))
+                                                .background(Color.White.copy(alpha = 0.06f))
+                                                .border(0.9.dp, medalColor.copy(alpha = 0.40f), RoundedCornerShape(14.dp))
+                                                .clickable { onPlayTrack(s.trackId) }
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .matchParentSize()
+                                                    .fillMaxWidth(frac)
+                                                    .background(
+                                                        Brush.horizontalGradient(
+                                                            listOf(medalColor.copy(alpha = 0.24f), Color.Transparent)
+                                                        )
+                                                    )
+                                            )
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(26.dp)
+                                                        .clip(CircleShape)
+                                                        .background(medalColor.copy(alpha = 0.25f))
+                                                        .border(1.dp, medalColor, CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = fmt(idx + 1),
+                                                        color = Color.White,
+                                                        fontWeight = FontWeight.Black,
+                                                        fontSize = 11.5.sp
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                TrackArtworkThumbnail(
+                                                    artworkUri = s.artworkUri,
+                                                    accentColor = medalColor,
+                                                    size = 38.dp,
+                                                    shape = RoundedCornerShape(9.dp),
+                                                    title = s.title
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = s.title,
+                                                        color = Color.White,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 13.sp,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        text = s.artist,
+                                                        color = Color(0xFFB4B9CE),
+                                                        fontSize = 11.sp,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                                Text(
+                                                    text = "${fmt(s.playCount)}x",
+                                                    color = medalColor,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 12.5.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // =========================================================
+                            // اسلاید ۶: تالار مشاهیر ۵ هنرمند برتر شما
+                            // =========================================================
+                            5 -> RichStoryCardContainer(
+                                primaryColor = cPrimary,
+                                secondaryColor = cSecondary,
+                                tertiaryColor = cTertiary,
+                                gyroRoll = gyroRoll,
+                                gyroPitch = gyroPitch,
+                                stepBadge = "06 / 10 • HALL OF FAME"
+                            ) {
+                                Text(
+                                    text = if (isFa) "🎤 ۵ هنرمند محبوب شما" else "🎤 YOUR TOP 5 ARTISTS",
+                                    color = cTertiary,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 13.sp
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    stats.topArtists.take(5).forEachIndexed { idx, art ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(14.dp))
+                                                .background(Color.White.copy(alpha = 0.07f))
+                                                .border(0.8.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(14.dp))
+                                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Text(
+                                                    text = "#${fmt(idx + 1)}",
+                                                    color = if (idx == 0) Color(0xFFFFD700) else cTertiary,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 14.sp,
+                                                    modifier = Modifier.width(30.dp)
+                                                )
+                                                TrackArtworkThumbnail(
+                                                    artworkUri = art.artworkUri,
+                                                    accentColor = cPrimary,
+                                                    size = 36.dp,
+                                                    shape = CircleShape,
+                                                    title = art.name
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Text(
+                                                    text = art.name,
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 14.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            Surface(
+                                                color = cPrimary.copy(alpha = 0.28f),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "${fmt(art.count)}x • ${fmt(art.percentage.toInt())}%",
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 11.sp,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // =========================================================
+                            // اسلاید ۷: دی‌ان‌ای سبک‌ها و طیف ژانرهای موسیقی شما
+                            // =========================================================
+                            6 -> RichStoryCardContainer(
+                                primaryColor = cPrimary,
+                                secondaryColor = cSecondary,
+                                tertiaryColor = cTertiary,
+                                gyroRoll = gyroRoll,
+                                gyroPitch = gyroPitch,
+                                stepBadge = "07 / 10 • GENRE SPECTRUM"
+                            ) {
+                                val topGenre = stats.topGenres.firstOrNull()?.name ?: "Electronic"
+                                Text(
+                                    text = if (isFa) "🧬 سبک غالب موسیقی شما" else "🧬 YOUR DOMINANT SOUND",
+                                    color = cPrimary,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 12.5.sp
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = topGenre,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 26.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    stats.topGenres.take(4).forEachIndexed { idx, g ->
+                                        val barCol = when (idx) {
+                                            0 -> cPrimary
+                                            1 -> cSecondary
+                                            2 -> cTertiary
+                                            else -> Color(0xFF38BDF8)
+                                        }
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(g.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                                                Text("${fmt(g.percentage.toInt())}% (${fmt(g.count)})", color = barCol, fontWeight = FontWeight.Black, fontSize = 12.sp)
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(9.dp)
+                                                    .clip(RoundedCornerShape(5.dp))
+                                                    .background(Color.White.copy(alpha = 0.10f))
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxHeight()
+                                                        .fillMaxWidth((g.percentage / 100f).coerceIn(0.12f, 1f))
+                                                        .background(Brush.horizontalGradient(listOf(barCol, Color.White)))
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // =========================================================
+                            // اسلاید ۸: ساعت زیستی و نمودار ۲۴ ساعته شنیداری شما
+                            // =========================================================
+                            7 -> RichStoryCardContainer(
+                                primaryColor = cPrimary,
+                                secondaryColor = cSecondary,
+                                tertiaryColor = cTertiary,
+                                gyroRoll = gyroRoll,
+                                gyroPitch = gyroPitch,
+                                stepBadge = "08 / 10 • SONIC BIORHYTHM"
+                            ) {
+                                Text(
+                                    text = if (isFa) "⏰ ساعت اوج شنیدن موسیقی" else "⏰ YOUR PEAK LISTENING HOUR",
+                                    color = cPrimary,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 12.5.sp
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = fmt(String.format("%02d:00", stats.peakHour)),
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 46.sp
+                                )
+                                Text(
+                                    text = if (isFa) stats.favoriteTimeSlot.personaFa else stats.favoriteTimeSlot.personaEn,
+                                    color = cSecondary,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 16.sp
+                                )
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                val maxH = (stats.hourlyDistribution.maxOrNull() ?: 1).coerceAtLeast(1)
+                                Canvas(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(68.dp)
+                                ) {
+                                    val count = 24
+                                    val gap = 3.dp.toPx()
+                                    val bw = (size.width - gap * (count - 1)) / count
+                                    for (h in 0 until 24) {
+                                        val v = stats.hourlyDistribution.getOrElse(h) { 0 }
+                                        val r = (v.toFloat() / maxH.toFloat()).coerceIn(0.14f, 1f)
+                                        val bh = size.height * r
+                                        val isPeak = h == stats.peakHour
+                                        drawRoundRect(
+                                            brush = if (isPeak) {
+                                                Brush.verticalGradient(listOf(Color(0xFFFFD700), cPrimary))
+                                            } else {
+                                                Brush.verticalGradient(listOf(cPrimary.copy(alpha = 0.82f), cSecondary.copy(alpha = 0.32f)))
+                                            },
+                                            topLeft = Offset(h * (bw + gap), size.height - bh),
+                                            size = Size(bw, bh),
+                                            cornerRadius = CornerRadius(bw / 2f, bw / 2f)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = if (isFa) stats.favoriteTimeSlot.labelFa else stats.favoriteTimeSlot.labelEn,
+                                    color = Color(0xFFC0C6DC),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
+                            // =========================================================
+                            // اسلاید ۹: وفاداری، رکورد روزهای متوالی و دقت انتخاب آهنگ
+                            // =========================================================
+                            8 -> RichStoryCardContainer(
+                                primaryColor = cPrimary,
+                                secondaryColor = cSecondary,
+                                tertiaryColor = cTertiary,
+                                gyroRoll = gyroRoll,
+                                gyroPitch = gyroPitch,
+                                stepBadge = "09 / 10 • STREAK & LOYALTY"
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(92.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            Brush.radialGradient(listOf(cPrimary.copy(alpha = 0.48f), Color.Transparent))
+                                        )
+                                        .border(2.dp, cPrimary, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Whatshot,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFF9E00),
+                                        modifier = Modifier.size(48.dp)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                Text(
+                                    text = "${fmt(stats.listeningStreakDays)} ${if (isFa) "روز متوالی" else "DAY STREAK"}",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 34.sp
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Text(
+                                    text = if (isFa)
+                                        "شما تقریباً هیچ آهنگی را نیمه‌کاره رها نکردید و با تمرکز کامل به پلی‌لیست خود گوش دادید."
+                                    else
+                                        "You rarely skipped a beat, staying locked into your favorite frequencies.",
+                                    color = Color(0xFFD0D6EA),
+                                    fontSize = 13.5.sp,
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = 20.sp
+                                )
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    StoryGlassStatPill(
+                                        value = "${fmt((stats.completionRate * 100).toInt())}%",
+                                        label = if (isFa) "نرخ تکمیل آهنگ" else "Completion Rate",
+                                        accent = Color(0xFF10B981),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    StoryGlassStatPill(
+                                        value = fmt(stats.totalSkips),
+                                        label = if (isFa) "رد کردن (Skip)" else "Total Skips",
+                                        accent = cSecondary,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+
+                            // =========================================================
+                            // اسلاید ۱۰: کارت کلکسیونی نهایی (VIP Summary Poster Card)
+                            // =========================================================
+                            else -> RichStoryCardContainer(
+                                primaryColor = cPrimary,
+                                secondaryColor = cSecondary,
+                                tertiaryColor = cTertiary,
+                                gyroRoll = gyroRoll,
+                                gyroPitch = gyroPitch,
+                                stepBadge = "10 / 10 • OFFICIAL SUMMARY CARD"
+                            ) {
+                                val topSong = stats.topSongs.firstOrNull()
+                                val topArtist = stats.topArtists.firstOrNull()
+                                val topGenre = stats.topGenres.firstOrNull()?.name ?: "Electronic"
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .shadow(16.dp, RoundedCornerShape(18.dp), spotColor = cPrimary)
+                                            .border(1.5.dp, Color.White.copy(alpha = 0.75f), RoundedCornerShape(18.dp))
+                                            .clip(RoundedCornerShape(18.dp))
+                                    ) {
+                                        TrackArtworkThumbnail(
+                                            artworkUri = topSong?.artworkUri ?: topArtist?.artworkUri,
+                                            accentColor = cPrimary,
+                                            size = 72.dp,
+                                            shape = RoundedCornerShape(18.dp),
+                                            title = topSong?.title
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = if (isFa) "شخصیت شنیداری شما" else "AUDIO ARCHETYPE",
+                                            color = cSecondary,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 10.5.sp,
+                                            letterSpacing = 1.sp
+                                        )
+                                        Text(
+                                            text = if (isFa) stats.audioPersonalityFa else stats.audioPersonalityEn,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 20.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = if (isFa) stats.period.displayNameFa else stats.period.displayNameEn,
+                                            color = Color(0xFFB4B9CE),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(14.dp))
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.14f))
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // خلاصه ۴ آیتم طلایی روی کارت پایانی
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    StoryGlassStatPill(
+                                        value = topArtist?.name ?: "-",
+                                        label = if (isFa) "هنرمند برتر" else "#1 Artist",
+                                        accent = Color(0xFFFFD700),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    StoryGlassStatPill(
+                                        value = topSong?.title ?: "-",
+                                        label = if (isFa) "آهنگ برتر" else "#1 Song",
+                                        accent = cPrimary,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    StoryGlassStatPill(
+                                        value = "${fmt(stats.totalListeningMinutes)}m",
+                                        label = if (isFa) "زمان گوش دادن" else "Time Listened",
+                                        accent = cSecondary,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    StoryGlassStatPill(
+                                        value = topGenre,
+                                        label = if (isFa) "سبک برتر" else "Top Genre",
+                                        accent = cTertiary,
+                                        modifier = Modifier.weight(1f)
                                     )
                                 }
                             }
@@ -1373,62 +2277,98 @@ private fun SpotifyWrappedStoryModal(
                     }
                 }
 
-                // ۳. کنترلر پایینی ساده، تمیز و کاملاً در دید
-                Row(
+                // ---------------------------------------------------------------------
+                // ج) داک کنترل شیشه‌ای شناور در پایین صفحه (۱۰۰٪ بالاتر از لبه گوشی و کاملاً نمایان)
+                // ---------------------------------------------------------------------
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(bottom = 14.dp)
+                        .shadow(20.dp, RoundedCornerShape(26.dp), spotColor = cPrimary)
+                        .liquidGlass(
+                            shape = RoundedCornerShape(26.dp),
+                            thickness = GlassThickness.THICK,
+                            tintColor = cPrimary,
+                            tintAlpha = 0.24f,
+                            borderWidth = 1.3.dp,
+                            secondaryAccent = cSecondary
+                        )
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
                 ) {
-                    IconButton(
-                        onClick = { if (currentSlide > 0) currentSlide-- },
-                        enabled = currentSlide > 0,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = if (currentSlide > 0) 0.14f else 0.05f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Previous",
-                            tint = Color.White.copy(alpha = if (currentSlide > 0) 1f else 0.3f)
-                        )
-                    }
+                        // دکمه اسلاید قبلی
+                        OutlinedButton(
+                            onClick = { if (currentSlide > 0) currentSlide-- },
+                            enabled = currentSlide > 0,
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(
+                                1.dp,
+                                if (currentSlide > 0) Color.White.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.12f)
+                            ),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = null,
+                                tint = if (currentSlide > 0) Color.White else Color.White.copy(alpha = 0.3f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (isFa) "قبلی" else "Prev",
+                                color = if (currentSlide > 0) Color.White else Color.White.copy(alpha = 0.3f),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.5.sp
+                            )
+                        }
 
-                    Button(
-                        onClick = onShare,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                        shape = RoundedCornerShape(24.dp),
-                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = null,
-                            tint = Color.Black,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (isFa) "اشتراک‌گذاری استوری" else "Share Story",
-                            color = Color.Black,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 14.sp
-                        )
-                    }
+                        // دکمه مرکزی اشتراک‌گذاری کارت استوری
+                        Button(
+                            onClick = onShare,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                            shape = RoundedCornerShape(16.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isFa) "استوری کن" else "Share Story",
+                                color = Color.Black,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 12.5.sp
+                            )
+                        }
 
-                    IconButton(
-                        onClick = { if (currentSlide < totalSlides - 1) currentSlide++ else onDismiss() },
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(cPrimary)
-                    ) {
-                        Icon(
-                            imageVector = if (currentSlide < totalSlides - 1) Icons.AutoMirrored.Filled.ArrowForward else Icons.Default.Check,
-                            contentDescription = "Next",
-                            tint = Color.White
-                        )
+                        // دکمه اسلاید بعدی / پایان
+                        Button(
+                            onClick = { if (currentSlide < totalSlides - 1) currentSlide++ else onDismiss() },
+                            colors = ButtonDefaults.buttonColors(containerColor = cPrimary),
+                            shape = RoundedCornerShape(16.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = if (currentSlide < totalSlides - 1) (if (isFa) "بعدی" else "Next") else (if (isFa) "پایان" else "Done"),
+                                color = Color.White,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 12.5.sp
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = if (currentSlide < totalSlides - 1) Icons.AutoMirrored.Filled.ArrowForward else Icons.Default.Check,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -1437,29 +2377,170 @@ private fun SpotifyWrappedStoryModal(
 }
 
 @Composable
-private fun MinimalStoryPoster(
-    accentColor: Color,
+private fun StoryLiveEqualizerBars(
+    isActive: Boolean,
+    primaryColor: Color,
+    secondaryColor: Color
+) {
+    val transition = rememberInfiniteTransition(label = "StoryHeaderEq")
+    val b1 by transition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(tween(240, easing = FastOutSlowInEasing), AnimRepeatMode.Reverse),
+        label = "b1"
+    )
+    val b2 by transition.animateFloat(
+        initialValue = 0.40f,
+        targetValue = 0.95f,
+        animationSpec = infiniteRepeatable(tween(180, easing = FastOutSlowInEasing), AnimRepeatMode.Reverse),
+        label = "b2"
+    )
+    val b3 by transition.animateFloat(
+        initialValue = 0.20f,
+        targetValue = 0.90f,
+        animationSpec = infiniteRepeatable(tween(290, easing = FastOutSlowInEasing), AnimRepeatMode.Reverse),
+        label = "b3"
+    )
+
+    val levels = if (isActive) listOf(b1, b2, b3) else listOf(0.25f, 0.25f, 0.25f)
+
+    Canvas(modifier = Modifier.size(width = 13.dp, height = 11.dp)) {
+        val barW = 2.8.dp.toPx()
+        val gap = (size.width - barW * 3) / 2f
+        levels.forEachIndexed { idx, ratio ->
+            val h = (size.height * ratio).coerceAtLeast(barW)
+            val x = idx * (barW + gap)
+            val y = (size.height - h) / 2f
+            drawRoundRect(
+                brush = Brush.verticalGradient(listOf(Color.White, primaryColor, secondaryColor)),
+                topLeft = Offset(x, y),
+                size = Size(barW, h),
+                cornerRadius = CornerRadius(barW / 2f, barW / 2f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun RichStoryCardContainer(
+    primaryColor: Color,
+    secondaryColor: Color,
+    tertiaryColor: Color = secondaryColor,
+    gyroRoll: Float = 0f,
+    gyroPitch: Float = 0f,
+    stepBadge: String,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .liquidGlass(
-                shape = RoundedCornerShape(32.dp),
-                thickness = GlassThickness.REGULAR,
-                tintColor = accentColor,
-                tintAlpha = 0.16f,
-                borderWidth = 1.2.dp
+            .graphicsLayer {
+                rotationX = (gyroPitch * 5.5f).coerceIn(-7f, 7f)
+                rotationY = (gyroRoll * 5.5f).coerceIn(-7f, 7f)
+            }
+            .shadow(34.dp, RoundedCornerShape(34.dp), spotColor = primaryColor, ambientColor = secondaryColor)
+            .clip(RoundedCornerShape(34.dp))
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF181C32).copy(alpha = 0.92f),
+                        Color(0xFF0A0D19).copy(alpha = 0.96f)
+                    )
+                )
             )
-            .padding(horizontal = 28.dp, vertical = 36.dp),
+            .border(
+                width = 1.8.dp,
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.92f),
+                        primaryColor,
+                        secondaryColor,
+                        tertiaryColor.copy(alpha = 0.85f),
+                        Color.White.copy(alpha = 0.55f)
+                    )
+                ),
+                shape = RoundedCornerShape(34.dp)
+            )
+            .padding(horizontal = 22.dp, vertical = 22.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.fillMaxWidth(),
-            content = content
-        )
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            // بج هولوگرافیک بالای کارت
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                primaryColor.copy(alpha = 0.26f),
+                                secondaryColor.copy(alpha = 0.18f)
+                            )
+                        )
+                    )
+                    .border(1.dp, secondaryColor.copy(alpha = 0.60f), RoundedCornerShape(50))
+                    .padding(horizontal = 13.dp, vertical = 4.5.dp)
+            ) {
+                Text(
+                    text = stepBadge,
+                    color = Color.White.copy(alpha = 0.95f),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.2.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            content()
+        }
+    }
+}
+
+@Composable
+private fun StoryGlassStatPill(
+    value: String,
+    label: String,
+    accent: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.09f),
+                        accent.copy(alpha = 0.06f)
+                    )
+                )
+            )
+            .border(1.dp, accent.copy(alpha = 0.48f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = value,
+                color = Color.White,
+                fontWeight = FontWeight.Black,
+                fontSize = 15.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = label,
+                color = accent,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.5.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 

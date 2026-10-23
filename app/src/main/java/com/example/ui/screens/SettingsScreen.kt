@@ -196,22 +196,29 @@ fun SettingsScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = if (isFa) "مرکز کنترل و شخصی‌سازی" else "CONTROL CENTER & STUDIO",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = palette.accent,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 1.6.sp
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    AuraBrandLogoBadge(size = 46.dp, cornerRadius = 15.dp)
+
+                    Column {
+                        Text(
+                            text = if (isFa) "مرکز کنترل و شخصی‌سازی" else "CONTROL CENTER & STUDIO",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = palette.accent,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.6.sp
+                            )
                         )
-                    )
-                    Text(
-                        text = Localization.getString("settings", lang),
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White
+                        Text(
+                            text = Localization.getString("settings", lang),
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
                         )
-                    )
+                    }
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -281,163 +288,7 @@ fun SettingsScreen(
         }
 
         // =========================================================================
-        // ۳. استودیو تم‌ها و جلوه‌های بصری ۱۲۰ فریم (Visual & Theme Studio)
-        // =========================================================================
-        item {
-            SettingsGlassSection(
-                title = if (isFa) "استودیو تم و موتور گرافیکی ۱۲۰ هرتز" else "Theme Studio & 120Hz Visual Engine",
-                subtitle = if (isFa) "انتخاب تم نوری، استخراج رنگ کاور و نرخ فریم" else "Select ambient themes, cover color engine & refresh rate",
-                icon = Icons.Default.Palette,
-                palette = palette
-            ) {
-                // انتخابگر افقی تم‌های برنامه با پیش‌نمایش زنده
-                Text(
-                    text = if (isFa) "پوسته‌های نوری و شیشه‌ای" else "Liquid Glass Themes",
-                    style = MaterialTheme.typography.labelMedium.copy(color = Color(0xFFC0C6DC), fontWeight = FontWeight.Bold)
-                )
-
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(AppTheme.entries) { themeItem ->
-                        val isSelected = settings.theme == themeItem
-                        val previewPalette = remember(themeItem) {
-                            com.example.audio.ArtworkPaletteExtractor.getDefaultPalette(themeItem)
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .width(155.dp)
-                                .liquidGlass(
-                                    shape = RoundedCornerShape(18.dp),
-                                    thickness = if (isSelected) GlassThickness.THICK else GlassThickness.THIN,
-                                    tintColor = previewPalette.primary,
-                                    tintAlpha = if (isSelected) 0.32f else 0.12f,
-                                    borderWidth = if (isSelected) 1.8.dp else 0.9.dp
-                                )
-                                .clickable { onUpdateSettings(settings.copy(theme = themeItem)) }
-                                .padding(12.dp)
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(22.dp)
-                                                .clip(CircleShape)
-                                                .background(previewPalette.primary)
-                                                .border(1.dp, Color.White.copy(alpha = 0.6f), CircleShape)
-                                        )
-                                        Box(
-                                            modifier = Modifier
-                                                .size(22.dp)
-                                                .clip(CircleShape)
-                                                .background(previewPalette.secondary)
-                                                .border(1.dp, Color.White.copy(alpha = 0.6f), CircleShape)
-                                        )
-                                    }
-
-                                    if (isSelected) {
-                                        Icon(
-                                            imageVector = Icons.Default.CheckCircle,
-                                            contentDescription = "Selected",
-                                            tint = previewPalette.primary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
-
-                                Text(
-                                    text = if (isFa) themeItem.titleFa else themeItem.titleEn,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.5.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-
-                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-
-                // استخراج خودکار رنگ از کاور آهنگ
-                SettingsToggleRow(
-                    title = if (isFa) "تطبیق زنده رنگ‌ها با کاور آهنگ" else "Dynamic Cover Color Extraction",
-                    subtitle = if (isFa) "تغییر رنگ کل پلیر و هاله‌های نوری بر اساس کاور آهنگ" else "Sync player & ambient aura with album artwork",
-                    checked = settings.autoColorFromArtwork,
-                    accentColor = palette.accent,
-                    onCheckedChange = { onUpdateSettings(settings.copy(autoColorFromArtwork = it)) }
-                )
-
-                // اسلایدر شدت درخشش هاله نوری
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = if (isFa) "شدت درخشش هاله نوری پشت کاور" else "Ambient Halo Glow Intensity",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "${(settings.visualizerGlow * 100).toInt()}%",
-                            color = palette.accent,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Slider(
-                        value = settings.visualizerGlow.coerceIn(0.2f, 1.0f),
-                        onValueChange = { onUpdateSettings(settings.copy(visualizerGlow = it)) },
-                        valueRange = 0.2f..1.0f,
-                        colors = SliderDefaults.colors(
-                            thumbColor = palette.accent,
-                            activeTrackColor = palette.primary
-                        )
-                    )
-                }
-
-                // انتخاب نرخ فریم موتور بصری (60 / 120 FPS)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (isFa) "نرخ نوسازی انیمیشن‌ها (FPS)" else "Motion Refresh Rate",
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(60 to "60 FPS", 120 to "120 FPS Ultra").forEach { (fpsVal, label) ->
-                            val selected = settings.visualizerFps == fpsVal
-                            FilterChip(
-                                selected = selected,
-                                onClick = { onUpdateSettings(settings.copy(visualizerFps = fpsVal)) },
-                                label = { Text(label, fontSize = 11.5.sp, fontWeight = FontWeight.Bold) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = palette.primary.copy(alpha = 0.45f),
-                                    selectedLabelColor = Color.White
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // =========================================================================
-        // ۴. مهندسی صدا، اکولایزر ۱۰ بانده و کالیبراسیون شنوایی (Audio DSP Studio)
+        // ۳. مهندسی صدا، اکولایزر ۱۰ بانده و کالیبراسیون شنوایی (Audio DSP Studio)
         // =========================================================================
         item {
             SettingsGlassSection(
@@ -695,12 +546,14 @@ fun SettingsScreen(
                     .fillMaxWidth()
                     .padding(top = 8.dp, bottom = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                AuraBrandLogoBadge(size = 54.dp, cornerRadius = 18.dp)
+
                 Text(
                     text = "Aura Music Studio • v2.0 Premium",
                     style = MaterialTheme.typography.labelMedium.copy(
-                        color = if (settings.developerModeEnabled) palette.accent else Color(0xFFA0A5BA),
+                        color = if (settings.developerModeEnabled) palette.accent else Color(0xFFD5DAE8),
                         fontWeight = FontWeight.Bold
                     ),
                     modifier = Modifier
@@ -722,7 +575,7 @@ fun SettingsScreen(
                 )
                 Text(
                     text = if (isFa) "موتور صوتی Hi-Fi • رندر ۱۲۰ فریم بر ثانیه • شیشه مایع" else "120 FPS Liquid Glass Engine • Real-Time Audio DSP",
-                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF70758A))
+                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF8A90A6))
                 )
             }
         }

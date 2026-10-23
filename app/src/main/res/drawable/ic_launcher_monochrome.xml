@@ -5,23 +5,33 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Pure Monochrome Silhouette for Material You Adaptive Theming -->
-    <!-- Glass Droplet Outline -->
     <path
-        android:pathData="M54,23 C68,23 79,27 82,41 C85,55 79,73 66,81 C58,86 50,86 42,81 C29,73 23,55 26,41 C29,27 40,23 54,23 Z"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="3.0" />
-
-    <!-- Center Harmonic Wave Loop -->
-    <path
-        android:pathData="M34,58 C38,44 46,38 54,54 C62,70 70,64 74,50"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="4.5"
+        android:pathData="M31,54 C31,39.5 41.2,29.5 54,29.5 C66.8,29.5 77,39.5 77,54"
+        android:strokeWidth="3.5"
         android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
+        android:strokeColor="#FFFFFFFF" />
 
-    <!-- Center Light Focus Dot -->
     <path
-        android:pathData="M54,54m-2.5,0a2.5,2.5 0 1,1 5,0a2.5,2.5 0 1,1 -5,0"
-        android:fillColor="#FFFFFF" />
+        android:pathData="M29.5,48.5 C31.8,48.5 33.5,50.3 33.5,52.5 L33.5,60.5 C33.5,62.7 31.8,64.5 29.5,64.5 C27.2,64.5 25.5,62.7 25.5,60.5 L25.5,52.5 C25.5,50.3 27.2,48.5 29.5,48.5 Z"
+        android:fillColor="#FFFFFFFF" />
+
+    <path
+        android:pathData="M78.5,48.5 C80.8,48.5 82.5,50.3 82.5,52.5 L82.5,60.5 C82.5,62.7 80.8,64.5 78.5,64.5 C76.2,64.5 74.5,62.7 74.5,60.5 L74.5,52.5 C74.5,50.3 76.2,48.5 78.5,48.5 Z"
+        android:fillColor="#FFFFFFFF" />
+
+    <path
+        android:pathData="M54,73.5 C54,73.5 37,62.5 37,49.5 C37,43.2 41.8,38.5 47.5,38.5 C50.8,38.5 53.0,40.3 54,42.5 C55.0,40.3 57.2,38.5 60.5,38.5 C66.2,38.5 71,43.2 71,49.5 C71,62.5 54,73.5 54,73.5 Z"
+        android:strokeWidth="2.8"
+        android:strokeColor="#FFFFFFFF" />
+
+    <path
+        android:pathData="M51,61.5 A4.2,3.6 0 1,1 42.6,61.5 A4.2,3.6 0 1,1 51,61.5 Z M63.4,59.5 A4.2,3.6 0 1,1 55,59.5 A4.2,3.6 0 1,1 63.4,59.5 Z"
+        android:fillColor="#FFFFFFFF" />
+
+    <path
+        android:pathData="M49.8,61.5 L49.8,46.8 L62.2,44.2 L62.2,59.5"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeColor="#FFFFFFFF" />
 </vector>
