@@ -332,7 +332,10 @@ fun MainScreen(
                             favoriteTracks = favoriteTracks,
                             palette = palette,
                             appSettings = appSettings,
-                            onPlayTrack = { track, list -> viewModel.playTrack(track, list) },
+                            onPlayTrack = { track, list ->
+                                viewModel.playTrack(track, list)
+                                viewModel.isNowPlayingExpanded.value = true
+                            },
                             onTogglePlay = { viewModel.togglePlayPause() },
                             onOpenLibrary = { currentTab = MainTab.LIBRARY },
                             onOpenWrapped = { currentTab = MainTab.WRAPPED },
@@ -365,7 +368,10 @@ fun MainScreen(
                             playbackState = playbackState,
                             palette = palette,
                             appSettings = appSettings,
-                            onPlayTrack = { track, list -> viewModel.playTrack(track, list) },
+                            onPlayTrack = { track, list ->
+                                viewModel.playTrack(track, list)
+                                viewModel.isNowPlayingExpanded.value = true
+                            },
                             onPlayNext = { viewModel.playNextInQueue(it) },
                             onAddToQueue = { viewModel.addToQueue(it) },
                             onToggleFavorite = { viewModel.toggleFavorite(it) },
@@ -382,7 +388,10 @@ fun MainScreen(
                             playbackState = playbackState,
                             palette = palette,
                             settings = appSettings,
-                            onPlayTrack = { track, list -> viewModel.playTrack(track, list) },
+                            onPlayTrack = { track, list ->
+                                viewModel.playTrack(track, list)
+                                viewModel.isNowPlayingExpanded.value = true
+                            },
                             onPlayNext = { viewModel.playNextInQueue(it) },
                             onAddToQueue = { viewModel.addToQueue(it) },
                             onToggleFavorite = { viewModel.toggleFavorite(it) },

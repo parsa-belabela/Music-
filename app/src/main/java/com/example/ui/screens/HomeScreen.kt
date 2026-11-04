@@ -44,8 +44,11 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.rememberAsyncImagePainter
+import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.OnlineCacheHolder
+import com.example.OnlineMusicRepository
+import com.example.OnlineTasteEngine
 import com.example.audio.AmbientPalette
 import com.example.data.model.*
 import com.example.ui.components.MusicArtworkPlaceholder
@@ -54,6 +57,9 @@ import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
 import com.example.util.Localization
 import java.util.Calendar
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.withFrameNanos
 
 @Composable
 fun HomeScreen(
@@ -92,6 +98,7 @@ fun HomeScreen(
     val lang = appSettings.language
     val isFa = lang == AppLanguage.PERSIAN
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val downloadingIds by OnlineCacheHolder.downloadingTrackIds.collectAsState()
     val downloadedIds by OnlineCacheHolder.downloadedTrackIds.collectAsState()
 
@@ -586,6 +593,118 @@ fun HomeScreen(
                         }
                     }
                 }
+
+                // پلی‌لیست‌ها و میکس‌های هوشمند وایرال (اینستاگرام، تیک‌تاک، یوتیوب، رپ و...) برگرفته از بخش سرچ
+                val viralSmartPlaylists = remember(allTracks) {
+                    OnlineTasteEngine.buildSmartPlaylists(context)
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = Color(0xFF1ED760),
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Text(
+                            text = if (isFa) "پلی‌لیست‌های ترند و وایرال ⚡" else "Viral Trend Playlists ⚡",
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
+                        )
+                    }
+                    Text(
+                        text = if (isFa) "اینستا • تیک‌تاک • یوتیوب" else "Reels • TikTok • Hits",
+                        color = Color(0xFF1ED760),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(viralSmartPlaylists, key = { "home_viral_${it.id}" }) { smartMix ->
+                        Box(
+                            modifier = Modifier
+                                .width(168.dp)
+                                .liquidGlass(
+                                    shape = RoundedCornerShape(18.dp),
+                                    thickness = GlassThickness.THIN,
+                                    tintColor = smartMix.accentColor,
+                                    tintAlpha = 0.16f,
+                                    borderWidth = 0.9.dp
+                                )
+                                .clickable {
+                                    scope.launch {
+                                        val onlineList = OnlineMusicRepository.searchCatalog(smartMix.query)
+                                            .distinctBy { "${it.title.lowercase().trim()}|${it.artist.lowercase().trim()}" }
+                                            .take(16)
+                                        val appList = onlineList.map { it.toAppTrack(OnlineMusicRepository.buildStreamUrl(it)) }
+                                        if (appList.isNotEmpty()) {
+                                            onPlayTrack(appList.first(), appList)
+                                        }
+                                    }
+                                }
+                                .padding(10.dp)
+                        ) {
+                            Column {
+                                Box(
+                                    modifier = Modifier
+                                        .size(148.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(smartMix.accentColor.copy(alpha = 0.35f), Color(0xFF0B0F1A))
+                                            )
+                                        )
+                                        .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(14.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (smartMix.coverUrls.isNotEmpty()) {
+                                        AsyncImage(
+                                            model = smartMix.coverUrls.first(),
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.QueueMusic,
+                                            contentDescription = null,
+                                            tint = smartMix.accentColor,
+                                            modifier = Modifier.size(46.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = if (isFa) smartMix.titleFa else smartMix.titleEn,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 12.5.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (isFa) smartMix.subtitleFa else smartMix.subtitleEn,
+                                    color = Color(0xFFA0A8BE),
+                                    fontSize = 10.5.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -974,19 +1093,23 @@ private fun HeroQuickPlayCard(
         label = "heroDominantColor"
     )
 
-    // Dynamic rotation: spins fast and smooth when playing (3200ms), stops completely when paused
-    val infiniteTransition = rememberInfiniteTransition(label = "heroRotationBeam")
-    val playingAngle by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3200, easing = LinearEasing),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Restart
-        ),
-        label = "lightBeamAngle"
-    )
-
-    val rotationAngle = if (isPlaying) playingAngle else 0f
+    // چرخش مداوم و پیوسته: بدون هیچ پرش ناگهانی به زاویه ۰ یا ریست شدن مسیر
+    var continuousHeroAngle by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(isPlaying) {
+        if (!isPlaying) return@LaunchedEffect
+        var lastNanos = 0L
+        while (isActive) {
+            withFrameNanos { now ->
+                if (lastNanos != 0L) {
+                    val dtSec = ((now - lastNanos).coerceAtLeast(0L)) / 1_000_000_000f
+                    // ۹۰ درجه بر ثانیه = چرخش کامل ۴ ثانیه‌ای فوق‌العاده نرم و مداوم
+                    continuousHeroAngle = (continuousHeroAngle + 90f * dtSec) % 360000f
+                }
+                lastNanos = now
+            }
+        }
+    }
+    val rotationAngle = continuousHeroAngle
 
     val beatTransition = rememberInfiniteTransition(label = "heroCoverBeat")
     val beatScale by if (isPlaying) {

@@ -867,40 +867,15 @@ class AudioEngine(private val context: Context) {
             currentEqBands.any { kotlin.math.abs(it) > 0.15f }
     }
 
-    /**
-     * حفظ قدرت و پانچ واقعی صدا بدون تضعیف خودکار بیس
-     * و محافظت ۱۰۰٪ از گوش در ولوم‌های پایین گوشی برای جلوگیری از جهش ۱ ثانیه‌ای صدا هنگام انتخاب آهنگ
-     */
     private fun getHeadroomScale(): Float {
         if (!isEqEnabled) return 1.0f
         val avgBoost = currentEqBands.filter { it > 0f }.average().toFloat().let { if (it.isNaN()) 0f else it }
-        return if (avgBoost > 9.5f) 0.90f else 1.0f
-    }
-
-    private fun getLowVolumeAttenuationScale(): Float {
-        return try {
-            val maxSysVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-            val curSysVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).coerceIn(0, maxSysVol)
-            if (curSysVol == 0) {
-                0f
-            } else {
-                val ratio = curSysVol.toFloat() / maxSysVol.toFloat()
-                // وقتی صدای گوشی کم است (زیر ۳۵٪)، منحنی نرم نرم‌افزاری اعمال می‌شود تا پرش سخت‌افزاری AudioHAL رخ ندهد
-                if (ratio <= 0.35f) {
-                    val norm = (ratio / 0.35f).coerceIn(0.12f, 1f)
-                    (norm * norm).coerceIn(0.08f, 1f)
-                } else {
-                    1.0f
-                }
-            }
-        } catch (_: Exception) {
-            1.0f
-        }
+        return if (avgBoost > 10.0f) 0.92f else 1.0f
     }
 
     private fun getEffectiveTargetVolume(): Float {
         val base = if (isDucked) masterVolume * 0.3f else masterVolume
-        return (base * getHeadroomScale() * getLowVolumeAttenuationScale()).coerceIn(0f, 1f)
+        return (base * getHeadroomScale()).coerceIn(0f, 1f)
     }
 
     private fun applyVolume() {
@@ -938,9 +913,11 @@ class AudioEngine(private val context: Context) {
 
     private fun initAudioEffects(sessionId: Int, startSilentForFade: Boolean = false) {
         if (sessionId <= 0) return
-        if (!hasActiveDspCustomization()) return
+        releaseEffects()
+
         try {
-            equalizer = Equalizer(100, sessionId).apply {
+            // اولویت استاندارد ۰ برای سازگاری بی‌نقص با موتور AudioFlinger
+            equalizer = Equalizer(0, sessionId).apply {
                 enabled = isEqEnabled
             }
         } catch (e: Exception) {
@@ -948,16 +925,22 @@ class AudioEngine(private val context: Context) {
         }
 
         try {
-            bassBoost = BassBoost(100, sessionId).apply {
+            bassBoost = BassBoost(0, sessionId).apply {
                 enabled = isEqEnabled && currentBassBoostStrength > 0
+                if (strengthSupported) {
+                    setStrength(currentBassBoostStrength.toShort().coerceIn(0, 1000))
+                }
             }
         } catch (e: Exception) {
             Log.w(tag, "BassBoost init warning: ${e.message}")
         }
 
         try {
-            virtualizer = Virtualizer(100, sessionId).apply {
-                enabled = isEqEnabled && currentBassBoostStrength > 100
+            virtualizer = Virtualizer(0, sessionId).apply {
+                enabled = isEqEnabled && currentBassBoostStrength > 60
+                if (strengthSupported) {
+                    setStrength(((currentBassBoostStrength / 1000f) * 600f).toInt().toShort().coerceIn(0, 1000))
+                }
             }
         } catch (_: Exception) {}
 
@@ -976,7 +959,13 @@ class AudioEngine(private val context: Context) {
         currentBassBoostStrength = bassBoostStrength.coerceIn(0, 1000)
         beatFocusEnabled = beatFocus
         vocalCrystalEnabled = vocalCrystal
-        applyCurrentEffects()
+
+        val sid = _audioSessionId.value
+        if (equalizer == null && sid > 0) {
+            initAudioEffects(sid)
+        } else {
+            applyCurrentEffects()
+        }
         applyVolume()
     }
 
@@ -1056,7 +1045,7 @@ class AudioEngine(private val context: Context) {
                             }
                         }
 
-                        val targetMilliBels = (gainDb * 125f).roundToInt().coerceIn(minLevel, maxLevel)
+                        val targetMilliBels = (gainDb * 100f).roundToInt().coerceIn(minLevel, maxLevel)
                         eq.setBandLevel(band.toShort(), targetMilliBels.toShort())
                     }
                 }
@@ -1065,12 +1054,12 @@ class AudioEngine(private val context: Context) {
             Log.w(tag, "Failed applying equalizer bands: ${e.message}")
         }
 
-        // ۳. ایجاد فضای سه‌بعدی ملایم متناسب با بیس (بدون LoudnessEnhancer که باعث پرش ناگهانی صدا در ولوم کم می‌شد)
+        // ۳. ایجاد فضای سه‌بعدی ملایم متناسب با بیس
         try {
             virtualizer?.let { virt ->
-                virt.enabled = isEqEnabled && currentBassBoostStrength > 100
+                virt.enabled = isEqEnabled && currentBassBoostStrength > 60
                 if (virt.strengthSupported) {
-                    virt.setStrength((bassNormalized * 650f).toInt().toShort().coerceIn(0, 1000))
+                    virt.setStrength(((currentBassBoostStrength / 1000f) * 600f).toInt().toShort().coerceIn(0, 1000))
                 }
             }
         } catch (_: Exception) {}

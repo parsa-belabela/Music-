@@ -199,11 +199,12 @@ data class OnlineSmartPlaylist(
     val accentColor: Color = Color(0xFF1ED760)
 )
 
-private const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev"
+private const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev/"
 
 object OnlineMusicRepository {
-    // آدرس سرور اختصاصی Cloudflare Workers کاربر برای عبور از تحریم بدون فیلترشکن (بدون اسلش در انتها)
+    // آدرس سرور اختصاصی Cloudflare Workers کاربر برای عبور از تحریم بدون فیلترشکن
     const val WORKER_URL = com.example.WORKER_URL
+    val BASE_URL: String get() = WORKER_URL.trimEnd('/')
 
     private val imageMemoryCache = object : LruCache<String, Bitmap>(80) {}
     private val catalogCache = object : LruCache<String, List<OnlineTrack>>(50) {}
@@ -266,7 +267,7 @@ object OnlineMusicRepository {
     private val resolvedWorkerStreamCache = ConcurrentHashMap<String, String>()
 
     fun buildWorkerProxyUrl(targetUrl: String): String {
-        return "$WORKER_URL/img?u=${URLEncoder.encode(targetUrl, "UTF-8")}"
+        return "$BASE_URL/img?u=${URLEncoder.encode(targetUrl, "UTF-8")}"
     }
 
     /**
@@ -425,7 +426,7 @@ object OnlineMusicRepository {
         try {
             val encodedQuery = URLEncoder.encode(cleanQuery, "UTF-8")
             // استفاده از سرور کلادفلر به عنوان پروکسی برای عبور از تحریم
-            val url = URL("$WORKER_URL/search?q=$encodedQuery")
+            val url = URL("$BASE_URL/search?q=$encodedQuery")
             connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 10000
@@ -633,10 +634,10 @@ object OnlineMusicRepository {
         val trimmed = rawUrl.trim()
         if (trimmed.isBlank()) return ""
         return when {
-            trimmed.startsWith("/img?u=") -> "$WORKER_URL$trimmed"
-            trimmed.startsWith("$WORKER_URL//img?u=") -> trimmed.replace("$WORKER_URL//img?u=", "$WORKER_URL/img?u=")
-            trimmed.startsWith("$WORKER_URL/img?u=") -> trimmed
-            trimmed.contains("dzcdn.net") -> "$WORKER_URL/img?u=${URLEncoder.encode(trimmed, "UTF-8")}"
+            trimmed.startsWith("/img?u=") -> "$BASE_URL$trimmed"
+            trimmed.startsWith("$BASE_URL//img?u=") -> trimmed.replace("$BASE_URL//img?u=", "$BASE_URL/img?u=")
+            trimmed.startsWith("$BASE_URL/img?u=") -> trimmed
+            trimmed.contains("dzcdn.net") -> "$BASE_URL/img?u=${URLEncoder.encode(trimmed, "UTF-8")}"
             else -> trimmed
         }
     }
@@ -683,18 +684,18 @@ object OnlineMusicRepository {
     }
 
     fun buildStreamUrl(track: OnlineTrack): String {
-        return "$WORKER_URL/?id=${track.id}&q=${URLEncoder.encode("${track.artist} - ${track.title}", "UTF-8")}"
+        return "$BASE_URL/?id=${track.id}&q=${URLEncoder.encode("${track.artist} - ${track.title}", "UTF-8")}"
     }
 
     fun buildStreamUrlForTitleArtist(artist: String, title: String, trackId: String = ""): String {
         val cleanId = trackId.removePrefix("online_")
-        return "$WORKER_URL/?id=$cleanId&q=${URLEncoder.encode("$artist - $title", "UTF-8")}"
+        return "$BASE_URL/?id=$cleanId&q=${URLEncoder.encode("$artist - $title", "UTF-8")}"
     }
 
     fun buildDownloadUrl(trackId: String, artist: String, title: String): String {
         val cleanId = trackId.removePrefix("online_")
         val encodedQuery = URLEncoder.encode("$artist - $title", "UTF-8")
-        return "$WORKER_URL/?id=$cleanId&q=$encodedQuery&dl=1"
+        return "$BASE_URL/?id=$cleanId&q=$encodedQuery&dl=1"
     }
 }
 
@@ -866,7 +867,7 @@ object OnlineTasteEngine {
      */
     fun buildSmartPlaylists(
         context: Context,
-        currentCatalogTracks: List<OnlineTrack>
+        currentCatalogTracks: List<OnlineTrack> = emptyList()
     ): List<OnlineSmartPlaylist> {
         val topArtists = getTopArtistsForUser(context)
         val recentSearches = getRecentSearchedQueries(context)
@@ -1105,8 +1106,8 @@ object OnlineCacheHolder {
     fun createDirectHttpDataSourceFactory(): DefaultHttpDataSource.Factory {
         return DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(20000)
-            .setReadTimeoutMs(20000)
+            .setConnectTimeoutMs(25000)
+            .setReadTimeoutMs(25000)
             .setUserAgent("Mozilla/5.0")
     }
 
@@ -1330,25 +1331,36 @@ object OnlineCacheHolder {
                     }
                     conn.disconnect()
 
-                    // اگر سرور یک JSON حاوی لینک دانلود برگردانده باشد، لینک داخل JSON را دانلود کن
-                    if (tempFile.exists() && tempFile.length() in 10L..4095L) {
-                        val text = tempFile.readText().trim()
-                        tempFile.delete()
+                    // اگر سرور یک JSON حاوی لینک دانلود (مانند download_url) برگردانده باشد، لینک داخل JSON را دانلود کن
+                    if (tempFile.exists() && (contentType.contains("json") || tempFile.length() in 10L..65535L)) {
+                        val text = try { tempFile.readText().trim() } catch (_: Exception) { "" }
                         if (text.startsWith("{")) {
+                            tempFile.delete()
                             val json = JSONObject(text)
-                            val innerUrl = json.optString("url")
-                                .ifBlank { json.optString("streamUrl") }
-                                .ifBlank { json.optString("audioUrl") }
+                            val innerUrl = json.optString("download_url")
                                 .ifBlank { json.optString("downloadUrl") }
+                                .ifBlank { json.optString("url") }
+                                .ifBlank { json.optString("streamUrl") }
+                                .ifBlank { json.optString("stream_url") }
+                                .ifBlank { json.optString("audioUrl") }
+                                .ifBlank { json.optString("audio_url") }
                                 .ifBlank { json.optString("stream") }
                                 .ifBlank { json.optString("link") }
-                            if (innerUrl.startsWith("http")) {
-                                return downloadUrlToTempFile(innerUrl, tempFile, depth + 1, onProgress)
+                                .ifBlank { json.optJSONObject("data")?.optString("download_url") ?: "" }
+                                .ifBlank { json.optJSONObject("data")?.optString("url") ?: "" }
+                            if (innerUrl.isNotBlank()) {
+                                val fullTargetUrl = if (innerUrl.startsWith("http")) {
+                                    innerUrl
+                                } else {
+                                    "${OnlineMusicRepository.BASE_URL}/${innerUrl.trimStart('/')}"
+                                }
+                                return downloadUrlToTempFile(fullTargetUrl, tempFile, depth + 1, onProgress)
                             }
+                            return false
                         } else if (text.startsWith("http://") || text.startsWith("https://")) {
+                            tempFile.delete()
                             return downloadUrlToTempFile(text.lines().first().trim(), tempFile, depth + 1, onProgress)
                         }
-                        return false
                     }
 
                     // اگر ارتباط شبکه قبل از دریافت ۱۰۰٪ بایت‌های فایل قطع شد، با HTTP Range ادامه فایل را تا بایت آخر دانلود کن
@@ -1437,7 +1449,7 @@ object OnlineCacheHolder {
         val cleanArtist = track.artist.substringBefore(" feat").substringBefore(" ft.").trim()
         val cleanTitle = track.title.substringBefore(" (feat").substringBefore(" [").trim()
         val encodedQuery = URLEncoder.encode("$cleanArtist - $cleanTitle", "UTF-8")
-        val workerDownloadUrl = "${OnlineMusicRepository.WORKER_URL}/?id=$rawId&q=$encodedQuery&dl=1"
+        val workerDownloadUrl = "${OnlineMusicRepository.BASE_URL}/?id=$rawId&q=$encodedQuery&dl=1"
 
         // ۱. گام اول: تلاش برای دانلود مستقیم فایل کامل از سرور کلودفلر
         val downloadedFromWorker = downloadUrlToTempFile(workerDownloadUrl, tempFile, onProgress = onProgress)
@@ -1781,8 +1793,8 @@ fun OnlineMusicScreen(
     val exoPlayer = remember(context) {
         val baseHttpFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(20000)
-            .setReadTimeoutMs(20000)
+            .setConnectTimeoutMs(25000)
+            .setReadTimeoutMs(25000)
             .setUserAgent("Mozilla/5.0")
 
         val resolvedUrlByOriginalUri = ConcurrentHashMap<String, String>()
@@ -1814,7 +1826,7 @@ fun OnlineMusicScreen(
 
                         val trackIdParam = originalUri.getQueryParameter("id") ?: ""
                         val queryParam = originalUri.getQueryParameter("q") ?: ""
-                        val fallbackStreamUrl = if (originalUrlStr.startsWith(WORKER_URL)) {
+                        val fallbackStreamUrl = if (originalUrlStr.startsWith(WORKER_URL) || originalUrlStr.startsWith(OnlineMusicRepository.BASE_URL)) {
                             OnlineMusicRepository.resolveGuaranteedWorkerStreamUrlBlocking(trackIdParam, queryParam)
                         } else null
 
@@ -1949,6 +1961,25 @@ fun OnlineMusicScreen(
      * بدون ارسال به AudioEngine یا TrackAnalyzer (فقط قبلش پلیر آفلاین در MusicPlayerViewModel را pause می‌کند)
      */
     fun triggerPlay(track: OnlineTrack, customQueue: List<OnlineTrack>? = null) {
+        val cachedFile = OnlineCacheHolder.getCachedFileIfPresent(context, track.id)
+        val streamUrl = if (cachedFile != null && cachedFile.exists()) {
+            Uri.fromFile(cachedFile).toString()
+        } else {
+            OnlineMusicRepository.buildStreamUrl(track)
+        }
+
+        if (onExternalPlay != null) {
+            try {
+                exoPlayer.stop()
+                exoPlayer.clearMediaItems()
+            } catch (_: Exception) {}
+            isPlaying = false
+            val q = customQueue ?: tracks
+            onExternalPlay.invoke(track, streamUrl, q)
+            currentTrack = track
+            return
+        }
+
         // ۱. اگر پلیر آفلاین در MusicPlayerViewModel در حال پخش است، آن را pause() کن
         onPauseOfflinePlayer?.invoke()
 
@@ -1957,13 +1988,6 @@ fun OnlineMusicScreen(
         isBuffering = true
         isPlaying = false
         progress = 0f
-
-        val cachedFile = OnlineCacheHolder.getCachedFileIfPresent(context, track.id)
-        val streamUrl = if (cachedFile != null && cachedFile.exists()) {
-            Uri.fromFile(cachedFile).toString()
-        } else {
-            OnlineMusicRepository.buildStreamUrl(track)
-        }
 
         try {
             exoPlayer.stop()
@@ -2986,7 +3010,7 @@ fun OnlineMusicScreen(
         }
 
         AnimatedVisibility(
-            visible = currentTrack != null,
+            visible = onExternalPlay == null && currentTrack != null,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = bottomPadding)

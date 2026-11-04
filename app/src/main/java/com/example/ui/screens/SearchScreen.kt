@@ -337,6 +337,11 @@ fun SearchScreen(
                 isGlobalPlayerPlaying = playbackState.isPlaying,
                 bottomPadding = bottomPadding,
                 onPauseOfflinePlayer = onPauseOfflinePlayer,
+                onExternalPlay = { onlineTrack, streamUrl, queue ->
+                    val appTrack = onlineTrack.toAppTrack(streamUrl)
+                    val appQueue = queue.map { it.toAppTrack(OnlineMusicRepository.buildStreamUrl(it)) }
+                    onPlayTrack(appTrack, if (appQueue.isNotEmpty()) appQueue else listOf(appTrack))
+                },
                 onAddToQueue = { onlineTrack, streamUrl ->
                     onAddToQueue(onlineTrack.toAppTrack(streamUrl))
                 },
