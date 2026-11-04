@@ -77,7 +77,7 @@ class AudioEngine(private val context: Context) {
         private set
     var vocalCrystalEnabled: Boolean = false
         private set
-    var smartSilenceTrimEnabled: Boolean = true
+    var smartSilenceTrimEnabled: Boolean = false
     var currentPlaybackSpeed: Float = 1.0f
         private set
     var continuousMixEnabled: Boolean = false
@@ -112,7 +112,10 @@ class AudioEngine(private val context: Context) {
     private fun recalculateSmartTrimPoint() {
         val env = activeWaveformEnvelope
         val dur = _duration.value
-        if (env == null || env.isEmpty() || dur < 25000L) {
+        val isOnlineStream = currentActiveTrack?.let {
+            it.id.startsWith("online_") || it.uri.startsWith("http://") || it.uri.startsWith("https://")
+        } ?: false
+        if (!smartSilenceTrimEnabled || isOnlineStream || env == null || env.isEmpty() || dur < 35000L) {
             smartTrimTargetMs = null
             return
         }
@@ -394,8 +397,9 @@ class AudioEngine(private val context: Context) {
         _duration.value = track.durationMs.coerceAtLeast(1L)
         _loopStartMs.value = null
         _loopEndMs.value = null
+        activeWaveformEnvelope = null
+        smartTrimTargetMs = null
         smartTrimTriggeredForCurrentTrack = false
-        recalculateSmartTrimPoint()
         isSeekingInProgress = false
         pendingSeekPos = null
         seekWatchdogJob?.cancel()
@@ -407,12 +411,14 @@ class AudioEngine(private val context: Context) {
             preloadedPlayer = null
             preloadedTrackId = null
             try {
+                preloaded.setVolume(0f, 0f)
                 mediaPlayer = preloaded
                 isPlayerPrepared = true
-                val trackDuration = preloaded.duration.toLong().coerceAtLeast(track.durationMs)
+                val rawDur = try { preloaded.duration.toLong() } catch (_: Exception) { -1L }
+                val trackDuration = if (rawDur > 1000L) rawDur else track.durationMs.coerceAtLeast(1L)
                 _duration.value = trackDuration
                 _audioSessionId.value = preloaded.audioSessionId
-                initAudioEffects(preloaded.audioSessionId)
+                initAudioEffects(preloaded.audioSessionId, startSilentForFade = _isPlayWhenReady.value)
 
                 if (currentPlaybackSpeed != 1.0f) {
                     try {
@@ -496,6 +502,8 @@ class AudioEngine(private val context: Context) {
                     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build()
             )
+            // صفر کردن کامل صدای اولیه قبل از آماده‌سازی برای جلوگیری ۱۰۰٪ از پرش صدای ۰.۰۱ ثانیه‌ای در شروع آهنگ بعدی
+            mp.setVolume(0f, 0f)
 
             setDataSourceForTrack(mp, track)
 
@@ -511,11 +519,16 @@ class AudioEngine(private val context: Context) {
                     return@setOnPreparedListener
                 }
 
+                try {
+                    preparedMp.setVolume(0f, 0f)
+                } catch (_: Exception) {}
+
                 isPlayerPrepared = true
-                val trackDuration = preparedMp.duration.toLong().coerceAtLeast(track.durationMs)
+                val rawDur = try { preparedMp.duration.toLong() } catch (_: Exception) { -1L }
+                val trackDuration = if (rawDur > 1000L) rawDur else track.durationMs.coerceAtLeast(1L)
                 _duration.value = trackDuration
                 _audioSessionId.value = preparedMp.audioSessionId
-                initAudioEffects(preparedMp.audioSessionId)
+                initAudioEffects(preparedMp.audioSessionId, startSilentForFade = _isPlayWhenReady.value)
 
                 if (currentPlaybackSpeed != 1.0f) {
                     try {
@@ -618,8 +631,20 @@ class AudioEngine(private val context: Context) {
             return
         }
 
+        val streamBufferFile = com.example.OnlineCacheHolder.getStreamBufferFileIfPresent(context, track.id)
+        if (streamBufferFile != null) {
+            mp.setDataSource(streamBufferFile.absolutePath)
+            return
+        }
+
         if (track.uri.startsWith("http://") || track.uri.startsWith("https://")) {
-            mp.setDataSource(context, Uri.parse(track.uri))
+            val headers = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+                "Accept" to "*/*",
+                "Accept-Encoding" to "identity",
+                "Connection" to "keep-alive"
+            )
+            mp.setDataSource(context, Uri.parse(track.uri), headers)
         } else if (track.isDemo || track.uri.contains("aura/demo") || track.uri.startsWith("/")) {
             val file = if (track.uri.startsWith("file://")) {
                 File(Uri.parse(track.uri).path ?: "")
@@ -665,9 +690,11 @@ class AudioEngine(private val context: Context) {
                     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build()
             )
+            mp.setVolume(0f, 0f)
             setDataSourceForTrack(mp, track)
 
             mp.setOnPreparedListener {
+                try { it.setVolume(0f, 0f) } catch (_: Exception) {}
                 preloadedPlayer = mp
                 preloadedTrackId = track.id
                 Log.d(tag, "Successfully preloaded track: ${track.title}")
@@ -686,15 +713,20 @@ class AudioEngine(private val context: Context) {
     }
 
     /**
-     * Soft, silky audio fade-in that prevents pops and creates a cinematic entrance
+     * Soft, silky audio fade-in that completely eliminates the 0.01s initial loud pop/spike
+     * by flushing the first hardware AudioFlinger buffer at 0.0f volume before ramping up.
      */
     private fun performSoftFadeIn(mp: MediaPlayer, currentTransitionId: Long) {
         fadeJob?.cancel()
-        val targetVolume = if (isDucked) masterVolume * 0.3f else masterVolume
-        
+        val baseVolume = if (isDucked) masterVolume * 0.3f else masterVolume
+        val targetVolume = (baseVolume * getHeadroomScale()).coerceIn(0f, 1f)
+
         try {
-            mp.setVolume(0.01f, 0.01f)
+            // ۱. قفل کردن صدا و گین LoudnessEnhancer روی صفر مطلق قبل از استارت سخت‌افزاری
+            mp.setVolume(0f, 0f)
+            try { loudnessEnhancer?.setTargetGain(0) } catch (_: Exception) {}
             mp.start()
+            mp.setVolume(0f, 0f)
             _status.value = PlayerStatus.PLAYING
             startProgressTracker()
         } catch (e: Exception) {
@@ -703,16 +735,18 @@ class AudioEngine(private val context: Context) {
         }
 
         fadeJob = engineScope.launch {
-            val steps = 16
-            val totalDurationMs = 300L
+            // ۲. صبر ۴۵ میلی‌ثانیه‌ای در سکوت کامل تا بافر اولیه AudioTrack بدون هیچ پیک صدایی تخلیه شود
+            delay(45L)
+            val steps = 18
+            val totalDurationMs = 360L
             val stepDelay = totalDurationMs / steps
 
             for (i in 1..steps) {
                 if (transitionId.get() != currentTransitionId || !_isPlayWhenReady.value) break
                 val t = i.toFloat() / steps
-                // Equal-power fade in curve: sin(pi/2 * t)
-                val equalPowerCurve = kotlin.math.sin((Math.PI / 2.0) * t).toFloat()
-                val currentVol = equalPowerCurve * targetVolume
+                // منحنی نرم S-Curve برای فید-این ابریشمی از صفر مطلق
+                val smoothCurve = t * t * (3f - 2f * t)
+                val currentVol = (smoothCurve * targetVolume).coerceIn(0f, 1f)
                 try {
                     mp.setVolume(currentVol, currentVol)
                 } catch (_: Exception) {}
@@ -720,6 +754,7 @@ class AudioEngine(private val context: Context) {
             }
             if (transitionId.get() == currentTransitionId && _isPlayWhenReady.value) {
                 applyVolume()
+                applyCurrentEffects()
             }
         }
     }
@@ -865,7 +900,7 @@ class AudioEngine(private val context: Context) {
         }
     }
 
-    private fun initAudioEffects(sessionId: Int) {
+    private fun initAudioEffects(sessionId: Int, startSilentForFade: Boolean = false) {
         if (sessionId <= 0) return
         try {
             equalizer = Equalizer(100, sessionId).apply {
@@ -886,6 +921,9 @@ class AudioEngine(private val context: Context) {
         try {
             loudnessEnhancer = android.media.audiofx.LoudnessEnhancer(sessionId).apply {
                 enabled = isEqEnabled
+                if (startSilentForFade) {
+                    try { setTargetGain(0) } catch (_: Exception) {}
+                }
             }
         } catch (e: Exception) {
             Log.w(tag, "LoudnessEnhancer init warning: ${e.message}")
@@ -897,7 +935,7 @@ class AudioEngine(private val context: Context) {
             }
         } catch (_: Exception) {}
 
-        applyCurrentEffects()
+        applyCurrentEffects(suppressLoudnessBoost = startSilentForFade)
     }
 
     fun applyEqualizerSettings(
@@ -941,7 +979,7 @@ class AudioEngine(private val context: Context) {
     /**
      * اعمال واقعی و قدرتمند اکولایزر ۱۰ بانده + تقویت سابووفر (Sub-Bass Shelf) + Loudness DSP
      */
-    private fun applyCurrentEffects() {
+    private fun applyCurrentEffects(suppressLoudnessBoost: Boolean = false) {
         val bassNormalized = (currentBassBoostStrength / 1000f).coerceIn(0f, 1f)
 
         // ۱. اعمال سختافزاری BassBoost با حداکثر اولویت
@@ -971,14 +1009,11 @@ class AudioEngine(private val context: Context) {
                         val centerFreqHz = (centerFreqMilliHz / 1000f).coerceAtLeast(20f)
                         var gainDb = calculateGainForFreq(centerFreqHz, currentEqBands)
 
-                        // وقتی کاربر اسلایدر Bass Boost را بالا میبرد، علاوه بر BassBoost سختافزاری،
-                        // فرکانسهای ساببیس (31Hz تا 150Hz) نیز با منحنی Shelf تقویت میشوند تا بیس کاملاً کوبنده و عمیق شود
                         if (isEqEnabled && bassNormalized > 0f && centerFreqHz <= 180f) {
                             val subBassShelfFactor = ((180f - centerFreqHz) / 150f).coerceIn(0f, 1f)
                             gainDb += (bassNormalized * 9.5f * subBassShelfFactor)
                         }
 
-                        // استودیو: تمرکز روی بیت و 808 (808 & Beat Focus) - تضعیف ملایم وکال میانی و تقویت پانچ کیک و ساب‌بیس
                         if (beatFocusEnabled) {
                             when {
                                 centerFreqHz <= 150f -> gainDb += 4.2f
@@ -987,7 +1022,6 @@ class AudioEngine(private val context: Context) {
                             }
                         }
 
-                        // استودیو: شفاف‌سازی وکال (Vocal Crystal) - تقویت باند حضور صدای خواننده (1kHz تا 4kHz) و شفافیت بالا
                         if (vocalCrystalEnabled) {
                             when {
                                 centerFreqHz in 160f..320f -> gainDb -= 1.6f
@@ -996,7 +1030,6 @@ class AudioEngine(private val context: Context) {
                             }
                         }
 
-                        // مقیاسدهی دقیق به میلیبل سختافزار
                         val targetMilliBels = (gainDb * 125f).roundToInt().coerceIn(minLevel, maxLevel)
                         eq.setBandLevel(band.toShort(), targetMilliBels.toShort())
                     }
@@ -1006,13 +1039,12 @@ class AudioEngine(private val context: Context) {
             Log.w(tag, "Failed applying equalizer bands: ${e.message}")
         }
 
-        // ۳. اعمال LoudnessEnhancer برای جبران افت انرژی و ایجاد پانچ استودیویی
+        // ۳. اعمال LoudnessEnhancer برای جبران افت انرژی (با محافظ صفر در لحظه شروع فید-این)
         try {
             loudnessEnhancer?.let { le ->
                 le.enabled = isEqEnabled
-                if (isEqEnabled) {
+                if (isEqEnabled && !suppressLoudnessBoost) {
                     val positiveEqBoost = currentEqBands.filter { it > 0f }.maxOrNull() ?: 0f
-                    // محاسبه گین بر حسب میلیبل (mB) برای تفکیک و قدرت صدای خروجی
                     val targetGainMb = ((bassNormalized * 450f) + (positiveEqBoost * 35f)).roundToInt().coerceIn(0, 900)
                     le.setTargetGain(targetGainMb)
                 } else {

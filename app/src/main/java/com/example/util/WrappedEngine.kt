@@ -136,61 +136,35 @@ object WrappedEngine {
             currentWeekStartCal.get(Calendar.DAY_OF_MONTH)
         )
 
+        val isWeeklyUnlocked48h = (dayOfWeek == Calendar.FRIDAY || dayOfWeek == Calendar.SATURDAY)
+        val safeDaysUntilFriday = if (isWeeklyUnlocked48h) 0 else daysUntilFriday.coerceAtLeast(1)
+
         periods.add(
             WrappedPeriod(
                 id = "WEEK_CURRENT_${jalaliNow.year}_${jalaliNow.month}_${cwStartJalali.day}",
-                displayNameEn = "This Week's Wrapped",
-                displayNameFa = toPersianDigits("رپد این هفته (${cwStartJalali.day} ${cwStartJalali.monthNameFa})"),
+                displayNameEn = "Weekly Wrapped",
+                displayNameFa = toPersianDigits("گزارش هفتگی (${cwStartJalali.day} ${cwStartJalali.monthNameFa})"),
                 isYearly = false,
                 year = jalaliNow.year,
                 month = jalaliNow.month,
                 startTimestamp = currentWeekStartMs,
                 endTimestamp = currentWeekEndMs,
-                isLocked = !isTodayFriday, // قفل تا فرا رسیدن روز جمعه!
-                daysRemainingUntilUnlock = daysUntilFriday.coerceAtLeast(if (isTodayFriday) 0 else 1),
-                unlockTargetDateEn = "Unlocks this Friday",
-                unlockTargetDateFa = "باز شدن قفل: روز جمعه پایان هفته",
+                isLocked = !isWeeklyUnlocked48h, // قفل تا روز جمعه (فقط به مدت ۴۸ ساعت باز می‌شود)
+                daysRemainingUntilUnlock = safeDaysUntilFriday,
+                unlockTargetDateEn = "Unlocks Friday (Limited 48h Window)",
+                unlockTargetDateFa = "بازگشایی: روز جمعه هر هفته (به مدت محدود ۴۸ ساعت)",
                 timeframe = WrappedTimeframe.WEEKLY,
-                subtitleEn = if (isTodayFriday) "Unlocked • Weekly Story Ready" else "Locked until Friday",
-                subtitleFa = if (isTodayFriday) "باز شده • آماده تماشا" else toPersianDigits("${daysUntilFriday} روز مانده تا جمعه")
-            )
-        )
-
-        // هفته گذشته (چون جمعهاش گذشته، باز و قابل مشاهده است)
-        val prevWeekStartMs = currentWeekStartMs - (7 * dayMs)
-        val prevWeekEndMs = currentWeekStartMs - 1L
-        val pwCal = Calendar.getInstance().apply { timeInMillis = prevWeekStartMs }
-        val pwJalali = gregorianToJalali(
-            pwCal.get(Calendar.YEAR),
-            pwCal.get(Calendar.MONTH) + 1,
-            pwCal.get(Calendar.DAY_OF_MONTH)
-        )
-
-        periods.add(
-            WrappedPeriod(
-                id = "WEEK_PREV_${pwJalali.year}_${pwJalali.month}_${pwJalali.day}",
-                displayNameEn = "Last Week Wrapped",
-                displayNameFa = toPersianDigits("هفته گذشته (${pwJalali.day} ${pwJalali.monthNameFa})"),
-                isYearly = false,
-                year = pwJalali.year,
-                month = pwJalali.month,
-                startTimestamp = prevWeekStartMs,
-                endTimestamp = prevWeekEndMs,
-                isLocked = false,
-                daysRemainingUntilUnlock = 0,
-                unlockTargetDateEn = "Completed Friday",
-                unlockTargetDateFa = "تکمیلشده در جمعه گذشته",
-                timeframe = WrappedTimeframe.WEEKLY,
-                subtitleEn = "Completed 7-Day Story",
-                subtitleFa = toPersianDigits("آمار کامل هفته گذشته • ${pwJalali.monthNameFa}")
+                subtitleEn = if (isWeeklyUnlocked48h) "Unlocked for 48 Hours • Weekly Story Ready" else "Locked until Friday ($safeDaysUntilFriday days left)",
+                subtitleFa = if (isWeeklyUnlocked48h) "باز شده به مدت ۴۸ ساعت • آماده تماشا" else toPersianDigits("قفل تا جمعه (${safeDaysUntilFriday} روز مانده • دسترسی ۴۸ ساعته)")
             )
         )
 
         // =========================================================================
-        // ۲. رپد ماهانه (قفل تا روز آخر ماه)
+        // ۲. رپد ماهانه (قفل تا روز آخر ماه - بازگشایی محدود ۴۸ ساعته)
         // =========================================================================
         val daysLeftInJalaliMonth = (jalaliNow.totalDaysInMonth - jalaliNow.day).coerceAtLeast(0)
-        val isLastDayOfMonth = (daysLeftInJalaliMonth == 0)
+        val isMonthlyUnlocked48h = (daysLeftInJalaliMonth == 0 || jalaliNow.day == 1)
+        val safeDaysUntilMonthEnd = if (isMonthlyUnlocked48h) 0 else daysLeftInJalaliMonth.coerceAtLeast(1)
 
         val currentMonthStartMs = nowMs - ((jalaliNow.day - 1) * dayMs)
         val currentMonthEndMs = currentMonthStartMs + (jalaliNow.totalDaysInMonth * dayMs) - 1L
@@ -199,54 +173,25 @@ object WrappedEngine {
         periods.add(
             WrappedPeriod(
                 id = "MONTH_CURRENT_${jalaliNow.year}_${jalaliNow.month}",
-                displayNameEn = "$gMonthName $gYear",
-                displayNameFa = toPersianDigits("${jalaliNow.monthNameFa} ${jalaliNow.year}"),
+                displayNameEn = "Monthly Wrapped ($gMonthName)",
+                displayNameFa = toPersianDigits("گزارش ماهانه (${jalaliNow.monthNameFa} ${jalaliNow.year})"),
                 isYearly = false,
                 year = jalaliNow.year,
                 month = jalaliNow.month,
                 startTimestamp = currentMonthStartMs,
                 endTimestamp = currentMonthEndMs,
-                isLocked = !isLastDayOfMonth, // قفل تا روز آخر ماه!
-                daysRemainingUntilUnlock = daysLeftInJalaliMonth.coerceAtLeast(if (isLastDayOfMonth) 0 else 1),
-                unlockTargetDateEn = "Last day of $gMonthName",
-                unlockTargetDateFa = toPersianDigits("روز آخر ${jalaliNow.monthNameFa} (${jalaliNow.totalDaysInMonth} ${jalaliNow.monthNameFa})"),
+                isLocked = !isMonthlyUnlocked48h, // قفل تا روز آخر ماه (فقط به مدت ۴۸ ساعت باز می‌شود)
+                daysRemainingUntilUnlock = safeDaysUntilMonthEnd,
+                unlockTargetDateEn = "Unlocks Last Day of $gMonthName (48h Window)",
+                unlockTargetDateFa = toPersianDigits("بازگشایی: روز آخر ${jalaliNow.monthNameFa} (${jalaliNow.totalDaysInMonth} ${jalaliNow.monthNameFa} • به مدت ۴۸ ساعت)"),
                 timeframe = WrappedTimeframe.MONTHLY,
-                subtitleEn = if (isLastDayOfMonth) "Unlocked Monthly Story" else "Locked until end of month",
-                subtitleFa = if (isLastDayOfMonth) "باز شده • پایان ماه" else toPersianDigits("${daysLeftInJalaliMonth} روز تا پایان ${jalaliNow.monthNameFa}")
-            )
-        )
-
-        // ماه گذشته (تکمیلشده و باز)
-        val prevJMonth = if (jalaliNow.month > 1) jalaliNow.month - 1 else 12
-        val prevJYear = if (jalaliNow.month > 1) jalaliNow.year else jalaliNow.year - 1
-        val prevJMonthDays = if (prevJMonth <= 6) 31 else if (prevJMonth <= 11) 30 else 29
-        val prevMonthEndMs = currentMonthStartMs - 1L
-        val prevMonthStartMs = prevMonthEndMs - (prevJMonthDays * dayMs) + 1L
-        val prevGMonth = if (gMonth > 1) gMonth - 1 else 12
-        val prevGYear = if (gMonth > 1) gYear else gYear - 1
-
-        periods.add(
-            WrappedPeriod(
-                id = "MONTH_PREV_${prevJYear}_${prevJMonth}",
-                displayNameEn = "${getEnglishMonthName(prevGMonth)} $prevGYear",
-                displayNameFa = toPersianDigits("${getPersianMonthName(prevJMonth)} ${prevJYear}"),
-                isYearly = false,
-                year = prevJYear,
-                month = prevJMonth,
-                startTimestamp = prevMonthStartMs,
-                endTimestamp = prevMonthEndMs,
-                isLocked = false,
-                daysRemainingUntilUnlock = 0,
-                unlockTargetDateEn = "Completed Month",
-                unlockTargetDateFa = "ماه تکمیلشده",
-                timeframe = WrappedTimeframe.MONTHLY,
-                subtitleEn = "Full Monthly Wrapped",
-                subtitleFa = toPersianDigits("گزارش کامل ${getPersianMonthName(prevJMonth)} ${prevJYear}")
+                subtitleEn = if (isMonthlyUnlocked48h) "Unlocked for 48 Hours • Monthly Story" else "Locked until end of month ($safeDaysUntilMonthEnd days left)",
+                subtitleFa = if (isMonthlyUnlocked48h) "باز شده به مدت ۴۸ ساعت • پایان ماه" else toPersianDigits("قفل تا روز آخر ماه (${safeDaysUntilMonthEnd} روز مانده • دسترسی ۴۸ ساعته)")
             )
         )
 
         // =========================================================================
-        // ۳. رپد سالانه (قفل تا روز آخر سال)
+        // ۳. رپد سالانه (قفل تا روز آخر سال - بازگشایی محدود ۴۸ ساعته)
         // =========================================================================
         val totalDaysInJalaliYear = if (isJalaliLeapYear(jalaliNow.year)) 366 else 365
         val dayOfYearJalali = if (jalaliNow.month <= 6) {
@@ -255,7 +200,8 @@ object WrappedEngine {
             186 + (jalaliNow.month - 7) * 30 + jalaliNow.day
         }
         val daysLeftInYear = (totalDaysInJalaliYear - dayOfYearJalali).coerceAtLeast(0)
-        val isLastDayOfYear = (daysLeftInYear == 0)
+        val isYearlyUnlocked48h = (daysLeftInYear == 0 || dayOfYearJalali == 1)
+        val safeDaysUntilYearEnd = if (isYearlyUnlocked48h) 0 else daysLeftInYear.coerceAtLeast(1)
 
         val yearStartMs = nowMs - ((dayOfYearJalali - 1) * dayMs)
         val yearEndMs = yearStartMs + (totalDaysInJalaliYear * dayMs) - 1L
@@ -264,19 +210,19 @@ object WrappedEngine {
             WrappedPeriod(
                 id = "YEAR_CURRENT_${jalaliNow.year}",
                 displayNameEn = "$gYear Annual Wrapped",
-                displayNameFa = toPersianDigits("رپد سالانه ${jalaliNow.year}"),
+                displayNameFa = toPersianDigits("گزارش سالانه ${jalaliNow.year}"),
                 isYearly = true,
                 year = jalaliNow.year,
                 month = 0,
                 startTimestamp = yearStartMs,
                 endTimestamp = yearEndMs,
-                isLocked = !isLastDayOfYear, // قفل تا روز آخر سال!
-                daysRemainingUntilUnlock = daysLeftInYear.coerceAtLeast(if (isLastDayOfYear) 0 else 1),
-                unlockTargetDateEn = "Last day of the year (Dec 31)",
-                unlockTargetDateFa = toPersianDigits("روز آخر سال (اسفند ${jalaliNow.year})"),
+                isLocked = !isYearlyUnlocked48h, // قفل تا روز آخر سال (فقط به مدت ۴۸ ساعت باز می‌شود)
+                daysRemainingUntilUnlock = safeDaysUntilYearEnd,
+                unlockTargetDateEn = "Unlocks Last Day of Year (Limited 48h Window)",
+                unlockTargetDateFa = toPersianDigits("بازگشایی: روز آخر سال ${jalaliNow.year} (به مدت محدود ۴۸ ساعت)"),
                 timeframe = WrappedTimeframe.YEARLY,
-                subtitleEn = if (isLastDayOfYear) "Annual Wrapped Unlocked!" else "$daysLeftInYear days until Year-End Unlock",
-                subtitleFa = if (isLastDayOfYear) "باز شده • پایان سال" else toPersianDigits("${daysLeftInYear} روز مانده تا پایان سال ${jalaliNow.year}")
+                subtitleEn = if (isYearlyUnlocked48h) "Unlocked for 48 Hours • Annual Wrapped!" else "Locked until end of year ($safeDaysUntilYearEnd days left)",
+                subtitleFa = if (isYearlyUnlocked48h) "باز شده به مدت ۴۸ ساعت • پایان سال" else toPersianDigits("قفل تا روز آخر سال (${safeDaysUntilYearEnd} روز مانده • دسترسی ۴۸ ساعته)")
             )
         )
 
@@ -487,15 +433,15 @@ object WrappedEngine {
 
         val completionRate = if (rawPeriodEvents.isNotEmpty()) {
             val unSkipped = rawPeriodEvents.count { !it.wasSkipped }
-            (unSkipped.toFloat() / rawPeriodEvents.size.toFloat()) * 100f
-        } else 100f
+            (unSkipped.toFloat() / rawPeriodEvents.size.toFloat()).coerceIn(0f, 1f)
+        } else 1.0f
 
         return WrappedStats(
             period = period,
             totalListeningTimeMs = totalListeningTimeMs,
-            totalTracksPlayed = validListenEvents.size,
+            totalTracksPlayed = validListenEvents.size.coerceAtLeast(trackPlayCount.values.sum()),
             totalSkips = totalSkips,
-            listeningStreakDays = streak,
+            listeningStreakDays = streak.coerceAtLeast(if (totalListeningTimeMs > 0L) 1 else 0),
             topSongs = topSongs,
             topArtists = topArtists,
             topAlbums = topAlbums,
@@ -509,7 +455,8 @@ object WrappedEngine {
             completionRate = completionRate,
             hourlyDistribution = hourDistribution.toList(),
             peakHour = hourDistribution.indices.maxByOrNull { hourDistribution[it] } ?: 21,
-            uniqueTracksCount = trackPlayCount.size
+            uniqueTracksCount = trackPlayCount.size,
+            uniqueArtistsCount = artistPlayCount.size
         )
     }
 

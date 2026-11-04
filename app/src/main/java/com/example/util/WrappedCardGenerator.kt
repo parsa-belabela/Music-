@@ -19,21 +19,24 @@ object WrappedCardGenerator {
         lang: AppLanguage
     ): Uri? {
         return try {
+            val isFa = lang == AppLanguage.PERSIAN
+            fun fmt(v: Any): String = if (isFa) WrappedEngine.toPersianDigits(v.toString()) else v.toString()
+
             val width = 1080
             val height = 1920
             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
 
-            // Background Deep Atmosphere
+            // ۱. پس‌زمینه عمیق سینمایی
             val bgPaint = Paint().apply {
                 isAntiAlias = true
                 style = Paint.Style.FILL
                 shader = LinearGradient(
                     0f, 0f, 0f, height.toFloat(),
                     intArrayOf(
-                        android.graphics.Color.rgb(15, 12, 30),
-                        android.graphics.Color.rgb(8, 7, 18),
-                        android.graphics.Color.rgb(4, 3, 10)
+                        Color.rgb(12, 14, 28),
+                        Color.rgb(7, 9, 18),
+                        Color.rgb(4, 5, 11)
                     ),
                     null,
                     Shader.TileMode.CLAMP
@@ -41,61 +44,59 @@ object WrappedCardGenerator {
             }
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
 
-            // Radial atmospheric glow
+            // ۲. هاله نوری نئونی اسپاتیفای
             val glowPaint = Paint().apply {
                 isAntiAlias = true
                 shader = RadialGradient(
-                    width * 0.5f, height * 0.25f, 600f,
+                    width * 0.5f, height * 0.24f, 650f,
                     intArrayOf(
-                        android.graphics.Color.argb(120, (palette.primary.red * 255).toInt(), (palette.primary.green * 255).toInt(), (palette.primary.blue * 255).toInt()),
-                        android.graphics.Color.argb(40, (palette.accent.red * 255).toInt(), (palette.accent.green * 255).toInt(), (palette.accent.blue * 255).toInt()),
-                        android.graphics.Color.TRANSPARENT
+                        Color.argb(135, (palette.primary.red * 255).toInt(), (palette.primary.green * 255).toInt(), (palette.primary.blue * 255).toInt()),
+                        Color.argb(55, 30, 215, 96),
+                        Color.TRANSPARENT
                     ),
                     null,
                     Shader.TileMode.CLAMP
                 )
             }
-            canvas.drawCircle(width * 0.5f, height * 0.25f, 600f, glowPaint)
+            canvas.drawCircle(width * 0.5f, height * 0.24f, 650f, glowPaint)
 
-            // Glass Container Card
-            val cardRect = RectF(70f, 160f, width - 70f, height - 180f)
+            // ۳. کارت شیشه‌ای مرکزی
+            val cardRect = RectF(72f, 150f, width - 72f, height - 170f)
             val cardPaint = Paint().apply {
                 isAntiAlias = true
-                color = android.graphics.Color.argb(180, 25, 23, 45)
+                color = Color.argb(205, 18, 22, 38)
                 style = Paint.Style.FILL
             }
-            canvas.drawRoundRect(cardRect, 48f, 48f, cardPaint)
+            canvas.drawRoundRect(cardRect, 54f, 54f, cardPaint)
 
-            // Card Border
             val borderPaint = Paint().apply {
                 isAntiAlias = true
                 style = Paint.Style.STROKE
-                strokeWidth = 3f
+                strokeWidth = 3.5f
                 shader = LinearGradient(
-                    70f, 160f, width - 70f, height - 180f,
+                    72f, 150f, width - 72f, height - 170f,
                     intArrayOf(
-                        android.graphics.Color.argb(200, 255, 255, 255),
-                        android.graphics.Color.argb(60, 255, 255, 255),
-                        android.graphics.Color.argb(120, (palette.accent.red * 255).toInt(), (palette.accent.green * 255).toInt(), (palette.accent.blue * 255).toInt())
+                        Color.argb(220, 30, 215, 96),
+                        Color.argb(140, (palette.primary.red * 255).toInt(), (palette.primary.green * 255).toInt(), (palette.primary.blue * 255).toInt()),
+                        Color.argb(90, 255, 255, 255)
                     ),
                     null,
                     Shader.TileMode.CLAMP
                 )
             }
-            canvas.drawRoundRect(cardRect, 48f, 48f, borderPaint)
+            canvas.drawRoundRect(cardRect, 54f, 54f, borderPaint)
 
-            // Paints for Typography
             val titlePaint = Paint().apply {
                 isAntiAlias = true
-                color = android.graphics.Color.WHITE
-                textSize = 54f
+                color = Color.WHITE
+                textSize = 52f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 textAlign = Paint.Align.CENTER
             }
 
             val subtitlePaint = Paint().apply {
                 isAntiAlias = true
-                color = android.graphics.Color.argb(220, (palette.accent.red * 255).toInt(), (palette.accent.green * 255).toInt(), (palette.accent.blue * 255).toInt())
+                color = Color.rgb(30, 215, 96)
                 textSize = 34f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 textAlign = Paint.Align.CENTER
@@ -103,88 +104,124 @@ object WrappedCardGenerator {
 
             val textPaint = Paint().apply {
                 isAntiAlias = true
-                color = android.graphics.Color.WHITE
-                textSize = 36f
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                color = Color.WHITE
+                textSize = 35f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = Paint.Align.CENTER
             }
 
             val labelPaint = Paint().apply {
                 isAntiAlias = true
-                color = android.graphics.Color.rgb(170, 170, 195)
+                color = Color.rgb(172, 180, 204)
                 textSize = 28f
+                textAlign = Paint.Align.CENTER
             }
 
-            val periodName = if (lang == AppLanguage.PERSIAN) stats.period.displayNameFa else stats.period.displayNameEn
-            canvas.drawText("AURA MUSIC WRAPPED", width / 2f, 260f, titlePaint)
-            canvas.drawText(periodName.uppercase(), width / 2f, 320f, subtitlePaint)
+            val periodName = if (isFa) stats.period.displayNameFa else stats.period.displayNameEn
+            canvas.drawText("AURA MUSIC WRAPPED", width / 2f, 255f, titlePaint)
+            canvas.drawText(periodName, width / 2f, 315f, subtitlePaint)
 
-            // Stat 1: Total Listening Time
-            val hours = stats.totalListeningHours
-            val timeText = if (hours >= 1.0) "${"%.1f".format(hours)} Hours" else "${stats.totalListeningMinutes} Mins"
+            // ۴. مجموع زمان گوش دادن
+            val minsText = if (isFa) "${fmt(stats.totalListeningMinutes)} دقیقه" else "${stats.totalListeningMinutes} Minutes"
             val statPaint = Paint().apply {
                 isAntiAlias = true
-                color = android.graphics.Color.WHITE
-                textSize = 72f
+                color = Color.WHITE
+                textSize = 78f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 textAlign = Paint.Align.CENTER
             }
-            canvas.drawText(timeText, width / 2f, 450f, statPaint)
-            canvas.drawText("TOTAL LISTENING TIME", width / 2f, 500f, labelPaint.apply { textAlign = Paint.Align.CENTER })
+            canvas.drawText(minsText, width / 2f, 445f, statPaint)
+            canvas.drawText(
+                if (isFa) "مجموع زمان غرق شدن در موسیقی" else "TOTAL LISTENING TIME",
+                width / 2f,
+                498f,
+                labelPaint
+            )
 
-            // Stat 2: Streak & Persona
-            val persona = if (lang == AppLanguage.PERSIAN) stats.audioPersonalityFa else stats.audioPersonalityEn
-            canvas.drawText("✨ Audio Personality: $persona", width / 2f, 590f, subtitlePaint.apply { textSize = 32f })
-            canvas.drawText("🔥 ${stats.listeningStreakDays}-Day Listening Streak • ${stats.totalTracksPlayed} Tracks", width / 2f, 645f, labelPaint)
+            // ۵. شخصیت شنیداری و هنرمند شماره ۱
+            val persona = if (isFa) stats.audioPersonalityFa else stats.audioPersonalityEn
+            val topArtistName = stats.topArtists.firstOrNull()?.name ?: "-"
+            canvas.drawText(
+                if (isFa) "✨ شخصیت شنیداری: $persona" else "✨ Audio Persona: $persona",
+                width / 2f,
+                585f,
+                subtitlePaint.apply { textSize = 32f }
+            )
+            canvas.drawText(
+                if (isFa) "👑 خواننده شماره ۱: $topArtistName" else "👑 #1 Artist: $topArtistName",
+                width / 2f,
+                645f,
+                textPaint
+            )
 
-            // Section: Top Tracks
+            // ۶. لیست ۵ آهنگ برتر
             val secPaint = Paint().apply {
                 isAntiAlias = true
-                color = android.graphics.Color.argb(240, 255, 255, 255)
-                textSize = 38f
+                color = Color.rgb(30, 215, 96)
+                textSize = 36f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                textAlign = Paint.Align.LEFT
+                textAlign = Paint.Align.CENTER
             }
-            canvas.drawText("TOP TRACKS", 130f, 760f, secPaint)
+            canvas.drawText(
+                if (isFa) "🏆 ۵ آهنگ برتر شما" else "🏆 YOUR TOP 5 SONGS",
+                width / 2f,
+                755f,
+                secPaint
+            )
 
-            var yPos = 830f
+            var yPos = 835f
             stats.topSongs.take(5).forEachIndexed { idx, s ->
-                val numPaint = Paint().apply {
+                val boxRect = RectF(120f, yPos - 48f, width - 120f, yPos + 46f)
+                val rowBgPaint = Paint().apply {
                     isAntiAlias = true
-                    color = android.graphics.Color.argb(220, (palette.accent.red * 255).toInt(), (palette.accent.green * 255).toInt(), (palette.accent.blue * 255).toInt())
-                    textSize = 34f
-                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    color = Color.argb(140, 28, 34, 56)
                 }
-                canvas.drawText("#${idx + 1}", 130f, yPos, numPaint)
-                canvas.drawText(s.title.take(28), 200f, yPos, textPaint.apply { typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD) })
-                canvas.drawText("${s.artist} • ${s.playCount} plays", 200f, yPos + 40f, labelPaint.apply { textAlign = Paint.Align.LEFT })
-                yPos += 105f
+                canvas.drawRoundRect(boxRect, 22f, 22f, rowBgPaint)
+
+                val rowTitlePaint = Paint().apply {
+                    isAntiAlias = true
+                    color = Color.WHITE
+                    textSize = 32f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    textAlign = Paint.Align.LEFT
+                }
+                val rowSubPaint = Paint().apply {
+                    isAntiAlias = true
+                    color = Color.rgb(30, 215, 96)
+                    textSize = 28f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    textAlign = Paint.Align.RIGHT
+                }
+                canvas.drawText("#${idx + 1}  ${s.title.take(24)} - ${s.artist.take(16)}", 155f, yPos + 10f, rowTitlePaint)
+                canvas.drawText("${fmt(s.playCount)}x", width - 155f, yPos + 10f, rowSubPaint)
+                yPos += 118f
             }
 
-            // Section: Top Artists
-            if (stats.topArtists.isNotEmpty()) {
-                canvas.drawText("TOP ARTISTS", 130f, yPos + 40f, secPaint)
-                yPos += 105f
-                val artistStr = stats.topArtists.take(3).joinToString("  •  ") { it.name }
-                canvas.drawText(artistStr.take(45), 130f, yPos, textPaint.apply { textSize = 32f })
-            }
+            // ۷. سبک برتر
+            val topGenre = stats.topGenres.firstOrNull()?.name ?: "Hip-Hop & Pop"
+            canvas.drawText(
+                if (isFa) "سبک غالب: $topGenre" else "Top Genre: $topGenre",
+                width / 2f,
+                height - 310f,
+                textPaint.apply { textSize = 32f }
+            )
 
-            // Footer branding
+            // ۸. فوتر برندینگ
             val footerPaint = Paint().apply {
                 isAntiAlias = true
-                color = android.graphics.Color.rgb(150, 150, 180)
-                textSize = 28f
+                color = Color.rgb(148, 158, 186)
+                textSize = 27f
                 textAlign = Paint.Align.CENTER
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             }
-            canvas.drawText("🌌 Aura Music Player • Liquid Glass Audio Experience", width / 2f, height - 220f, footerPaint)
+            canvas.drawText("AURA MUSIC • SPOTIFY-GRADE AUDIO EXPERIENCE", width / 2f, height - 220f, footerPaint)
 
-            // Save to Cache file
             val cachePath = File(context.cacheDir, "images")
             cachePath.mkdirs()
             val file = File(cachePath, "wrapped_story_${System.currentTimeMillis()}.png")
-            val stream = FileOutputStream(file)
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-            stream.close()
+            FileOutputStream(file).use { stream ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+            }
 
             FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         } catch (_: Exception) {

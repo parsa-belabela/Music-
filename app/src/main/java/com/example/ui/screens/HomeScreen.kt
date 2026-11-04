@@ -651,16 +651,17 @@ fun HomeScreen(
             }
         }
 
-        // Feature 4: Weekly Music Recap Banner
-        if (weeklyRecapStats != null && weeklyRecapStats.topSongs.isNotEmpty()) {
+        // Feature 4: Weekly Music Recap Banner (Locked until Friday for 48-hour window)
+        if (weeklyRecapStats != null) {
             item {
+                val isWeeklyLocked = weeklyRecapStats.period.isLocked
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .liquidGlass(
                             shape = RoundedCornerShape(20.dp),
                             thickness = GlassThickness.REGULAR,
-                            tintColor = palette.primary,
+                            tintColor = if (isWeeklyLocked) Color(0xFFF59E0B) else palette.primary,
                             tintAlpha = 0.20f,
                             borderWidth = 1.2.dp
                         )
@@ -677,13 +678,15 @@ fun HomeScreen(
                                 modifier = Modifier
                                     .size(44.dp)
                                     .clip(CircleShape)
-                                    .background(palette.primary.copy(alpha = 0.3f)),
+                                    .background(
+                                        if (isWeeklyLocked) Color(0xFFF59E0B).copy(alpha = 0.25f) else palette.primary.copy(alpha = 0.3f)
+                                    ),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
+                                    imageVector = if (isWeeklyLocked) Icons.Default.LockClock else Icons.Default.AutoAwesome,
                                     contentDescription = null,
-                                    tint = palette.primary,
+                                    tint = if (isWeeklyLocked) Color(0xFFFBBF24) else palette.primary,
                                     modifier = Modifier.size(24.dp)
                                 )
                             }
@@ -697,8 +700,18 @@ fun HomeScreen(
                                     )
                                 )
                                 Text(
-                                    text = "${weeklyRecapStats.totalListeningMinutes} ${if (lang == AppLanguage.PERSIAN) "دقیقه شنیداری این هفته" else "minutes listened this week"}",
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8))
+                                    text = if (isWeeklyLocked) {
+                                        if (lang == AppLanguage.PERSIAN) {
+                                            "🔒 قفل تا روز جمعه (${weeklyRecapStats.period.daysRemainingUntilUnlock} روز مانده • دسترسی محدود ۴۸ ساعته)"
+                                        } else {
+                                            "🔒 Locked until Friday (${weeklyRecapStats.period.daysRemainingUntilUnlock}d left • 48h window)"
+                                        }
+                                    } else {
+                                        "${weeklyRecapStats.totalListeningMinutes} ${if (lang == AppLanguage.PERSIAN) "دقیقه شنیداری • باز به مدت ۴۸ ساعت" else "minutes listened • Unlocked for 48h"}"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = if (isWeeklyLocked) Color(0xFFFBBF24) else Color(0xFFA0A0B8)
+                                    )
                                 )
                             }
                         }

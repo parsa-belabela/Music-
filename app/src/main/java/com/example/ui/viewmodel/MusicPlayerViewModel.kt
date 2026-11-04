@@ -333,8 +333,18 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         OnlineCacheHolder.downloadTrackExplicitly(app, track) { downloadedFile ->
             if (downloadedFile != null) {
                 viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val realDurMs = try {
+                        val mmr = android.media.MediaMetadataRetriever()
+                        mmr.setDataSource(downloadedFile.absolutePath)
+                        val d = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                        mmr.release()
+                        if (d != null && d > 5_000L) d else track.durationMs
+                    } catch (_: Exception) {
+                        track.durationMs
+                    }
                     val savedTrack = track.copy(
                         uri = downloadedFile.absolutePath,
+                        durationMs = realDurMs,
                         dateAdded = System.currentTimeMillis(),
                         isDemo = false
                     )
@@ -483,13 +493,28 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             )
         }
 
-        // ۲. شروع بلافاصله پخش صوتی بدون هیچ تاخیر یا درخواست اضافی قبل از پخش
+        // ۲. شروع بلافاصله پخش صوتی + بافر کامل استریم در پس‌زمینه برای جلوگیری از پرش یا قطع شدن وسط آهنگ
         val cachedFile = OnlineCacheHolder.getCachedFileIfPresent(app, track.id)
+            ?: OnlineCacheHolder.getStreamBufferFileIfPresent(app, track.id)
         if (cachedFile != null) {
             val localReadyTrack = track.copy(uri = cachedFile.absolutePath)
             audioEngine.playTrack(localReadyTrack, startPositionMs)
         } else {
             audioEngine.playTrack(track, startPositionMs)
+            if (track.uri.startsWith("http://") || track.uri.startsWith("https://")) {
+                OnlineCacheHolder.warmStreamBufferInBackground(app, track) { bufferedFile ->
+                    if (bufferedFile != null && _playbackState.value.currentTrack?.id == track.id) {
+                        val currentPos = audioEngine.currentPosition.value
+                        val currentDur = audioEngine.duration.value
+                        // اگر استریم قبلی در حال بافر بود، خطا داده بود، یا فقط یک پیش‌نمایش ۳۰ ثانیه‌ای بود، به فایل کامل سوئیچ کن
+                        val isPreviewLength = currentDur in 1_000L..36_000L && track.durationMs > 45_000L
+                        val isStuckOrError = audioEngine.status.value == PlayerStatus.ERROR || audioEngine.status.value == PlayerStatus.BUFFERING
+                        if (isStuckOrError || (isPreviewLength && currentPos < 15_000L)) {
+                            audioEngine.playTrack(track.copy(uri = bufferedFile.absolutePath), currentPos, autoPlay = _playbackState.value.isPlayWhenReady)
+                        }
+                    }
+                }
+            }
         }
 
         // ثبت در پروفایل سلیقه آنلاین و لیست پخش‌های اخیر کاربر در پس‌زمینه
@@ -510,11 +535,13 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 }
             }
             _currentTrackAudioProfile.value = profile
-            val envFloats = profile.waveformEnvelope
-                .split(",")
-                .mapNotNull { it.trim().toFloatOrNull() }
-                .toFloatArray()
-            audioEngine.setTrackWaveformEnvelope(envFloats)
+            if (!track.uri.startsWith("http://") && !track.uri.startsWith("https://")) {
+                val envFloats = profile.waveformEnvelope
+                    .split(",")
+                    .mapNotNull { it.trim().toFloatOrNull() }
+                    .toFloatArray()
+                audioEngine.setTrackWaveformEnvelope(envFloats)
+            }
         }
 
         // توجه: دیگر در لحظه شروع آهنگ recordPlay صدا زده نمیشود تا آهنگهای اسکیپشده شمارش نشوند!
