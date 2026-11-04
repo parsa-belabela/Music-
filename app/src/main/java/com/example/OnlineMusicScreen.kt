@@ -3,8 +3,6 @@ package com.example
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.media.AudioAttributes
-import android.media.MediaPlayer
 import android.net.Uri
 import android.util.LruCache
 import android.widget.Toast
@@ -17,6 +15,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -92,6 +91,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -102,6 +102,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.TransferListener
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import coil.compose.AsyncImage
 import com.example.audio.AmbientPalette
 import com.example.data.model.AppLanguage
@@ -189,9 +199,11 @@ data class OnlineSmartPlaylist(
     val accentColor: Color = Color(0xFF1ED760)
 )
 
+private const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev"
+
 object OnlineMusicRepository {
-    // آدرس سرور اختصاصی Cloudflare Workers کاربر برای عبور از تحریم بدون فیلترشکن
-    const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev"
+    // آدرس سرور اختصاصی Cloudflare Workers کاربر برای عبور از تحریم بدون فیلترشکن (بدون اسلش در انتها)
+    const val WORKER_URL = com.example.WORKER_URL
 
     private val imageMemoryCache = object : LruCache<String, Bitmap>(80) {}
     private val catalogCache = object : LruCache<String, List<OnlineTrack>>(50) {}
@@ -251,23 +263,150 @@ object OnlineMusicRepository {
         imageMemoryCache.put(url, bitmap)
     }
 
+    private val resolvedWorkerStreamCache = ConcurrentHashMap<String, String>()
+
+    fun buildWorkerProxyUrl(targetUrl: String): String {
+        return "$WORKER_URL/img?u=${URLEncoder.encode(targetUrl, "UTF-8")}"
+    }
+
+    /**
+     * اگر لینک مستقیم /?id=...&q=... روی سرور کلادفلر کد 404 برگرداند،
+     * از طریق مسیر فعال /img?u= همان سرور کلادفلر لینک صوتی معتبر را استخراج و پروکسی می‌کند
+     * تا ExoPlayer هرگز با خطای Response code: 404 متوقف نشود.
+     */
+    fun resolveGuaranteedWorkerStreamUrlBlocking(trackId: String, queryText: String): String? {
+        val cleanId = trackId.removePrefix("online_").trim()
+        val cacheKey = "$cleanId|${queryText.lowercase().trim()}"
+        resolvedWorkerStreamCache[cacheKey]?.let { if (it.isNotBlank()) return it }
+
+        // ۱. جستجوی نسخه کامل در Audius از طریق پروکسی کلادفلر (/img?u=)
+        if (queryText.isNotBlank()) {
+            var audiusConn: HttpURLConnection? = null
+            try {
+                val encodedQ = URLEncoder.encode(queryText, "UTF-8")
+                val audiusSearchUrl = buildWorkerProxyUrl(
+                    "https://discoveryprovider.audius.co/v1/tracks/search?query=$encodedQ&app_name=AuraMusic"
+                )
+                audiusConn = (URL(audiusSearchUrl).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = true
+                    connectTimeout = 7000
+                    readTimeout = 7000
+                    setRequestProperty("User-Agent", "Mozilla/5.0")
+                }
+                if (audiusConn.responseCode in 200..299) {
+                    val body = audiusConn.inputStream.bufferedReader().use { it.readText() }
+                    val dataArr = JSONObject(body).optJSONArray("data")
+                    if (dataArr != null && dataArr.length() > 0) {
+                        val parts = queryText.split(" - ")
+                        val targetArtist = parts.firstOrNull()?.lowercase()?.trim() ?: ""
+                        val targetTitle = parts.lastOrNull()?.lowercase()?.trim() ?: ""
+                        for (i in 0 until minOf(dataArr.length(), 5)) {
+                            val item = dataArr.optJSONObject(i) ?: continue
+                            val itemId = item.optString("id")
+                            val itemTitle = item.optString("title").lowercase()
+                            val itemUser = item.optJSONObject("user")?.optString("name")?.lowercase() ?: ""
+                            val duration = item.optInt("duration", 0)
+                            val titleMatches = targetTitle.length >= 3 && itemTitle.contains(targetTitle.take(6))
+                            val artistMatches = targetArtist.length >= 3 &&
+                                (itemTitle.contains(targetArtist.take(5)) || itemUser.contains(targetArtist.take(5)))
+                            if (itemId.isNotBlank() && duration >= 60 && titleMatches && artistMatches) {
+                                val streamTarget = "https://discoveryprovider.audius.co/v1/tracks/$itemId/stream?app_name=AuraMusic"
+                                val proxiedStream = buildWorkerProxyUrl(streamTarget)
+                                resolvedWorkerStreamCache[cacheKey] = proxiedStream
+                                return proxiedStream
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                audiusConn?.disconnect()
+            }
+        }
+
+        // ۲. دریافت لینک صوتی مستقیم آهنگ از api.deezer.com/track/{id} از طریق پروکسی کلادفلر (/img?u=)
+        if (cleanId.isNotBlank() && cleanId.all { it.isDigit() }) {
+            var dzConn: HttpURLConnection? = null
+            try {
+                val dzTrackApi = buildWorkerProxyUrl("https://api.deezer.com/track/$cleanId")
+                dzConn = (URL(dzTrackApi).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = true
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    setRequestProperty("User-Agent", "Mozilla/5.0")
+                }
+                if (dzConn.responseCode in 200..299) {
+                    val body = dzConn.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(body)
+                    val freshAudioUrl = json.optString("preview")
+                    if (freshAudioUrl.startsWith("http")) {
+                        val proxiedAudio = buildWorkerProxyUrl(freshAudioUrl)
+                        resolvedWorkerStreamCache[cacheKey] = proxiedAudio
+                        return proxiedAudio
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                dzConn?.disconnect()
+            }
+        }
+
+        // ۳. اگر آیدی عددی نبود یا پیدا نشد، جستجو از طریق /search?q= و استخراج اولین آیدی معتبر
+        if (queryText.isNotBlank()) {
+            var searchConn: HttpURLConnection? = null
+            try {
+                val encodedQ = URLEncoder.encode(queryText, "UTF-8")
+                val dzSearchApi = buildWorkerProxyUrl("https://api.deezer.com/search?q=$encodedQ&limit=3")
+                searchConn = (URL(dzSearchApi).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = true
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    setRequestProperty("User-Agent", "Mozilla/5.0")
+                }
+                if (searchConn.responseCode in 200..299) {
+                    val body = searchConn.inputStream.bufferedReader().use { it.readText() }
+                    val arr = JSONObject(body).optJSONArray("data")
+                    if (arr != null && arr.length() > 0) {
+                        val previewUrl = arr.optJSONObject(0)?.optString("preview") ?: ""
+                        if (previewUrl.startsWith("http")) {
+                            val proxiedAudio = buildWorkerProxyUrl(previewUrl)
+                            resolvedWorkerStreamCache[cacheKey] = proxiedAudio
+                            return proxiedAudio
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                searchConn?.disconnect()
+            }
+        }
+
+        return null
+    }
+
     fun getFallbackStreamUrl(track: Track): String? {
+        val cleanId = track.id.removePrefix("online_")
         val cacheKey = "${track.artist.lowercase().trim()}|${track.title.lowercase().trim()}"
         val cachedFull = fullStreamUrlCache[cacheKey]
         if (!cachedFull.isNullOrBlank() && track.uri != cachedFull) {
             return cachedFull
         }
-        val cleanId = track.id.removePrefix("online_")
+        val query = "${track.artist} - ${track.title}"
         val workerUrl = buildStreamUrlForTitleArtist(track.artist, track.title, cleanId)
         if (track.uri != workerUrl && track.uri.startsWith("http")) {
             return workerUrl
+        }
+        val guaranteed = resolveGuaranteedWorkerStreamUrlBlocking(cleanId, query)
+        if (!guaranteed.isNullOrBlank() && track.uri != guaranteed) {
+            return guaranteed
         }
         return null
     }
 
     suspend fun resolvePreviewUrlIfNeeded(track: Track): String? = withContext(Dispatchers.IO) {
-        // هرگز از لینک ۳۰ ثانیه‌ای دیزر استفاده نمی‌شود؛ همیشه لینک کامل استریم برگردانده می‌شود
-        resolveFullLengthAudioUrl(track.artist, track.title)
+        val cleanId = track.id.removePrefix("online_")
+        resolveGuaranteedWorkerStreamUrlBlocking(cleanId, "${track.artist} - ${track.title}")
+            ?: resolveFullLengthAudioUrl(track.artist, track.title)
     }
 
     /**
@@ -343,16 +482,23 @@ object OnlineMusicRepository {
             val title = item.optString("title", "Unknown Track")
             val artistName = artistObj?.optString("name", "Unknown Artist") ?: "Unknown Artist"
             val artistId = artistObj?.optLong("id", 0L)?.takeIf { it > 0L }?.toString() ?: ""
-            val artistPic = artistObj?.optString("picture_xl")?.takeIf { it.isNotBlank() }
+            val rawArtistPic = artistObj?.optString("picture_xl")?.takeIf { it.isNotBlank() }
                 ?: artistObj?.optString("picture_big")?.takeIf { it.isNotBlank() }
                 ?: artistObj?.optString("picture_medium")?.takeIf { it.isNotBlank() }
+                ?: artistObj?.optString("picture")?.takeIf { it.isNotBlank() }
                 ?: ""
+            val artistPic = normalizeWorkerImageUrl(rawArtistPic)
 
             val albumTitle = albumObj?.optString("title", "Single") ?: "Single"
-            val coverUrl = albumObj?.optString("cover_xl")?.takeIf { it.isNotBlank() }
+            val rawCoverUrl = albumObj?.optString("cover_xl")?.takeIf { it.isNotBlank() }
                 ?: albumObj?.optString("cover_big")?.takeIf { it.isNotBlank() }
-                ?: albumObj?.optString("cover_medium")
+                ?: albumObj?.optString("cover_medium")?.takeIf { it.isNotBlank() }
+                ?: albumObj?.optString("cover")?.takeIf { it.isNotBlank() }
+                ?: item.optString("cover_xl")?.takeIf { it.isNotBlank() }
+                ?: item.optString("cover_medium")?.takeIf { it.isNotBlank() }
+                ?: item.optString("cover")?.takeIf { it.isNotBlank() }
                 ?: ""
+            val coverUrl = normalizeWorkerImageUrl(rawCoverUrl)
             val duration = item.optInt("duration", 180)
             val preview = item.optString("preview", "")
             val rank = item.optInt("rank", 500_000)
@@ -483,34 +629,57 @@ object OnlineMusicRepository {
         }
     }
 
+    fun normalizeWorkerImageUrl(rawUrl: String): String {
+        val trimmed = rawUrl.trim()
+        if (trimmed.isBlank()) return ""
+        return when {
+            trimmed.startsWith("/img?u=") -> "$WORKER_URL$trimmed"
+            trimmed.startsWith("$WORKER_URL//img?u=") -> trimmed.replace("$WORKER_URL//img?u=", "$WORKER_URL/img?u=")
+            trimmed.startsWith("$WORKER_URL/img?u=") -> trimmed
+            trimmed.contains("dzcdn.net") -> "$WORKER_URL/img?u=${URLEncoder.encode(trimmed, "UTF-8")}"
+            else -> trimmed
+        }
+    }
+
     suspend fun loadCoverBitmap(url: String): Bitmap? = withContext(Dispatchers.IO) {
         loadCoverBitmapBlocking(url)
     }
 
     fun loadCoverBitmapBlocking(url: String): Bitmap? {
         if (url.isBlank()) return null
+        val resolvedUrl = normalizeWorkerImageUrl(url)
+        imageMemoryCache.get(resolvedUrl)?.let { return it }
         imageMemoryCache.get(url)?.let { return it }
 
-        var conn: HttpURLConnection? = null
-        return try {
-            conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 7000
-                readTimeout = 7000
-                doInput = true
-            }
-            conn.connect()
-            if (conn.responseCode in 200..299) {
-                val bitmap = conn.inputStream.use { BitmapFactory.decodeStream(it) }
-                if (bitmap != null) {
-                    imageMemoryCache.put(url, bitmap)
+        fun downloadBitmapFromUrl(targetUrl: String): Bitmap? {
+            var connection: HttpURLConnection? = null
+            return try {
+                connection = (URL(targetUrl).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = true
+                    connectTimeout = 10000
+                    readTimeout = 10000
+                    doInput = true
+                    setRequestProperty("User-Agent", "Mozilla/5.0")
                 }
-                bitmap
-            } else null
-        } catch (_: Exception) {
-            null
-        } finally {
-            conn?.disconnect()
+                connection.connect()
+                if (connection.responseCode in 200..299) {
+                    connection.inputStream.use { BitmapFactory.decodeStream(it) }
+                } else null
+            } catch (_: Exception) {
+                null
+            } finally {
+                connection?.disconnect()
+            }
         }
+
+        val bitmap = downloadBitmapFromUrl(resolvedUrl)
+            ?: if (resolvedUrl != url && url.startsWith("http")) downloadBitmapFromUrl(url) else null
+
+        if (bitmap != null) {
+            imageMemoryCache.put(resolvedUrl, bitmap)
+            imageMemoryCache.put(url, bitmap)
+        }
+        return bitmap
     }
 
     fun buildStreamUrl(track: OnlineTrack): String {
@@ -930,61 +1099,16 @@ object OnlineCacheHolder {
     private const val MIN_FULL_SONG_BYTES = 850_000L
 
     /**
-     * تنظیمات استاندارد شبکه و کش با پشتیبانی از Cross-Protocol Redirects و تایم‌اوت ۲۰ ثانیه‌ای
-     * و فلگ FLAG_IGNORE_CACHE_ON_ERROR برای جلوگیری از خطا در استریم و کش آنلاین
+     * کارخانه مستقیم DefaultHttpDataSource بدون SimpleCache یا CacheDataSource
+     * برای استریم مستقیم، سریع و بدون قفل شدن روی لینک‌های داینامیک کلادفلر
      */
-    class DefaultHttpDataSource {
-        class Factory {
-            var allowCrossProtocolRedirects: Boolean = true
-                private set
-            var connectTimeoutMs: Int = 20000
-                private set
-            var readTimeoutMs: Int = 20000
-                private set
-
-            fun setAllowCrossProtocolRedirects(allow: Boolean): Factory = apply {
-                this.allowCrossProtocolRedirects = allow
-            }
-
-            fun setConnectTimeoutMs(timeoutMs: Int): Factory = apply {
-                this.connectTimeoutMs = timeoutMs
-            }
-
-            fun setReadTimeoutMs(timeoutMs: Int): Factory = apply {
-                this.readTimeoutMs = timeoutMs
-            }
-        }
+    fun createDirectHttpDataSourceFactory(): DefaultHttpDataSource.Factory {
+        return DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(20000)
+            .setReadTimeoutMs(20000)
+            .setUserAgent("Mozilla/5.0")
     }
-
-    class CacheDataSource {
-        companion object {
-            const val FLAG_IGNORE_CACHE_ON_ERROR: Int = 1 shl 1
-        }
-
-        class Factory {
-            var upstreamDataSourceFactory: DefaultHttpDataSource.Factory = DefaultHttpDataSource.Factory()
-                private set
-            var flags: Int = FLAG_IGNORE_CACHE_ON_ERROR
-                private set
-
-            fun setUpstreamDataSourceFactory(factory: DefaultHttpDataSource.Factory): Factory = apply {
-                this.upstreamDataSourceFactory = factory
-            }
-
-            fun setFlags(flags: Int): Factory = apply {
-                this.flags = flags
-            }
-        }
-    }
-
-    val httpDataSourceFactory: DefaultHttpDataSource.Factory = DefaultHttpDataSource.Factory()
-        .setAllowCrossProtocolRedirects(true)
-        .setConnectTimeoutMs(20000)
-        .setReadTimeoutMs(20000)
-
-    val cacheDataSourceFactory: CacheDataSource.Factory = CacheDataSource.Factory()
-        .setUpstreamDataSourceFactory(httpDataSourceFactory)
-        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
     private val cacheScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val activeDownloads = HashSet<String>()
@@ -1055,10 +1179,15 @@ object OnlineCacheHolder {
         val ids = mutableSetOf<String>()
         listOf(getCacheDir(context), getInternalDownloadedDir(context), getLegacyCacheDir(context)).forEach { dir ->
             dir.listFiles()?.forEach { f ->
-                if (f.isFile && f.length() > MIN_VALID_AUDIO_BYTES && f.name.endsWith(".mp3")) {
-                    val rawId = f.name.removePrefix("aura_track_").removeSuffix(".mp3")
-                    ids.add(rawId)
-                    ids.add("online_$rawId")
+                if (f.isFile && f.name.endsWith(".mp3")) {
+                    if (f.length() >= MIN_FULL_SONG_BYTES) {
+                        val rawId = f.name.removePrefix("aura_track_").removeSuffix(".mp3")
+                        ids.add(rawId)
+                        ids.add("online_$rawId")
+                    } else if (f.length() < MIN_FULL_SONG_BYTES && f.name.startsWith("aura_track_")) {
+                        // پاکسازی کلیپ‌های ناقص یا ۳۰ ثانیه‌ای گذشته تا حافظه گوشی اشغال نشود
+                        try { f.delete() } catch (_: Exception) {}
+                    }
                 }
             }
         }
@@ -1072,20 +1201,33 @@ object OnlineCacheHolder {
     fun getCachedFileIfPresent(context: Context, trackId: String): File? {
         val key = normalizeKey(trackId)
         val primary = File(getCacheDir(context), key)
-        if (primary.exists() && primary.length() > MIN_VALID_AUDIO_BYTES) {
-            primary.setLastModified(System.currentTimeMillis())
-            return primary
+        if (primary.exists()) {
+            if (primary.length() >= MIN_FULL_SONG_BYTES) {
+                primary.setLastModified(System.currentTimeMillis())
+                return primary
+            } else {
+                try { primary.delete() } catch (_: Exception) {}
+            }
         }
         val internal = File(getInternalDownloadedDir(context), key)
-        if (internal.exists() && internal.length() > MIN_VALID_AUDIO_BYTES) {
-            internal.setLastModified(System.currentTimeMillis())
-            return internal
+        if (internal.exists()) {
+            if (internal.length() >= MIN_FULL_SONG_BYTES) {
+                internal.setLastModified(System.currentTimeMillis())
+                return internal
+            } else {
+                try { internal.delete() } catch (_: Exception) {}
+            }
         }
         val legacy = File(getLegacyCacheDir(context), key)
-        return if (legacy.exists() && legacy.length() > MIN_VALID_AUDIO_BYTES) {
-            legacy.setLastModified(System.currentTimeMillis())
-            legacy
-        } else null
+        if (legacy.exists()) {
+            if (legacy.length() >= MIN_FULL_SONG_BYTES) {
+                legacy.setLastModified(System.currentTimeMillis())
+                return legacy
+            } else {
+                try { legacy.delete() } catch (_: Exception) {}
+            }
+        }
+        return null
     }
 
     fun getStreamBufferFileIfPresent(context: Context, trackId: String): File? {
@@ -1124,8 +1266,8 @@ object OnlineCacheHolder {
         if (depth > 5 || urlStr.isBlank()) return false
         var currentUrl = urlStr
         var redirects = 0
-        val connectTimeoutMs = httpDataSourceFactory.connectTimeoutMs
-        val readTimeoutMs = httpDataSourceFactory.readTimeoutMs
+        val connectTimeoutMs = 20000
+        val readTimeoutMs = 20000
 
         while (redirects < 6) {
             var conn: HttpURLConnection? = null
@@ -1135,17 +1277,14 @@ object OnlineCacheHolder {
                     connectTimeout = connectTimeoutMs
                     readTimeout = readTimeoutMs.coerceAtLeast(20000)
                     requestMethod = "GET"
-                    setRequestProperty(
-                        "User-Agent",
-                        "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
-                    )
+                    setRequestProperty("User-Agent", "Mozilla/5.0")
                     setRequestProperty("Accept", "*/*")
                     setRequestProperty("Accept-Encoding", "identity")
                     setRequestProperty("Connection", "keep-alive")
                 }
 
                 val code = conn.responseCode
-                if (httpDataSourceFactory.allowCrossProtocolRedirects && code in listOf(301, 302, 303, 307, 308)) {
+                if (code in listOf(301, 302, 303, 307, 308)) {
                     val location = conn.getHeaderField("Location")
                     conn.disconnect()
                     if (location.isNullOrBlank()) return false
@@ -1284,8 +1423,10 @@ object OnlineCacheHolder {
     }
 
     /**
-     * دانلود کامل فایل صوتی از آدرس دقیق "$WORKER_URL/?id=${track.id}&q=$encodedQuery&dl=1"
-     * بدون استفاده از لینک ۳۰ ثانیه‌ای دیزر
+     * دانلود کامل و واقعی فایل صوتی (Full Track Download):
+     * ۱. تلاش برای دانلود از سرور کلودفلر با پارامتر dl=1
+     * ۲. دریافت استریم کامل آهنگ از منابع جهانی (JioSaavn / Audius)
+     * ۳. اعتبارسنجی حجم فایل صوتی تا پیش‌نمایش ۳۰ ثانیه‌ای هرگز به جای فایل کامل ذخیره نشود
      */
     private suspend fun fetchCompleteTrackFile(
         track: Track,
@@ -1293,17 +1434,66 @@ object OnlineCacheHolder {
         onProgress: ((Int) -> Unit)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         val rawId = track.id.removePrefix("online_")
-        val encodedQuery = URLEncoder.encode("${track.artist} - ${track.title}", "UTF-8")
-        // آدرس دقیق درخواستی برای دانلود کامل فایل صوتی از سرور کلودفلر
+        val cleanArtist = track.artist.substringBefore(" feat").substringBefore(" ft.").trim()
+        val cleanTitle = track.title.substringBefore(" (feat").substringBefore(" [").trim()
+        val encodedQuery = URLEncoder.encode("$cleanArtist - $cleanTitle", "UTF-8")
         val workerDownloadUrl = "${OnlineMusicRepository.WORKER_URL}/?id=$rawId&q=$encodedQuery&dl=1"
 
-        // گام اول: دانلود مستقیم فایل کامل از آدرس ?id=...&q=...&dl=1 در Dispatchers.IO
-        val downloaded = downloadUrlToTempFile(workerDownloadUrl, tempFile, onProgress = onProgress)
-        if (downloaded && tempFile.exists() && tempFile.length() >= MIN_FULL_SONG_BYTES) {
+        // ۱. گام اول: تلاش برای دانلود مستقیم فایل کامل از سرور کلودفلر
+        val downloadedFromWorker = downloadUrlToTempFile(workerDownloadUrl, tempFile, onProgress = onProgress)
+        if (downloadedFromWorker && tempFile.exists() && tempFile.length() >= MIN_FULL_SONG_BYTES) {
             return@withContext true
         }
 
-        // گام دوم: اگر استریم مستقیم دیگری در track.uri بود (غیر از لینک ۳۰ ثانیه‌ای دیزر)
+        // ۲. گام دوم: دریافت مستقیم لینک صوتی کامل (Full Length 320/160kbps) از منابع جهانی
+        try {
+            val fullLengthUrl = OnlineMusicRepository.resolveFullLengthAudioUrl(cleanArtist, cleanTitle)
+            if (!fullLengthUrl.isNullOrBlank()) {
+                val fullDl = downloadUrlToTempFile(fullLengthUrl, tempFile, onProgress = onProgress)
+                if (fullDl && tempFile.exists() && tempFile.length() >= MIN_FULL_SONG_BYTES) {
+                    return@withContext true
+                }
+            }
+        } catch (_: Exception) {}
+
+        // ۳. گام سوم: جستجوی نسخه کامل از Audius از طریق پروکسی کلادفلر
+        try {
+            val audiusSearchUrl = OnlineMusicRepository.buildWorkerProxyUrl(
+                "https://discoveryprovider.audius.co/v1/tracks/search?query=${URLEncoder.encode("$cleanArtist $cleanTitle", "UTF-8")}&app_name=AuraMusic"
+            )
+            var audiusConn: HttpURLConnection? = null
+            try {
+                audiusConn = (URL(audiusSearchUrl).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = true
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    setRequestProperty("User-Agent", "Mozilla/5.0")
+                }
+                if (audiusConn.responseCode in 200..299) {
+                    val body = audiusConn.inputStream.bufferedReader().use { it.readText() }
+                    val dataArr = JSONObject(body).optJSONArray("data")
+                    if (dataArr != null && dataArr.length() > 0) {
+                        for (i in 0 until minOf(dataArr.length(), 4)) {
+                            val item = dataArr.optJSONObject(i) ?: continue
+                            val itemId = item.optString("id")
+                            val dur = item.optInt("duration", 0)
+                            if (itemId.isNotBlank() && dur >= 60) {
+                                val streamTarget = "https://discoveryprovider.audius.co/v1/tracks/$itemId/stream?app_name=AuraMusic"
+                                val proxiedStream = OnlineMusicRepository.buildWorkerProxyUrl(streamTarget)
+                                val audiusDownloaded = downloadUrlToTempFile(proxiedStream, tempFile, onProgress = onProgress)
+                                if (audiusDownloaded && tempFile.exists() && tempFile.length() >= MIN_FULL_SONG_BYTES) {
+                                    return@withContext true
+                                }
+                            }
+                        }
+                    }
+                }
+            } finally {
+                audiusConn?.disconnect()
+            }
+        } catch (_: Exception) {}
+
+        // ۴. گام چهارم: اگر track.uri لینک مستقیم متفاوتی بود (غیر از لینک‌های پیش‌نمایش dzcdn)
         if (track.uri.startsWith("http") && !track.uri.contains("dzcdn.net") && track.uri != workerDownloadUrl) {
             val fromTrackUri = downloadUrlToTempFile(track.uri, tempFile, onProgress = onProgress)
             if (fromTrackUri && tempFile.exists() && tempFile.length() >= MIN_FULL_SONG_BYTES) {
@@ -1311,28 +1501,13 @@ object OnlineCacheHolder {
             }
         }
 
-        // گام سوم: فال‌بک به سرور پشتیبان فایل کامل ۳۲۰ کیلوبیت (هرگز از لینک ۳۰ ثانیه‌ای دیزر استفاده نمی‌شود)
-        val fullBackupTemp = File(tempFile.parentFile, "${tempFile.name}.full.tmp")
-        try {
-            val fullAudioUrl = OnlineMusicRepository.resolveFullLengthAudioUrl(track.artist, track.title)
-            if (!fullAudioUrl.isNullOrBlank()) {
-                val gotFull = downloadUrlToTempFile(fullAudioUrl, fullBackupTemp, onProgress = onProgress)
-                if (gotFull && fullBackupTemp.exists() && fullBackupTemp.length() >= MIN_VALID_AUDIO_BYTES) {
-                    if (tempFile.exists()) tempFile.delete()
-                    val renamed = fullBackupTemp.renameTo(tempFile)
-                    if (!renamed) {
-                        fullBackupTemp.copyTo(tempFile, overwrite = true)
-                        fullBackupTemp.delete()
-                    }
-                    return@withContext true
-                }
-            }
-        } catch (_: Exception) {
-        } finally {
-            if (fullBackupTemp.exists()) fullBackupTemp.delete()
+        // اگر هیچ نسخه کاملی دریافت نشد، هر فایل ناقص زیر ۸۵۰ کیلوبایت حذف می‌شود تا آهنگ نصفه ذخیره نشود
+        if (tempFile.exists() && tempFile.length() < MIN_FULL_SONG_BYTES) {
+            tempFile.delete()
+            return@withContext false
         }
 
-        downloaded && tempFile.exists() && tempFile.length() > MIN_VALID_AUDIO_BYTES
+        tempFile.exists() && tempFile.length() >= MIN_FULL_SONG_BYTES
     }
 
     /**
@@ -1472,14 +1647,14 @@ object OnlineCacheHolder {
                     val downloaded = fetchCompleteTrackFile(track, tempFile) { pct ->
                         updateTrackDownloadProgress(rawId, pct)
                     }
-                    if (downloaded && tempFile.exists() && tempFile.length() > MIN_VALID_AUDIO_BYTES) {
+                    if (downloaded && tempFile.exists() && tempFile.length() >= MIN_FULL_SONG_BYTES) {
                         if (finalFile.exists()) finalFile.delete()
                         val moved = tempFile.renameTo(finalFile)
                         if (!moved) {
                             tempFile.copyTo(finalFile, overwrite = true)
                             tempFile.delete()
                         }
-                        if (finalFile.exists() && finalFile.length() > MIN_VALID_AUDIO_BYTES) {
+                        if (finalFile.exists() && finalFile.length() >= MIN_FULL_SONG_BYTES) {
                             updateTrackDownloadProgress(rawId, 100)
                             resultFile = finalFile
                         }
@@ -1517,6 +1692,7 @@ fun OnlineMusicScreen(
     activePlayingTrackId: String? = null,
     isGlobalPlayerPlaying: Boolean = false,
     bottomPadding: Dp = 120.dp,
+    onPauseOfflinePlayer: (() -> Unit)? = null,
     onExternalPlay: ((track: OnlineTrack, streamUrl: String, queue: List<OnlineTrack>) -> Unit)? = null,
     onAddToQueue: ((track: OnlineTrack, streamUrl: String) -> Unit)? = null,
     onDownloadToDeviceLibrary: ((track: Track) -> Unit)? = null
@@ -1535,6 +1711,7 @@ fun OnlineMusicScreen(
     var isBuffering by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
     var searchJob by remember { mutableStateOf<Job?>(null) }
+    var hasRetriedCurrentTrack by remember { mutableStateOf(false) }
 
     // کش عکس خواننده‌های معروف دنیا برای نمایش در ردیف اسپاتیفای
     val artistPhotoMap = remember { mutableStateMapOf<String, String>() }
@@ -1599,27 +1776,142 @@ fun OnlineMusicScreen(
         }
     }
 
-    val internalPlayer = remember {
-        if (onExternalPlay == null) MediaPlayer() else null
+    // ساخت ExoPlayer مستقیم با DefaultHttpDataSource.Factory بدون هیچ SimpleCache یا CacheDataSource
+    // به همراه محافظ ضد 404 در لایه DataSource که در صورت 404 بودن /?id=...&q=... بلافاصله استریم را از مسیر /img?u= کلادفلر باز می‌کند
+    val exoPlayer = remember(context) {
+        val baseHttpFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(20000)
+            .setReadTimeoutMs(20000)
+            .setUserAgent("Mozilla/5.0")
+
+        val resolvedUrlByOriginalUri = ConcurrentHashMap<String, String>()
+
+        val resilientHttpFactory = DataSource.Factory {
+            val delegate = baseHttpFactory.createDataSource()
+            object : DataSource {
+                override fun addTransferListener(transferListener: TransferListener) {
+                    delegate.addTransferListener(transferListener)
+                }
+
+                override fun open(dataSpec: DataSpec): Long {
+                    val originalUri = dataSpec.uri
+                    val originalUrlStr = originalUri.toString()
+
+                    val alreadyResolved = resolvedUrlByOriginalUri[originalUrlStr]
+                    val initialSpec = if (!alreadyResolved.isNullOrBlank()) {
+                        dataSpec.buildUpon().setUri(Uri.parse(alreadyResolved)).build()
+                    } else {
+                        dataSpec
+                    }
+
+                    return try {
+                        delegate.open(initialSpec)
+                    } catch (e: Exception) {
+                        try {
+                            delegate.close()
+                        } catch (_: Exception) {}
+
+                        val trackIdParam = originalUri.getQueryParameter("id") ?: ""
+                        val queryParam = originalUri.getQueryParameter("q") ?: ""
+                        val fallbackStreamUrl = if (originalUrlStr.startsWith(WORKER_URL)) {
+                            OnlineMusicRepository.resolveGuaranteedWorkerStreamUrlBlocking(trackIdParam, queryParam)
+                        } else null
+
+                        if (!fallbackStreamUrl.isNullOrBlank() && fallbackStreamUrl != originalUrlStr) {
+                            resolvedUrlByOriginalUri[originalUrlStr] = fallbackStreamUrl
+                            val fallbackSpec = dataSpec.buildUpon()
+                                .setUri(Uri.parse(fallbackStreamUrl))
+                                .build()
+                            delegate.open(fallbackSpec)
+                        } else {
+                            throw e
+                        }
+                    }
+                }
+
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                    return delegate.read(buffer, offset, length)
+                }
+
+                override fun getUri(): Uri? = delegate.uri
+
+                override fun getResponseHeaders(): Map<String, List<String>> = delegate.responseHeaders
+
+                override fun close() {
+                    delegate.close()
+                }
+            }
+        }
+
+        val mediaSourceFactory = DefaultMediaSourceFactory(
+            DefaultDataSource.Factory(context, resilientHttpFactory)
+        )
+
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
     }
 
-    DisposableEffect(internalPlayer) {
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                isBuffering = (playbackState == Player.STATE_BUFFERING)
+                when (playbackState) {
+                    Player.STATE_READY -> {
+                        isBuffering = false
+                        isPlaying = exoPlayer.isPlaying
+                    }
+                    Player.STATE_ENDED -> {
+                        isPlaying = false
+                        progress = 0f
+                    }
+                }
+            }
+
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+                if (playing) {
+                    isBuffering = false
+                }
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                if (!hasRetriedCurrentTrack) {
+                    hasRetriedCurrentTrack = true
+                    exoPlayer.prepare()
+                    exoPlayer.play()
+                } else {
+                    isBuffering = false
+                    isPlaying = false
+                }
+            }
+        }
+        exoPlayer.addListener(listener)
         onDispose {
             try {
-                internalPlayer?.stop()
-                internalPlayer?.release()
+                exoPlayer.removeListener(listener)
+                exoPlayer.stop()
+                exoPlayer.release()
             } catch (_: Exception) {}
         }
     }
 
-    LaunchedEffect(isPlaying, internalPlayer) {
-        while (isActive && isPlaying && internalPlayer != null) {
+    LaunchedEffect(isPlaying, exoPlayer) {
+        while (isActive && isPlaying) {
             try {
-                val duration = internalPlayer.duration.coerceAtLeast(1)
-                val position = internalPlayer.currentPosition.coerceAtLeast(0)
+                val duration = exoPlayer.duration.coerceAtLeast(1L)
+                val position = exoPlayer.currentPosition.coerceAtLeast(0L)
                 progress = (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
             } catch (_: Exception) {}
-            delay(500)
+            delay(400)
+        }
+    }
+
+    LaunchedEffect(isGlobalPlayerPlaying) {
+        if (isGlobalPlayerPlaying && exoPlayer.isPlaying) {
+            exoPlayer.pause()
+            isPlaying = false
         }
     }
 
@@ -1652,59 +1944,43 @@ fun OnlineMusicScreen(
         }
     }
 
+    /**
+     * پخش مستقل در OnlineMusicScreen با ExoPlayer:
+     * بدون ارسال به AudioEngine یا TrackAnalyzer (فقط قبلش پلیر آفلاین در MusicPlayerViewModel را pause می‌کند)
+     */
     fun triggerPlay(track: OnlineTrack, customQueue: List<OnlineTrack>? = null) {
+        // ۱. اگر پلیر آفلاین در MusicPlayerViewModel در حال پخش است، آن را pause() کن
+        onPauseOfflinePlayer?.invoke()
+
         currentTrack = track
-        // توقف هرگونه پلیر داخلی احتمالی تا پخش به صورت یکپارچه از ثانیه ۰:۰۰ در پلیر اصلی انجام شود
-        try {
-            if (internalPlayer?.isPlaying == true) {
-                internalPlayer.stop()
-            }
-            internalPlayer?.reset()
-        } catch (_: Exception) {}
+        hasRetriedCurrentTrack = false
+        isBuffering = true
+        isPlaying = false
+        progress = 0f
 
         val cachedFile = OnlineCacheHolder.getCachedFileIfPresent(context, track.id)
-            ?: OnlineCacheHolder.getStreamBufferFileIfPresent(context, track.id)
-        val streamUrl = cachedFile?.absolutePath ?: OnlineMusicRepository.buildStreamUrl(track)
-        val activeQueue = customQueue?.ifEmpty { listOf(track) } ?: tracks.ifEmpty { listOf(track) }
-
-        if (onExternalPlay != null) {
-            onExternalPlay(track, streamUrl, activeQueue)
-            return
+        val streamUrl = if (cachedFile != null && cachedFile.exists()) {
+            Uri.fromFile(cachedFile).toString()
+        } else {
+            OnlineMusicRepository.buildStreamUrl(track)
         }
 
-        if (internalPlayer != null) {
-            isBuffering = true
+        try {
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
+            exoPlayer.setMediaItem(MediaItem.fromUri(streamUrl))
+            exoPlayer.seekTo(0L)
+            exoPlayer.prepare()
+            exoPlayer.play()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            isBuffering = false
             isPlaying = false
-            try {
-                internalPlayer.reset()
-                internalPlayer.setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build()
-                )
-                internalPlayer.setVolume(0f, 0f)
-                if (cachedFile != null) {
-                    internalPlayer.setDataSource(cachedFile.absolutePath)
-                } else {
-                    internalPlayer.setDataSource(context, Uri.parse(streamUrl))
-                }
-                internalPlayer.setOnPreparedListener { mp ->
-                    isBuffering = false
-                    isPlaying = true
-                    try { mp.seekTo(0) } catch (_: Exception) {}
-                    mp.setVolume(1f, 1f)
-                    mp.start()
-                }
-                internalPlayer.setOnErrorListener { _, _, _ ->
-                    isBuffering = false
-                    isPlaying = false
-                    true
-                }
-                internalPlayer.prepareAsync()
-            } catch (_: Exception) {
-                isBuffering = false
-            }
+        }
+
+        // ثبت در تاریخچه سلیقه کاربر بدون درگیر کردن AudioEngine یا TrackAnalyzer
+        scope.launch(Dispatchers.IO) {
+            OnlineTasteEngine.recordTrackListen(context, track.toAppTrack(streamUrl))
         }
     }
 
@@ -2208,7 +2484,7 @@ fun OnlineMusicScreen(
 
             // ۷. لیست مینیمال و تمیز آهنگ‌ها
             items(tracks, key = { it.id }) { track ->
-                val isSelected = (activePlayingTrackId == "online_${track.id}") || (currentTrack?.id == track.id)
+                val isSelected = currentTrack?.id == track.id
                 val isCachedOffline = downloadedIds.contains(track.id) ||
                     downloadedIds.contains("online_${track.id}") ||
                     OnlineCacheHolder.isTrackCached(context, track.id)
@@ -2219,7 +2495,7 @@ fun OnlineMusicScreen(
                 OnlineTrackGlassRow(
                     track = track,
                     isSelected = isSelected,
-                    isPlaying = isSelected && (isGlobalPlayerPlaying || isPlaying),
+                    isPlaying = isSelected && isPlaying,
                     isCachedOffline = isCachedOffline,
                     isDownloading = isDownloadingThis,
                     downloadProgressPercent = downloadPercent,
@@ -2396,7 +2672,7 @@ fun OnlineMusicScreen(
                             contentPadding = PaddingValues(bottom = 20.dp)
                         ) {
                             itemsIndexed(artistTopTracks, key = { _, t -> "artist_top_${t.id}" }) { index, track ->
-                                val isSelected = (activePlayingTrackId == "online_${track.id}") || (currentTrack?.id == track.id)
+                                val isSelected = currentTrack?.id == track.id
                                 val isCachedOffline = downloadedIds.contains(track.id) ||
                                     downloadedIds.contains("online_${track.id}") ||
                                     OnlineCacheHolder.isTrackCached(context, track.id)
@@ -2409,7 +2685,7 @@ fun OnlineMusicScreen(
                                     rankBadgeNumber = index + 1,
                                     showRatingBadge = true,
                                     isSelected = isSelected,
-                                    isPlaying = isSelected && (isGlobalPlayerPlaying || isPlaying),
+                                    isPlaying = isSelected && isPlaying,
                                     isCachedOffline = isCachedOffline,
                                     isDownloading = isDownloadingThis,
                                     downloadProgressPercent = downloadPercent,
@@ -2574,7 +2850,7 @@ fun OnlineMusicScreen(
                             contentPadding = PaddingValues(bottom = 20.dp)
                         ) {
                             itemsIndexed(smartPlaylistTracks, key = { _, t -> "smart_pl_${t.id}" }) { index, track ->
-                                val isSelected = (activePlayingTrackId == "online_${track.id}") || (currentTrack?.id == track.id)
+                                val isSelected = currentTrack?.id == track.id
                                 val isCachedOffline = downloadedIds.contains(track.id) ||
                                     downloadedIds.contains("online_${track.id}") ||
                                     OnlineCacheHolder.isTrackCached(context, track.id)
@@ -2587,7 +2863,7 @@ fun OnlineMusicScreen(
                                     rankBadgeNumber = index + 1,
                                     showRatingBadge = true,
                                     isSelected = isSelected,
-                                    isPlaying = isSelected && (isGlobalPlayerPlaying || isPlaying),
+                                    isPlaying = isSelected && isPlaying,
                                     isCachedOffline = isCachedOffline,
                                     isDownloading = isDownloadingThis,
                                     downloadProgressPercent = downloadPercent,
@@ -2710,8 +2986,10 @@ fun OnlineMusicScreen(
         }
 
         AnimatedVisibility(
-            visible = currentTrack != null && onExternalPlay == null,
-            modifier = Modifier.align(Alignment.BottomCenter)
+            visible = currentTrack != null,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = bottomPadding)
         ) {
             currentTrack?.let { activeTrack ->
                 Surface(
@@ -2771,14 +3049,17 @@ fun OnlineMusicScreen(
 
                             IconButton(
                                 onClick = {
-                                    internalPlayer?.let { mp ->
-                                        if (mp.isPlaying) {
-                                            mp.pause()
-                                            isPlaying = false
-                                        } else {
-                                            mp.start()
-                                            isPlaying = true
+                                    if (exoPlayer.isPlaying) {
+                                        exoPlayer.pause()
+                                        isPlaying = false
+                                    } else {
+                                        onPauseOfflinePlayer?.invoke()
+                                        if (exoPlayer.playbackState == Player.STATE_IDLE || exoPlayer.playbackState == Player.STATE_ENDED) {
+                                            exoPlayer.seekTo(0L)
+                                            exoPlayer.prepare()
                                         }
+                                        exoPlayer.play()
+                                        isPlaying = true
                                     }
                                 },
                                 modifier = Modifier
@@ -2809,6 +3090,17 @@ private fun ArtistAvatarCircle(
     artistName: String,
     size: Dp
 ) {
+    val resolvedUrl = remember(imageUrl) { OnlineMusicRepository.normalizeWorkerImageUrl(imageUrl) }
+    var loadedBitmap by remember(resolvedUrl) {
+        mutableStateOf(OnlineMusicRepository.getCachedCoverBitmap(resolvedUrl))
+    }
+
+    LaunchedEffect(resolvedUrl) {
+        if (resolvedUrl.isNotBlank() && loadedBitmap == null) {
+            loadedBitmap = OnlineMusicRepository.loadCoverBitmap(resolvedUrl)
+        }
+    }
+
     Box(
         modifier = Modifier
             .size(size)
@@ -2822,9 +3114,17 @@ private fun ArtistAvatarCircle(
             .border(1.5.dp, Color(0xFF1ED760).copy(alpha = 0.65f), CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        if (imageUrl.isNotBlank()) {
+        val bmp = loadedBitmap
+        if (bmp != null) {
+            Image(
+                bitmap = bmp.asImageBitmap(),
+                contentDescription = artistName,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (resolvedUrl.isNotBlank()) {
             AsyncImage(
-                model = imageUrl,
+                model = resolvedUrl,
                 contentDescription = artistName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
@@ -3144,6 +3444,17 @@ private fun CoverArtBox(
     coverUrl: String,
     modifier: Modifier = Modifier
 ) {
+    val resolvedUrl = remember(coverUrl) { OnlineMusicRepository.normalizeWorkerImageUrl(coverUrl) }
+    var loadedBitmap by remember(resolvedUrl) {
+        mutableStateOf(OnlineMusicRepository.getCachedCoverBitmap(resolvedUrl))
+    }
+
+    LaunchedEffect(resolvedUrl) {
+        if (resolvedUrl.isNotBlank() && loadedBitmap == null) {
+            loadedBitmap = OnlineMusicRepository.loadCoverBitmap(resolvedUrl)
+        }
+    }
+
     Box(
         modifier = modifier.background(
             Brush.linearGradient(
@@ -3152,9 +3463,17 @@ private fun CoverArtBox(
         ),
         contentAlignment = Alignment.Center
     ) {
-        if (coverUrl.isNotBlank()) {
+        val bmp = loadedBitmap
+        if (bmp != null) {
+            Image(
+                bitmap = bmp.asImageBitmap(),
+                contentDescription = "Album Cover",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (resolvedUrl.isNotBlank()) {
             AsyncImage(
-                model = coverUrl,
+                model = resolvedUrl,
                 contentDescription = "Album Cover",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

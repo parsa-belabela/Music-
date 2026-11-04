@@ -1570,7 +1570,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         if (_playbackState.value.currentTrack != null || tracks.isEmpty()) return
         val prefs = app.getSharedPreferences("aura_playback_state", Context.MODE_PRIVATE)
         val lastTrackId = prefs.getString("last_track_id", null) ?: return
-        val lastPos = prefs.getLong("last_pos_ms", 0L)
+        // شروع همیشه از ثانیه ۰ تا آهنگ هرگز به صورت ناخواسته از وسط پخش نشود
+        val lastPos = 0L
         val queueIdsStr = prefs.getString("last_queue_ids", "") ?: ""
 
         val track = tracks.firstOrNull { it.id == lastTrackId } ?: tracks.firstOrNull() ?: return
@@ -1586,7 +1587,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         _activePalette.value = palette
         loadLyricsForTrack(track)
 
-        audioEngine.prepareTrack(track, lastPos)
+        audioEngine.prepareTrack(track, 0L)
 
         _playbackState.update {
             it.copy(
@@ -1595,7 +1596,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 queueIndex = qIdx,
                 status = PlayerStatus.PAUSED,
                 isPlayWhenReady = false,
-                currentPositionMs = lastPos,
+                currentPositionMs = 0L,
                 durationMs = track.durationMs
             )
         }

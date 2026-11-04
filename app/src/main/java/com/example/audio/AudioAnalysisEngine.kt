@@ -68,6 +68,22 @@ class AudioAnalysisEngine {
         releaseVisualizer()
         if (audioSessionId <= 0) return
 
+        val hasRecordPermission = try {
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                AuraApplication.instance,
+                android.Manifest.permission.RECORD_AUDIO
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        } catch (_: Exception) {
+            false
+        }
+
+        if (!hasRecordPermission) {
+            // Visualizer requires RECORD_AUDIO on Android to attach to hardware audio session.
+            // When RECORD_AUDIO is not granted, skip Visualizer initialization to prevent AudioFlinger -3 error
+            // and rely on high-fidelity PCM envelope analysis.
+            return
+        }
+
         try {
             val captureSizeRange = Visualizer.getCaptureSizeRange()
             val captureSize = captureSizeRange[0].coerceAtLeast(128)

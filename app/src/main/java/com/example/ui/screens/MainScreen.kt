@@ -370,6 +370,7 @@ fun MainScreen(
                             onAddToQueue = { viewModel.addToQueue(it) },
                             onToggleFavorite = { viewModel.toggleFavorite(it) },
                             onDownloadTrack = { viewModel.downloadTrackToDeviceLibrary(it) },
+                            onPauseOfflinePlayer = { viewModel.pause() },
                             bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()
                         )

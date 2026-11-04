@@ -178,19 +178,8 @@ fun NowPlayingScreen(
         audioProfile?.waveformEnvelope?.split(",")?.mapNotNull { it.trim().toFloatOrNull() }?.toFloatArray()
     }
 
-    // موتور ۱۲۰ فریم بر ثانیه برای چرخش نرم سه‌بعدی قاب کاور (بدون ریست شدن فاز هنگام توقف یا پخش)
-    val baseOrbitTransition = rememberInfiniteTransition(label = "CoverBaseOrbit")
-    val continuousOrbitPhase by baseOrbitTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2f * PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 6800, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "continuousOrbitPhase"
-    )
-
-    var rotationPhaseRad by remember { mutableFloatStateOf(0f) }
+    // موتور ۱۲۰ فریم بر ثانیه برای چرخش کاملاً پیوسته، روان و نامحدود قاب کاور (بدون هرگونه پرش، ریست یا تکرار مجدد مسیر)
+    var continuousRotationPhase by remember { mutableFloatStateOf(0f) }
     var currentAngularVelocity by remember { mutableFloatStateOf(0.65f) }
     var smoothBassLevel by remember { mutableFloatStateOf(0.25f) }
     var smoothKickImpact by remember { mutableFloatStateOf(0f) }
@@ -199,14 +188,17 @@ fun NowPlayingScreen(
     var smoothGyroPitch by remember { mutableFloatStateOf(0f) }
 
     val latestAnalysisProvider by rememberUpdatedState(analysisDataProvider)
+    val latestIsPlaying by rememberUpdatedState(isPlaying)
     val trackBaseBpm = remember(audioProfile?.estimatedTempoBpm) {
         (audioProfile?.estimatedTempoBpm ?: 105).coerceIn(65, 175)
     }
     val trackBaseEnergy = remember(audioProfile?.energyLevel) {
         (audioProfile?.energyLevel ?: 0.55f).coerceIn(0.25f, 0.95f)
     }
+    val latestBpm by rememberUpdatedState(trackBaseBpm)
+    val latestEnergy by rememberUpdatedState(trackBaseEnergy)
 
-    LaunchedEffect(isPlaying, track.id) {
+    LaunchedEffect(Unit) {
         var lastFrameNanos = withFrameNanos { it }
         while (isActive) {
             withFrameNanos { nowNanos ->
@@ -218,13 +210,14 @@ fun NowPlayingScreen(
                 smoothGyroRoll += (HardwareGyroscopeManager.roll - smoothGyroRoll) * gyroLerp
                 smoothGyroPitch += (HardwareGyroscopeManager.pitch - smoothGyroPitch) * gyroLerp
 
+                val playing = latestIsPlaying
                 val audio = latestAnalysisProvider()
-                val rawBass = if (isPlaying) {
-                    (audio.bass * 0.75f + trackBaseEnergy * 0.25f).coerceIn(0.15f, 1f)
+                val rawBass = if (playing) {
+                    (audio.bass * 0.75f + latestEnergy * 0.25f).coerceIn(0.15f, 1f)
                 } else 0f
-                val rawKick = if (isPlaying) audio.kickPulse.coerceIn(0f, 1f) else 0f
-                val rawEnergy = if (isPlaying) {
-                    (audio.totalEnergy * 0.50f + audio.mid * 0.25f + trackBaseEnergy * 0.35f).coerceIn(0.28f, 1f)
+                val rawKick = if (playing) audio.kickPulse.coerceIn(0f, 1f) else 0f
+                val rawEnergy = if (playing) {
+                    (audio.totalEnergy * 0.50f + audio.mid * 0.25f + latestEnergy * 0.35f).coerceIn(0.28f, 1f)
                 } else 0.08f
 
                 val bassLerp = if (rawBass > smoothBassLevel) (dtSec * 18f) else (dtSec * 8f)
@@ -235,16 +228,16 @@ fun NowPlayingScreen(
 
                 smoothEnergyLevel += (rawEnergy - smoothEnergyLevel) * (dtSec * 7.5f).coerceIn(0f, 1f)
 
-                val targetAngularSpeed = if (isPlaying) {
-                    val bpmFactor = (trackBaseBpm / 105f).coerceIn(0.75f, 1.75f)
-                    // سرعت حدود ۳۵٪ بیشتر و وابسته به تمپو، انرژی و کیک آهنگ
-                    0.68f + (smoothEnergyLevel * 1.95f * bpmFactor) + (smoothKickImpact * 1.15f) + (smoothBassLevel * 0.45f)
+                val targetAngularSpeed = if (playing) {
+                    val bpmFactor = (latestBpm / 105f).coerceIn(0.75f, 1.75f)
+                    0.55f + (smoothEnergyLevel * 1.55f * bpmFactor) + (smoothKickImpact * 0.95f) + (smoothBassLevel * 0.35f)
                 } else {
-                    0.15f
+                    0.12f
                 }
 
-                currentAngularVelocity += (targetAngularSpeed - currentAngularVelocity) * (dtSec * 5.5f).coerceIn(0f, 1f)
-                rotationPhaseRad = (rotationPhaseRad + currentAngularVelocity * dtSec) % (2f * PI.toFloat() * 100f)
+                currentAngularVelocity += (targetAngularSpeed - currentAngularVelocity) * (dtSec * 4.5f).coerceIn(0f, 1f)
+                // چرخش مداوم و بی‌پایان به جلو بدون هیچگونه ریست شدن و بدون پریدن به اول کد
+                continuousRotationPhase += currentAngularVelocity * dtSec
             }
         }
     }
@@ -459,8 +452,8 @@ fun NowPlayingScreen(
             ) {
                 when (centerView) {
                     NowPlayingCenterView.ARTWORK_AND_HALO -> {
-                        // فاز ترکیبی تضمینی برای چرخش سه‌بعدی نرم و بدون توقف کاور در مرکز صفحه (بدون گیر کردن در بالا)
-                        val effectivePhase = continuousOrbitPhase + rotationPhaseRad * 0.65f
+                        // فاز پیوسته و نامحدود برای چرخش سه‌بعدی روان و مداوم کاور بدون هرگونه پرش به ابتدای مسیر
+                        val effectivePhase = continuousRotationPhase
 
                         // نوسان متقارن حول مرکز (۰) تا کاور هرگز در بالای صفحه گیر نکند و با بیس به نرمی بالا و پایین برود
                         val floatOffsetY = if (isPlaying) {

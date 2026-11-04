@@ -92,6 +92,7 @@ fun SearchScreen(
     onDeleteTrack: (Track) -> Unit = {},
     onPlayTrackList: (List<Track>) -> Unit = {},
     onDownloadTrack: (Track) -> Unit = {},
+    onPauseOfflinePlayer: () -> Unit = {},
     bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
     modifier: Modifier = Modifier
 ) {
@@ -335,17 +336,7 @@ fun SearchScreen(
                 activePlayingTrackId = playbackState.currentTrack?.id,
                 isGlobalPlayerPlaying = playbackState.isPlaying,
                 bottomPadding = bottomPadding,
-                onExternalPlay = { onlineTrack, streamUrl, onlineQueue ->
-                    val targetAppTrack = onlineTrack.toAppTrack(streamUrl)
-                    val appQueue = onlineQueue.map { item ->
-                        if (item.id == onlineTrack.id) {
-                            targetAppTrack
-                        } else {
-                            item.toAppTrack(OnlineMusicRepository.buildStreamUrl(item))
-                        }
-                    }
-                    onPlayTrack(targetAppTrack, appQueue)
-                },
+                onPauseOfflinePlayer = onPauseOfflinePlayer,
                 onAddToQueue = { onlineTrack, streamUrl ->
                     onAddToQueue(onlineTrack.toAppTrack(streamUrl))
                 },
