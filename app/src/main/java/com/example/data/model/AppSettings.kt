@@ -28,9 +28,11 @@ data class AppSettings(
     val crossfadeDurationSeconds: Int = 2,
     val gaplessEnabled: Boolean = true,
     val bassBoostStrength: Int = 0, // 0 - 1000 (0 = Flat, pure uncolored sound)
+    val virtualizerStrength: Float = 0f, // 0f - 1f
+    val loudnessStrength: Float = 0f, // 0f - 1f
     val equalizerEnabled: Boolean = true,
     val eqPreset: String = "Flat (Studio)",
-    val eqBands: List<Float> = listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f), // 10 bands dB (-12 to +12) Flat by default
+    val eqBands: List<Float> = listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f), // bands dB (-15 to +15) Flat by default
     val pauseOnInterruption: Boolean = true,
     val duckVolumeOnInterruption: Boolean = true,
     val pauseOnHeadphoneDisconnect: Boolean = true,

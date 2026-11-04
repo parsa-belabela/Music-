@@ -118,6 +118,7 @@ import com.example.data.model.AppLanguage
 import com.example.data.model.Track
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
+import com.example.audio.AuraDspController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -199,7 +200,7 @@ data class OnlineSmartPlaylist(
     val accentColor: Color = Color(0xFF1ED760)
 )
 
-private const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev/"
+private const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev"
 
 object OnlineMusicRepository {
     // آدرس سرور اختصاصی Cloudflare Workers کاربر برای عبور از تحریم بدون فیلترشکن
@@ -1867,12 +1868,29 @@ fun OnlineMusicScreen(
 
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                if (audioSessionId > 0) {
+                    try {
+                        AuraDspController.bindToAudioSession(audioSessionId)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = (playbackState == Player.STATE_BUFFERING)
                 when (playbackState) {
                     Player.STATE_READY -> {
                         isBuffering = false
                         isPlaying = exoPlayer.isPlaying
+                        if (exoPlayer.audioSessionId > 0) {
+                            try {
+                                AuraDspController.bindToAudioSession(exoPlayer.audioSessionId)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
                     }
                     Player.STATE_ENDED -> {
                         isPlaying = false
@@ -1996,6 +2014,13 @@ fun OnlineMusicScreen(
             exoPlayer.seekTo(0L)
             exoPlayer.prepare()
             exoPlayer.play()
+            if (exoPlayer.audioSessionId > 0) {
+                try {
+                    AuraDspController.bindToAudioSession(exoPlayer.audioSessionId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             isBuffering = false

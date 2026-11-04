@@ -1299,7 +1299,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             bands = settings.eqBands,
             bassBoostStrength = settings.bassBoostStrength,
             beatFocus = settings.beatFocusEnabled,
-            vocalCrystal = settings.vocalCrystalEnabled
+            vocalCrystal = settings.vocalCrystalEnabled,
+            virtualizer = settings.virtualizerStrength,
+            loudness = settings.loudnessStrength
         )
         if (audioEngine.currentPlaybackSpeed != settings.playbackSpeed) {
             audioEngine.setPlaybackSpeed(settings.playbackSpeed)
@@ -1346,10 +1348,12 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             hapticFeedbackEnabled = prefs.getBoolean("haptic", true),
             pauseOnHeadphoneDisconnect = prefs.getBoolean("pause_disconnect", true),
             duckVolumeOnInterruption = prefs.getBoolean("duck_volume", true),
-            bassBoostStrength = prefs.getInt("bass_boost", 0),
             equalizerEnabled = prefs.getBoolean("eq_enabled", true),
             eqPreset = prefs.getString("eq_preset", "Flat (Studio)") ?: "Flat (Studio)",
             eqBands = bands,
+            bassBoostStrength = prefs.getInt("bass_boost", 0),
+            virtualizerStrength = prefs.getFloat("virtualizer_strength", 0f),
+            loudnessStrength = prefs.getFloat("loudness_strength", 0f),
             playbackSpeed = prefs.getFloat("playback_speed", 1.0f),
             continuousMixEnabled = prefs.getBoolean("continuous_mix", false),
             focusModeEnabled = prefs.getBoolean("focus_mode", false),
@@ -1383,6 +1387,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             .putBoolean("eq_enabled", settings.equalizerEnabled)
             .putString("eq_preset", settings.eqPreset)
             .putInt("bass_boost", settings.bassBoostStrength)
+            .putFloat("virtualizer_strength", settings.virtualizerStrength)
+            .putFloat("loudness_strength", settings.loudnessStrength)
             .putString("eq_bands", settings.eqBands.joinToString(","))
             .putBoolean("continuous_mix", settings.continuousMixEnabled)
             .putBoolean("focus_mode", settings.focusModeEnabled)

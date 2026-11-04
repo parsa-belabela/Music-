@@ -916,6 +916,12 @@ class AudioEngine(private val context: Context) {
         releaseEffects()
 
         try {
+            AuraDspController.bindToAudioSession(sessionId)
+        } catch (e: Exception) {
+            Log.w(tag, "AuraDspController init error: ${e.message}")
+        }
+
+        try {
             // اولویت استاندارد ۰ برای سازگاری بی‌نقص با موتور AudioFlinger
             equalizer = Equalizer(0, sessionId).apply {
                 enabled = isEqEnabled
@@ -952,7 +958,9 @@ class AudioEngine(private val context: Context) {
         bands: List<Float>,
         bassBoostStrength: Int,
         beatFocus: Boolean = beatFocusEnabled,
-        vocalCrystal: Boolean = vocalCrystalEnabled
+        vocalCrystal: Boolean = vocalCrystalEnabled,
+        virtualizer: Float = AuraDspController.virtualizerStrength,
+        loudness: Float = AuraDspController.loudnessStrength
     ) {
         isEqEnabled = enabled
         currentEqBands = bands
@@ -961,6 +969,22 @@ class AudioEngine(private val context: Context) {
         vocalCrystalEnabled = vocalCrystal
 
         val sid = _audioSessionId.value
+        AuraDspController.isEnabled = enabled
+        val gains = FloatArray(5)
+        for (i in 0 until 5) {
+            gains[i] = bands.getOrElse(i) { 0f }
+        }
+        AuraDspController.bandGainsDb = gains
+        AuraDspController.bassStrength = (bassBoostStrength / 1000f).coerceIn(0f, 1f)
+        AuraDspController.virtualizerStrength = virtualizer.coerceIn(0f, 1f)
+        AuraDspController.loudnessStrength = loudness.coerceIn(0f, 1f)
+
+        if (sid > 0) {
+            AuraDspController.bindToAudioSession(sid)
+        } else {
+            AuraDspController.applyCurrentState()
+        }
+
         if (equalizer == null && sid > 0) {
             initAudioEffects(sid)
         } else {
@@ -1072,6 +1096,7 @@ class AudioEngine(private val context: Context) {
         equalizer = null
         bassBoost = null
         virtualizer = null
+        try { AuraDspController.releaseEffects() } catch (_: Exception) {}
     }
 
     private fun startProgressTracker() {

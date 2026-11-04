@@ -1,56 +1,69 @@
 package com.example.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.rounded.Equalizer
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Speaker
+import androidx.compose.material.icons.rounded.SurroundSound
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
-import com.example.data.model.AppLanguage
+import com.example.audio.AuraDspController
 import com.example.data.model.AppSettings
 import kotlin.math.roundToInt
 
-data class CalibratedEqPreset(
+data class EqPreset(
     val id: String,
-    val name: String,
-    val nameFa: String = name,
-    val bands: List<Float>, // 31Hz, 62Hz, 125Hz, 250Hz, 500Hz, 1kHz, 2kHz, 4kHz, 8kHz, 16kHz
-    val recommendedBassBoost: Int = 0
-) {
-    fun getName(lang: AppLanguage): String = if (lang == AppLanguage.PERSIAN) nameFa else name
-}
+    val titleFa: String,
+    val bandsDb: List<Float>, // 5 bands: 60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz (-15f to +15f)
+    val bassBoost: Float,     // 0f to 1f
+    val virtualizer: Float,   // 0f to 1f
+    val loudnessGain: Float   // 0f to 1f
+)
 
-@OptIn(ExperimentalMaterial3Api::class)
+val DEFAULT_EQ_PRESETS = listOf(
+    EqPreset("flat", "استاندارد (Flat)", listOf(0f, 0f, 0f, 0f, 0f), 0f, 0f, 0f),
+    EqPreset("hiphop", "هیپ‌هاپ و رپ", listOf(7.5f, 4.5f, -1.5f, 3.0f, 5.5f), 0.75f, 0.35f, 0.3f),
+    EqPreset("bass", "بیس سنگین (Bass)", listOf(9.0f, 6.0f, -2.0f, 1.5f, 3.0f), 0.90f, 0.25f, 0.25f),
+    EqPreset("electronic", "الکترونیک و باشگاه", listOf(6.5f, 3.0f, -3.0f, 4.5f, 7.0f), 0.70f, 0.60f, 0.35f),
+    EqPreset("vocal", "شفافیت وکال", listOf(-2.5f, 1.5f, 6.0f, 5.0f, 2.0f), 0.15f, 0.40f, 0.2f),
+    EqPreset("rock", "راک و متال", listOf(5.5f, 3.0f, -1.5f, 4.5f, 6.5f), 0.55f, 0.45f, 0.3f),
+    EqPreset("cinema", "سینمایی 3D", listOf(5.0f, 2.5f, 1.0f, 3.5f, 5.0f), 0.65f, 0.85f, 0.4f)
+)
+
+private val BAND_FREQUENCIES = listOf("60Hz", "230Hz", "910Hz", "3.6kHz", "14kHz")
+
 @Composable
 fun EqualizerSheet(
     settings: AppSettings,
@@ -58,773 +71,545 @@ fun EqualizerSheet(
     onUpdateSettings: (AppSettings) -> Unit,
     onClose: () -> Unit
 ) {
-    val lang = settings.language
-    val isFa = lang == AppLanguage.PERSIAN
-
-    var eqEnabled by remember { mutableStateOf(settings.equalizerEnabled) }
-    var bassBoost by remember { mutableFloatStateOf(settings.bassBoostStrength.toFloat()) }
-    var crossfade by remember { mutableIntStateOf(settings.crossfadeDurationSeconds) }
-    var gapless by remember { mutableStateOf(settings.gaplessEnabled) }
-    var currentSpeed by remember { mutableFloatStateOf(settings.playbackSpeed) }
-    var activePresetName by remember { mutableStateOf(settings.eqPreset) }
-    var beatFocusEnabled by remember { mutableStateOf(settings.beatFocusEnabled) }
-    var vocalCrystalEnabled by remember { mutableStateOf(settings.vocalCrystalEnabled) }
-    var smartSilenceTrim by remember { mutableStateOf(settings.smartSilenceTrimEnabled) }
-
-    val bandFrequencies = remember {
-        listOf("31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k")
-    }
-
-    val bandGains = remember {
+    var isEnabled by remember { mutableStateOf(settings.equalizerEnabled) }
+    val bandLevels = remember {
         mutableStateListOf<Float>().apply {
-            if (settings.eqBands.size == 10) {
-                addAll(settings.eqBands)
-            } else {
-                repeat(10) { add(0f) }
-            }
+            val initial = if (settings.eqBands.size >= 5) settings.eqBands.take(5) else listOf(0f, 0f, 0f, 0f, 0f)
+            addAll(initial)
         }
     }
+    var bassStrength by remember { mutableFloatStateOf((settings.bassBoostStrength / 1000f).coerceIn(0f, 1f)) }
+    var virtualizerStrength by remember { mutableFloatStateOf(settings.virtualizerStrength.coerceIn(0f, 1f)) }
+    var loudnessStrength by remember { mutableFloatStateOf(settings.loudnessStrength.coerceIn(0f, 1f)) }
+    var selectedPresetId by remember {
+        mutableStateOf(
+            DEFAULT_EQ_PRESETS.firstOrNull { it.id == settings.eqPreset || it.titleFa == settings.eqPreset }?.id ?: "flat"
+        )
+    }
 
-    val calibratedPresets = remember {
-        listOf(
-            CalibratedEqPreset(
-                id = "flat",
-                name = "Flat (Studio)",
-                nameFa = "استودیویی تخت (Flat)",
-                bands = listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f),
-                recommendedBassBoost = 0
-            ),
-            CalibratedEqPreset(
-                id = "sub_bass_punch",
-                name = "Extreme Sub-Bass",
-                nameFa = "بیس سنگین و ساب‌ووفر",
-                bands = listOf(10.5f, 9.5f, 7.0f, 3.5f, 0.5f, 0.0f, 1.0f, 2.5f, 3.5f, 4.0f),
-                recommendedBassBoost = 850
-            ),
-            CalibratedEqPreset(
-                id = "hiphop_808",
-                name = "Hip-Hop & 808 Punch",
-                nameFa = "هیپ‌هاپ و رپ (808 Punch)",
-                bands = listOf(9.5f, 8.5f, 6.0f, 2.0f, -1.0f, 1.0f, 2.5f, 3.5f, 4.5f, 5.0f),
-                recommendedBassBoost = 700
-            ),
-            CalibratedEqPreset(
-                id = "edm",
-                name = "Electronic / Club",
-                nameFa = "الکترونیک و کلاب",
-                bands = listOf(8.5f, 7.5f, 4.5f, 0.5f, -1.5f, 1.5f, 3.0f, 5.0f, 6.5f, 7.0f),
-                recommendedBassBoost = 600
-            ),
-            CalibratedEqPreset(
-                id = "rock",
-                name = "Rock & Metal",
-                nameFa = "راک و متال",
-                bands = listOf(6.5f, 5.5f, 3.5f, -0.5f, -1.5f, 2.0f, 4.0f, 5.5f, 6.0f, 6.0f),
-                recommendedBassBoost = 400
-            ),
-            CalibratedEqPreset(
-                id = "pop",
-                name = "Pop & Crystal Vocal",
-                nameFa = "پاپ و وکال شفاف",
-                bands = listOf(3.5f, 4.5f, 4.0f, 1.5f, 1.0f, 2.5f, 4.0f, 5.0f, 4.5f, 3.5f),
-                recommendedBassBoost = 350
-            ),
-            CalibratedEqPreset(
-                id = "vocal",
-                name = "Vocal & Clarity",
-                nameFa = "وضوح صدای خواننده",
-                bands = listOf(-2.0f, -1.0f, 1.0f, 3.0f, 5.5f, 6.5f, 5.5f, 4.0f, 2.5f, 1.5f),
-                recommendedBassBoost = 100
+    fun pushSettings(
+        enabled: Boolean = isEnabled,
+        bands: List<Float> = bandLevels.toList(),
+        bass: Float = bassStrength,
+        virt: Float = virtualizerStrength,
+        loud: Float = loudnessStrength,
+        presetId: String = selectedPresetId
+    ) {
+        val updatedGains = FloatArray(5) { i -> bands.getOrElse(i) { 0f } }
+        AuraDspController.isEnabled = enabled
+        AuraDspController.bandGainsDb = updatedGains
+        AuraDspController.bassStrength = bass
+        AuraDspController.virtualizerStrength = virt
+        AuraDspController.loudnessStrength = loud
+        AuraDspController.applyCurrentState()
+
+        val fullBands = if (bands.size == 5) bands + listOf(0f, 0f, 0f, 0f, 0f) else bands
+        onUpdateSettings(
+            settings.copy(
+                equalizerEnabled = enabled,
+                eqBands = fullBands,
+                bassBoostStrength = (bass * 1000f).roundToInt().coerceIn(0, 1000),
+                virtualizerStrength = virt,
+                loudnessStrength = loud,
+                eqPreset = presetId
             )
         )
     }
 
+    AuraLiquidEqualizerSheet(
+        isEnabled = isEnabled,
+        bandLevelsDb = bandLevels.toList(),
+        bassStrength = bassStrength,
+        virtualizerStrength = virtualizerStrength,
+        loudnessStrength = loudnessStrength,
+        selectedPresetId = selectedPresetId,
+        onEnabledChange = { newEnabled ->
+            isEnabled = newEnabled
+            pushSettings(enabled = newEnabled)
+        },
+        onBandLevelChange = { index, newDb ->
+            if (index in 0 until bandLevels.size) {
+                bandLevels[index] = newDb
+                selectedPresetId = "custom"
+                pushSettings(bands = bandLevels.toList(), presetId = "custom")
+            }
+        },
+        onBassChange = { newBass ->
+            bassStrength = newBass
+            pushSettings(bass = newBass)
+        },
+        onVirtualizerChange = { newVirt ->
+            virtualizerStrength = newVirt
+            pushSettings(virt = newVirt)
+        },
+        onLoudnessChange = { newLoud ->
+            loudnessStrength = newLoud
+            pushSettings(loud = newLoud)
+        },
+        onPresetSelect = { preset ->
+            selectedPresetId = preset.id
+            bandLevels.clear()
+            bandLevels.addAll(preset.bandsDb)
+            bassStrength = preset.bassBoost
+            virtualizerStrength = preset.virtualizer
+            loudnessStrength = preset.loudnessGain
+            pushSettings(
+                bands = preset.bandsDb,
+                bass = preset.bassBoost,
+                virt = preset.virtualizer,
+                loud = preset.loudnessGain,
+                presetId = preset.id
+            )
+        },
+        onReset = {
+            selectedPresetId = "flat"
+            bandLevels.clear()
+            bandLevels.addAll(listOf(0f, 0f, 0f, 0f, 0f))
+            bassStrength = 0f
+            virtualizerStrength = 0f
+            loudnessStrength = 0f
+            pushSettings(
+                bands = listOf(0f, 0f, 0f, 0f, 0f),
+                bass = 0f,
+                virt = 0f,
+                loud = 0f,
+                presetId = "flat"
+            )
+        },
+        onDismiss = onClose
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AuraLiquidEqualizerSheet(
+    isEnabled: Boolean,
+    bandLevelsDb: List<Float>,
+    bassStrength: Float,
+    virtualizerStrength: Float,
+    loudnessStrength: Float,
+    selectedPresetId: String,
+    onEnabledChange: (Boolean) -> Unit,
+    onBandLevelChange: (Int, Float) -> Unit,
+    onBassChange: (Float) -> Unit,
+    onVirtualizerChange: (Float) -> Unit,
+    onLoudnessChange: (Float) -> Unit,
+    onPresetSelect: (EqPreset) -> Unit,
+    onReset: () -> Unit,
+    onDismiss: () -> Unit
+) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val accentCyan = Color(0xFF00E5FF)
+    val accentViolet = Color(0xFF9D4EDD)
+    val glassSurface = Color(0xFF10131C).copy(alpha = 0.96f)
+    val cardGlass = Color.White.copy(alpha = 0.06f)
+    val borderGlass = Color.White.copy(alpha = 0.12f)
+
+    val safeBands = remember(bandLevelsDb) {
+        if (bandLevelsDb.size >= 5) bandLevelsDb.take(5)
+        else listOf(0f, 0f, 0f, 0f, 0f)
+    }
 
     ModalBottomSheet(
-        onDismissRequest = onClose,
+        onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF0B0D18),
-        scrimColor = Color(0xFF030308).copy(alpha = 0.85f),
-        dragHandle = { BottomSheetDefaults.DragHandle(color = Color(0x66FFFFFF)) }
+        containerColor = glassSurface,
+        scrimColor = Color.Black.copy(alpha = 0.65f),
+        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(top = 12.dp, bottom = 6.dp)
+                    .size(width = 44.dp, height = 4.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.25f))
+            )
+        }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.92f)
-                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            // هدر ثابت اکولایزر
+            // 1. Header Bar
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Box(
                         modifier = Modifier
                             .size(40.dp)
-                            .clip(CircleShape)
-                            .background(palette.primary.copy(alpha = 0.25f))
-                            .border(1.dp, palette.accent.copy(alpha = 0.5f), CircleShape),
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(accentCyan.copy(alpha = 0.25f), accentViolet.copy(alpha = 0.25f))
+                                )
+                            )
+                            .border(1.dp, borderGlass, RoundedCornerShape(12.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.GraphicEq,
-                            contentDescription = null,
-                            tint = palette.accent,
-                            modifier = Modifier.size(22.dp)
+                            imageVector = Icons.Rounded.Equalizer,
+                            contentDescription = "Equalizer",
+                            tint = if (isEnabled) accentCyan else Color.Gray
                         )
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = if (isFa) "استودیوی اکولایزر و تقویت بیس (DSP)" else "Pro 10-Band DSP & Sub-Bass",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White
-                            )
+                            text = "موتور صوتی و اکولایزر Aura",
+                            color = Color.White,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (eqEnabled) {
-                                if (isFa) "موتور سخت‌افزاری + ساب‌ووفر فعال" else "Hardware EQ + Sub-Bass Active"
-                            } else {
-                                if (isFa) "غیرفعال (صدای خام)" else "Bypassed"
-                            },
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = if (eqEnabled) palette.accent else Color(0xFF88889C),
-                                fontSize = 11.5.sp
-                            )
+                            text = if (isEnabled) "پردازش زنده فرکانس و بیس فعال است" else "اکولایزر غیرفعال است",
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 12.sp
                         )
                     }
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // دکمه ریست سریع به حالت Flat
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     IconButton(
-                        onClick = {
-                            activePresetName = "Flat (Studio)"
-                            for (i in 0 until 10) bandGains[i] = 0f
-                            bassBoost = 0f
-                            beatFocusEnabled = false
-                            vocalCrystalEnabled = false
-                            onUpdateSettings(
-                                settings.copy(
-                                    eqPreset = "Flat (Studio)",
-                                    eqBands = List(10) { 0f },
-                                    bassBoostStrength = 0,
-                                    beatFocusEnabled = false,
-                                    vocalCrystalEnabled = false
-                                )
-                            )
-                        }
+                        onClick = onReset,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(cardGlass)
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Reset", tint = Color.White.copy(alpha = 0.75f))
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = "Reset",
+                            tint = Color.White.copy(alpha = 0.8f),
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
-
                     Switch(
-                        checked = eqEnabled,
-                        onCheckedChange = {
-                            eqEnabled = it
-                            onUpdateSettings(settings.copy(equalizerEnabled = it))
-                        },
+                        checked = isEnabled,
+                        onCheckedChange = onEnabledChange,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
-                            checkedTrackColor = palette.accent
+                            checkedTrackColor = accentCyan,
+                            uncheckedThumbColor = Color.Gray,
+                            uncheckedTrackColor = Color.White.copy(alpha = 0.1f)
                         )
                     )
                 }
             }
 
+            // 2. Presets Horizontal Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                DEFAULT_EQ_PRESETS.forEach { preset ->
+                    val isSelected = selectedPresetId == preset.id
+                    val bgColor by animateColorAsState(
+                        targetValue = if (isSelected) accentCyan.copy(alpha = 0.22f) else cardGlass,
+                        label = "presetBg"
+                    )
+                    val borderColor by animateColorAsState(
+                        targetValue = if (isSelected) accentCyan else borderGlass,
+                        label = "presetBorder"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(bgColor)
+                            .border(1.dp, borderColor, RoundedCornerShape(14.dp))
+                            .clickable(enabled = isEnabled) { onPresetSelect(preset) }
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = preset.titleFa,
+                            color = if (isSelected) accentCyan else Color.White.copy(alpha = 0.8f),
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            // 3. Live Frequency Response Spline Curve
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(115.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(cardGlass)
+                    .border(1.dp, borderGlass, RoundedCornerShape(20.dp))
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                val animBands = safeBands.mapIndexed { idx, value ->
+                    animateFloatAsState(
+                        targetValue = if (isEnabled) value else 0f,
+                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                        label = "bandCurve$idx"
+                    ).value
+                }
+
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val w = size.width
+                    val h = size.height
+                    val midY = h / 2f
+
+                    // Grid lines
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.08f),
+                        start = Offset(0f, midY),
+                        end = Offset(w, midY),
+                        strokeWidth = 1.dp.toPx()
+                    )
+
+                    val points = animBands.mapIndexed { i, db ->
+                        val x = (w / (animBands.size - 1)) * i
+                        val normalized = (db.coerceIn(-15f, 15f) / 15f)
+                        val y = midY - (normalized * (midY * 0.82f))
+                        Offset(x, y)
+                    }
+
+                    if (points.size >= 2) {
+                        val strokePath = Path().apply {
+                            moveTo(points.first().x, points.first().y)
+                            for (i in 0 until points.size - 1) {
+                                val p0 = points[i]
+                                val p1 = points[i + 1]
+                                val controlX = (p0.x + p1.x) / 2f
+                                cubicTo(controlX, p0.y, controlX, p1.y, p1.x, p1.y)
+                            }
+                        }
+
+                        val fillPath = Path().apply {
+                            addPath(strokePath)
+                            lineTo(w, h)
+                            lineTo(0f, h)
+                            close()
+                        }
+
+                        drawPath(
+                            path = fillPath,
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    accentCyan.copy(alpha = if (isEnabled) 0.35f else 0.08f),
+                                    accentViolet.copy(alpha = 0.02f)
+                                )
+                            )
+                        )
+
+                        drawPath(
+                            path = strokePath,
+                            brush = Brush.horizontalGradient(
+                                colors = if (isEnabled) listOf(accentCyan, accentViolet, accentCyan)
+                                else listOf(Color.Gray, Color.DarkGray)
+                            ),
+                            style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                        )
+
+                        points.forEach { pt ->
+                            drawCircle(
+                                color = if (isEnabled) accentCyan else Color.Gray,
+                                radius = 4.5.dp.toPx(),
+                                center = pt
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 4. 5-Band Custom Vertical Glass Sliders
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(cardGlass)
+                    .border(1.dp, borderGlass, RoundedCornerShape(24.dp))
+                    .padding(vertical = 16.dp, horizontal = 10.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                safeBands.forEachIndexed { index, dbValue ->
+                    VerticalEqBandSlider(
+                        frequencyLabel = BAND_FREQUENCIES.getOrElse(index) { "" },
+                        dbValue = dbValue,
+                        enabled = isEnabled,
+                        accentCyan = accentCyan,
+                        accentViolet = accentViolet,
+                        onValueChange = { newDb -> onBandLevelChange(index, newDb) }
+                    )
+                }
+            }
+
+            // 5. Bass Boost, 3D Virtualizer & Loudness Pre-Amp Controls
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 20.dp)
-                    .verticalScroll(rememberScrollState())
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(cardGlass)
+                    .border(1.dp, borderGlass, RoundedCornerShape(24.dp))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // ۱. پریست‌های کالیبره‌شده
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(calibratedPresets) { preset ->
-                        val isSelected = activePresetName == preset.name
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = {
-                                eqEnabled = true
-                                activePresetName = preset.name
-                                for (i in 0 until 10) {
-                                    bandGains[i] = preset.bands.getOrElse(i) { 0f }
-                                }
-                                bassBoost = preset.recommendedBassBoost.toFloat()
-                                onUpdateSettings(
-                                    settings.copy(
-                                        equalizerEnabled = true,
-                                        eqPreset = preset.name,
-                                        eqBands = bandGains.toList(),
-                                        bassBoostStrength = preset.recommendedBassBoost
-                                    )
-                                )
-                            },
-                            leadingIcon = if (isSelected) {
-                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White) }
-                            } else null,
-                            label = {
-                                Text(
-                                    text = preset.getName(lang),
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
-                                )
-                            },
-                            shape = RoundedCornerShape(18.dp),
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = palette.primary,
-                                selectedLabelColor = Color.White,
-                                containerColor = Color(0x1FFFFFFF),
-                                labelColor = Color(0xFFC0C5D8)
-                            )
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // ۱.۵ سوییچ‌های استودیویی تفکیک وکال و تقویت بیت (Studio Isolation Toggles)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // 808 & Beat Focus Toggle Card
-                    Surface(
-                        onClick = {
-                            val next = !beatFocusEnabled
-                            beatFocusEnabled = next
-                            if (next) eqEnabled = true
-                            onUpdateSettings(
-                                settings.copy(
-                                    equalizerEnabled = if (next) true else eqEnabled,
-                                    beatFocusEnabled = next
-                                )
-                            )
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(18.dp),
-                        color = if (beatFocusEnabled) Color(0xFFFF1E56).copy(alpha = 0.24f) else Color(0xFF131628),
-                        border = androidx.compose.foundation.BorderStroke(
-                            width = if (beatFocusEnabled) 1.5.dp else 1.dp,
-                            color = if (beatFocusEnabled) Color(0xFFFF1E56) else Color.White.copy(alpha = 0.12f)
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = if (isFa) "🥁 تمرکز روی بیت (808)" else "🥁 808 & Beat Focus",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 12.sp
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(if (beatFocusEnabled) Color(0xFFFF1E56) else Color(0x44FFFFFF))
-                                )
-                            }
-                            Text(
-                                text = if (isFa) "تضعیف ملایم میدرنج و برجسته‌سازی کیک و بیت" else "Scoops mid vocals & punches 808 kick",
-                                color = Color(0xFFB4B9CE),
-                                fontSize = 10.sp,
-                                lineHeight = 13.sp
-                            )
-                        }
-                    }
-
-                    // Vocal Crystal Toggle Card
-                    Surface(
-                        onClick = {
-                            val next = !vocalCrystalEnabled
-                            vocalCrystalEnabled = next
-                            if (next) eqEnabled = true
-                            onUpdateSettings(
-                                settings.copy(
-                                    equalizerEnabled = if (next) true else eqEnabled,
-                                    vocalCrystalEnabled = next
-                                )
-                            )
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(18.dp),
-                        color = if (vocalCrystalEnabled) Color(0xFF00F5D4).copy(alpha = 0.22f) else Color(0xFF131628),
-                        border = androidx.compose.foundation.BorderStroke(
-                            width = if (vocalCrystalEnabled) 1.5.dp else 1.dp,
-                            color = if (vocalCrystalEnabled) Color(0xFF00F5D4) else Color.White.copy(alpha = 0.12f)
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = if (isFa) "🎙️ شفاف‌سازی وکال" else "🎙️ Vocal Crystal",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 12.sp
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(if (vocalCrystalEnabled) Color(0xFF00F5D4) else Color(0x44FFFFFF))
-                                )
-                            }
-                            Text(
-                                text = if (isFa) "تقویت باند 1kHz-4kHz برای وضوح صدای خواننده" else "Boosts 1kHz-4kHz vocal clarity & rhymes",
-                                color = Color(0xFFB4B9CE),
-                                fontSize = 10.sp,
-                                lineHeight = 13.sp
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // ۲. منحنی زنده پاسخ فرکانسی (شامل تأثیر Sub-Bass Boost و حالت‌های استودیویی روی منحنی)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(92.dp)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(Color(0xFF121526))
-                        .border(1.dp, palette.primary.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
-                        .padding(10.dp)
-                ) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val w = size.width
-                        val h = size.height
-                        val zeroY = h / 2f
-
-                        drawLine(
-                            color = Color(0x33FFFFFF),
-                            start = Offset(0f, zeroY),
-                            end = Offset(w, zeroY),
-                            strokeWidth = 1.dp.toPx(),
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
-                        )
-
-                        val bassNorm = (bassBoost / 1000f).coerceIn(0f, 1f)
-                        val count = bandGains.size
-                        if (count >= 2) {
-                            val points = List(count) { i ->
-                                val px = (i.toFloat() / (count - 1)) * (w - 20f) + 10f
-                                val subBoostExtra = if (i <= 2) (bassNorm * (3 - i) * 2.2f) else 0f
-                                val beatFocusExtra = if (beatFocusEnabled) {
-                                    when (i) {
-                                        0, 1, 2 -> 3.5f
-                                        4, 5, 6 -> -2.8f
-                                        8, 9 -> 2.0f
-                                        else -> 0f
-                                    }
-                                } else 0f
-                                val vocalCrystalExtra = if (vocalCrystalEnabled) {
-                                    when (i) {
-                                        3 -> -1.4f
-                                        5, 6, 7 -> 4.0f
-                                        8, 9 -> 1.8f
-                                        else -> 0f
-                                    }
-                                } else 0f
-                                val totalGain = (bandGains[i] + subBoostExtra + beatFocusExtra + vocalCrystalExtra).coerceIn(-12f, 14f)
-                                val py = (zeroY - (totalGain / 14f) * (h * 0.44f)).coerceIn(4f, h - 4f)
-                                Offset(px, py)
-                            }
-
-                            val curvePath = Path().apply {
-                                moveTo(points[0].x, points[0].y)
-                                for (i in 0 until points.size - 1) {
-                                    val p0 = points[i]
-                                    val p1 = points[i + 1]
-                                    val midX = (p0.x + p1.x) / 2f
-                                    cubicTo(midX, p0.y, midX, p1.y, p1.x, p1.y)
-                                }
-                            }
-
-                            val fillPath = Path().apply {
-                                addPath(curvePath)
-                                lineTo(points.last().x, h)
-                                lineTo(points.first().x, h)
-                                close()
-                            }
-
-                            drawPath(
-                                path = fillPath,
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(
-                                        palette.accent.copy(alpha = 0.42f),
-                                        palette.primary.copy(alpha = 0.15f),
-                                        Color.Transparent
-                                    )
-                                )
-                            )
-
-                            drawPath(
-                                path = curvePath,
-                                brush = Brush.horizontalGradient(listOf(palette.accent, palette.primary, palette.secondary)),
-                                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
-                            )
-
-                            points.forEach { pt ->
-                                drawCircle(color = Color.White, radius = 3.5.dp.toPx(), center = pt)
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // ۳. فیدرهای لمسی عمودی واقعی ۱۰ بانده (Studio Vertical Touch Faders)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(Color(0xFF131628))
-                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(22.dp))
-                        .padding(horizontal = 8.dp, vertical = 14.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(210.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        bandFrequencies.forEachIndexed { idx, freqLabel ->
-                            StudioVerticalEqFader(
-                                gainDb = bandGains[idx],
-                                freqLabel = freqLabel,
-                                enabled = eqEnabled,
-                                primaryColor = palette.primary,
-                                accentColor = palette.accent,
-                                onGainChanged = { newDb ->
-                                    bandGains[idx] = newDb
-                                    activePresetName = "Custom"
-                                    onUpdateSettings(
-                                        settings.copy(
-                                            equalizerEnabled = true,
-                                            eqPreset = "Custom",
-                                            eqBands = bandGains.toList()
-                                        )
-                                    )
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                // ۴. تقویت‌کننده قدرتمند ساب‌ووفر و بیس (Deep Sub-Bass Punch)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(
-                            Brush.linearGradient(
-                                listOf(
-                                    palette.primary.copy(alpha = 0.24f),
-                                    Color(0xFF141728)
-                                )
-                            )
-                        )
-                        .border(1.2.dp, palette.accent.copy(alpha = 0.45f), RoundedCornerShape(22.dp))
-                        .padding(18.dp)
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    text = if (isFa) "🔥 قدرت کوبندگی بیس و ساب‌ووفر (Sub-Bass Punch)" else "🔥 Deep Sub-Bass & 808 Punch",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 14.5.sp
-                                )
-                                Text(
-                                    text = if (isFa) "تقویت همزمان فرکانس‌های زیرین (31-125Hz) و Loudness بدون افت صدا"
-                                    else "Simultaneous hardware BassBoost + Low-Shelf + Loudness DSP",
-                                    color = Color(0xFFB4B9CE),
-                                    fontSize = 11.5.sp
-                                )
-                            }
-                            Text(
-                                 text = "${(bassBoost / 10).toInt()}%",
-                                color = palette.accent,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 18.sp
-                            )
-                        }
-
-                        Slider(
-                            value = bassBoost,
-                            onValueChange = {
-                                bassBoost = it
-                                eqEnabled = true
-                                onUpdateSettings(
-                                    settings.copy(
-                                        equalizerEnabled = true,
-                                        bassBoostStrength = it.toInt()
-                                    )
-                                )
-                            },
-                            valueRange = 0f..1000f,
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color.White,
-                                activeTrackColor = palette.accent,
-                                inactiveTrackColor = Color(0x33FFFFFF)
-                            )
-                        )
-
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.10f))
-
-                        // سرعت پخش (Pitch & Speed)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = if (isFa) "سرعت پخش (Playback Speed)" else "Playback Speed",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.5.sp
-                            )
-                            Text(
-                                text = "${"%.2f".format(currentSpeed)}x",
-                                color = palette.accent,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 13.5.sp
-                            )
-                        }
-
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            val speeds = listOf(0.75f, 0.90f, 1.0f, 1.15f, 1.25f, 1.5f, 2.0f)
-                            items(speeds) { speed ->
-                                FilterChip(
-                                    selected = (currentSpeed == speed),
-                                    onClick = {
-                                        currentSpeed = speed
-                                        onUpdateSettings(settings.copy(playbackSpeed = speed))
-                                    },
-                                    label = { Text("${speed}x", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = palette.primary,
-                                        selectedLabelColor = Color.White,
-                                        containerColor = Color(0x1AFFFFFF),
-                                        labelColor = Color(0xFFB4B9CE)
-                                    )
-                                )
-                            }
-                        }
-
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.10f))
-
-                        // حذف هوشمند سکوت آخر آهنگ‌ها (Smart Silence-Trimming DJ Mix)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = if (isFa) "🎧 میکس هوشمند و حذف سکوت انتهای آهنگ" else "🎧 Smart Silence-Trimming DJ Mix",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 13.sp
-                                )
-                                Text(
-                                    text = if (isFa) "تشخیص افت حجم صدا زیر ۱۵٪ در انتهای ترک و شروع خودکار آهنگ بعدی روی ضرب"
-                                    else "Detects trailing <15% volume drop & transitions seamlessly on the beat",
-                                    color = Color(0xFFB4B9CE),
-                                    fontSize = 10.5.sp
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Switch(
-                                checked = smartSilenceTrim,
-                                onCheckedChange = {
-                                    smartSilenceTrim = it
-                                    onUpdateSettings(settings.copy(smartSilenceTrimEnabled = it))
-                                },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
-                                    checkedTrackColor = palette.accent
-                                )
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(28.dp))
+                DspEffectRow(
+                    icon = Icons.Rounded.Speaker,
+                    title = "تقویت کوبش بیس (Bass Boost)",
+                    value = bassStrength,
+                    enabled = isEnabled,
+                    accentColor = accentCyan,
+                    onValueChange = onBassChange
+                )
+                DspEffectRow(
+                    icon = Icons.Rounded.SurroundSound,
+                    title = "فضاسازی سه‌بعدی (3D Virtualizer)",
+                    value = virtualizerStrength,
+                    enabled = isEnabled,
+                    accentColor = accentViolet,
+                    onValueChange = onVirtualizerChange
+                )
+                DspEffectRow(
+                    icon = Icons.Rounded.VolumeUp,
+                    title = "تقویت قدرت خروجی (Loudness Gain)",
+                    value = loudnessStrength,
+                    enabled = isEnabled,
+                    accentColor = Color(0xFF00F5D4),
+                    onValueChange = onLoudnessChange
+                )
             }
         }
     }
 }
 
-/**
- * فیدر لمسی عمودی اختصاصی به سبک استودیوهای آهنگسازی (بدون باگ اسلایدر افقی فشرده)
- */
 @Composable
-private fun StudioVerticalEqFader(
-    gainDb: Float,
-    freqLabel: String,
+private fun VerticalEqBandSlider(
+    frequencyLabel: String,
+    dbValue: Float,
     enabled: Boolean,
-    primaryColor: Color,
-    accentColor: Color,
-    onGainChanged: (Float) -> Unit,
-    modifier: Modifier = Modifier
+    accentCyan: Color,
+    accentViolet: Color,
+    onValueChange: (Float) -> Unit
 ) {
-    val currentOnGainChanged by rememberUpdatedState(onGainChanged)
+    val currentDb by rememberUpdatedState(dbValue)
 
     Column(
-        modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            text = "${if (gainDb > 0) "+" else ""}${gainDb.roundToInt()}",
-            fontSize = 10.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = if (gainDb != 0f && enabled) accentColor else Color(0xFF888EA8)
+            text = "${if (dbValue > 0) "+" else ""}${dbValue.roundToInt()}dB",
+            color = if (enabled) Color.White.copy(alpha = 0.9f) else Color.Gray,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center
         )
 
         Box(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .padding(vertical = 6.dp)
+                .width(38.dp)
+                .height(155.dp)
+                .clip(RoundedCornerShape(19.dp))
+                .background(Color.Black.copy(alpha = 0.35f))
+                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(19.dp))
                 .pointerInput(enabled) {
                     if (!enabled) return@pointerInput
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        down.consume()
-                        val h = size.height.toFloat().coerceAtLeast(1f)
-
-                        fun yToDb(y: Float): Float {
-                            val norm = 1f - (y / h).coerceIn(0f, 1f) // 0 at bottom (-12dB), 1 at top (+12dB)
-                            val rawDb = (norm * 24f) - 12f
-                            return ( (rawDb * 2f).roundToInt() / 2f ).coerceIn(-12f, 12f)
-                        }
-
-                        currentOnGainChanged(yToDb(down.position.y))
-
-                        var pointerId = down.id
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == pointerId } ?: event.changes.firstOrNull()
-                            if (change == null || !change.pressed) {
-                                change?.consume()
-                                break
-                            }
-                            pointerId = change.id
-                            if (change.positionChange() != Offset.Zero) {
-                                change.consume()
-                            }
-                            currentOnGainChanged(yToDb(change.position.y))
-                        }
+                    detectVerticalDragGestures { change, dragAmount ->
+                        change.consume()
+                        val heightPx = size.height.toFloat().coerceAtLeast(1f)
+                        val deltaDb = (-dragAmount / heightPx) * 30f
+                        val updated = (currentDb + deltaDb).coerceIn(-15f, 15f)
+                        onValueChange(updated)
                     }
                 },
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.BottomCenter
         ) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val w = size.width
-                val h = size.height
-                val centerX = w / 2f
-                val trackW = 6.dp.toPx()
-                val zeroY = h / 2f
+            val fraction = ((dbValue.coerceIn(-15f, 15f) + 15f) / 30f).coerceIn(0.05f, 1f)
+            val animFraction by animateFloatAsState(
+                targetValue = if (enabled) fraction else 0.5f,
+                label = "sliderFill"
+            )
 
-                // شیار پس‌زمینه فیدر عمودی
-                drawRoundRect(
-                    color = Color(0x28FFFFFF),
-                    topLeft = Offset(centerX - trackW / 2f, 0f),
-                    size = Size(trackW, h),
-                    cornerRadius = CornerRadius(trackW / 2f, trackW / 2f)
-                )
-
-                // خط مرجع 0dB
-                drawLine(
-                    color = Color.White.copy(alpha = 0.35f),
-                    start = Offset(centerX - trackW * 1.4f, zeroY),
-                    end = Offset(centerX + trackW * 1.4f, zeroY),
-                    strokeWidth = 1.dp.toPx()
-                )
-
-                // محاسبه موقعیت عمودی دستگیره بر اساس gainDb (-12 تا +12)
-                val norm = ((gainDb.coerceIn(-12f, 12f) + 12f) / 24f).coerceIn(0f, 1f)
-                val thumbY = h * (1f - norm)
-
-                // نوار رنگی پرشده از مرکز (0dB) تا موقعیت دستگیره
-                val fillTop = minOf(zeroY, thumbY)
-                val fillBottom = maxOf(zeroY, thumbY)
-                val fillHeight = (fillBottom - fillTop).coerceAtLeast(2f)
-
-                drawRoundRect(
-                    brush = Brush.verticalGradient(
-                        colors = if (enabled) listOf(accentColor, primaryColor) else listOf(Color.Gray, Color.DarkGray)
-                    ),
-                    topLeft = Offset(centerX - trackW / 2f, fillTop),
-                    size = Size(trackW, fillHeight),
-                    cornerRadius = CornerRadius(trackW / 2f, trackW / 2f)
-                )
-
-                // دستگیره نوری (Thumb)
-                val thumbR = 7.dp.toPx()
-                drawCircle(
-                    color = if (enabled) accentColor.copy(alpha = 0.40f) else Color.Transparent,
-                    radius = thumbR * 1.7f,
-                    center = Offset(centerX, thumbY)
-                )
-                drawCircle(
-                    color = if (enabled) Color.White else Color.Gray,
-                    radius = thumbR,
-                    center = Offset(centerX, thumbY)
-                )
-                drawCircle(
-                    color = if (enabled) accentColor else Color.DarkGray,
-                    radius = thumbR * 0.55f,
-                    center = Offset(centerX, thumbY)
-                )
-            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(animFraction)
+                    .clip(RoundedCornerShape(19.dp))
+                    .background(
+                        Brush.verticalGradient(
+                            colors = if (enabled) listOf(accentCyan, accentViolet)
+                            else listOf(Color.Gray.copy(alpha = 0.4f), Color.DarkGray.copy(alpha = 0.4f))
+                        )
+                    )
+            )
         }
 
         Text(
-            text = freqLabel,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color(0xFFA5ABC0)
+            text = frequencyLabel,
+            color = Color.White.copy(alpha = 0.65f),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun DspEffectRow(
+    icon: ImageVector,
+    title: String,
+    value: Float,
+    enabled: Boolean,
+    accentColor: Color,
+    onValueChange: (Float) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = if (enabled) accentColor else Color.Gray,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = title,
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            Text(
+                text = "${(value.coerceIn(0f, 1f) * 100).roundToInt()}%",
+                color = if (enabled) accentColor else Color.Gray,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Slider(
+            value = value.coerceIn(0f, 1f),
+            onValueChange = onValueChange,
+            enabled = enabled,
+            colors = SliderDefaults.colors(
+                thumbColor = Color.White,
+                activeTrackColor = accentColor,
+                inactiveTrackColor = Color.White.copy(alpha = 0.12f)
+            )
         )
     }
 }
