@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.OnlineCacheHolder
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
 import com.example.audio.ConnectedAudioDevice
@@ -50,8 +51,9 @@ import com.example.data.model.*
 import com.example.data.model.RepeatMode as PlaybackRepeatMode
 import com.example.ui.components.*
 import com.example.ui.theme.GlassThickness
+import com.example.ui.theme.HardwareGyroscopeManager
 import com.example.ui.theme.liquidGlass
-import com.example.ui.theme.rememberGyroscopeTilt
+import com.example.ui.theme.rememberGyroscopeSensorActive
 import kotlinx.coroutines.isActive
 import kotlin.math.PI
 import kotlin.math.cos
@@ -98,16 +100,26 @@ fun NowPlayingScreen(
     loopStartMs: Long? = null,
     loopEndMs: Long? = null,
     onSetAbLoop: (Long?, Long?) -> Unit = { _, _ -> },
-    onClearAbLoop: () -> Unit = {}
+    onClearAbLoop: () -> Unit = {},
+    onDownloadTrack: (Track) -> Unit = {}
 ) {
     val context = LocalContext.current
     val track = playbackState.currentTrack ?: return
+    val downloadingIds by OnlineCacheHolder.downloadingTrackIds.collectAsState()
+    val downloadedIds by OnlineCacheHolder.downloadedTrackIds.collectAsState()
+    val isOnlineTrack = track.id.startsWith("online_") || track.uri.startsWith("http")
+    val isDownloadedToPhone = downloadedIds.contains(track.id) ||
+        downloadedIds.contains(track.id.removePrefix("online_")) ||
+        OnlineCacheHolder.isTrackCached(context, track.id) ||
+        (!isOnlineTrack && !track.uri.startsWith("http"))
+    val isDownloadingNow = downloadingIds.contains(track.id) ||
+        downloadingIds.contains(track.id.removePrefix("online_"))
     var centerView by remember { mutableStateOf(NowPlayingCenterView.ARTWORK_AND_HALO) }
     var isImmersive by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
     var showRadialMenu by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
-    val (gyroRoll, gyroPitch) = rememberGyroscopeTilt()
+    rememberGyroscopeSensorActive()
 
     val triggerHaptic = {
         if (appSettings.hapticFeedbackEnabled) {
@@ -162,13 +174,13 @@ fun NowPlayingScreen(
         audioProfile?.waveformEnvelope?.split(",")?.mapNotNull { it.trim().toFloatOrNull() }?.toFloatArray()
     }
 
-    // موتور ۱۲۰ فریم بر ثانیه برای چرخش نرم سه‌بعدی قاب کاور (۳۵٪ سریع‌تر و کاملاً هماهنگ با ریتم و بیس آهنگ)
+    // موتور ۱۲۰ فریم بر ثانیه برای چرخش نرم سه‌بعدی قاب کاور (بدون ریست شدن فاز هنگام توقف یا پخش)
     val baseOrbitTransition = rememberInfiniteTransition(label = "CoverBaseOrbit")
     val continuousOrbitPhase by baseOrbitTransition.animateFloat(
         initialValue = 0f,
         targetValue = (2f * PI).toFloat(),
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = if (isPlaying) 5200 else 14000, easing = LinearEasing),
+            animation = tween(durationMillis = 6800, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "continuousOrbitPhase"
@@ -525,7 +537,7 @@ fun NowPlayingScreen(
                             }
                         }
 
-                        // قاب سه‌بعدی کاور آهنگ با چرخش نرم ۳ بعدی حول مرکز (بدون گیر کردن در بالا)
+                        // قاب سه‌بعدی کاور آهنگ با چرخش نرم ۳ بعدی حول مرکز (بدون تکان خوردن فیزیکی کاور با ژیروسکوپ؛ فقط انعکاس نور با ژیروسکوپ حرکت می‌کند)
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight(0.76f)
@@ -540,8 +552,8 @@ fun NowPlayingScreen(
                                     scaleY = totalScale
                                     translationX = floatOffsetX
                                     translationY = floatOffsetY
-                                    rotationX = sin(effectivePhase) * dynamicTiltDeg + (gyroPitch * 2.2f)
-                                    rotationY = cos(effectivePhase) * dynamicTiltDeg + (gyroRoll * 2.2f)
+                                    rotationX = sin(effectivePhase) * dynamicTiltDeg
+                                    rotationY = cos(effectivePhase) * dynamicTiltDeg
                                     rotationZ = sin(effectivePhase * 0.6f) * (if (isPlaying) (1.8f + smoothEnergyLevel * 2.8f + smoothBassLevel * 2.0f) else 0.4f)
                                     cameraDistance = 14f * density
                                 }
@@ -597,6 +609,33 @@ fun NowPlayingScreen(
                                     trackId = track.id,
                                     palette = dynamicCoverPalette,
                                     modifier = Modifier.fillMaxSize()
+                                )
+                            }
+
+                            // لایه انعکاس نوری کریستالی روی کاور که فقط با حرکت ژیروسکوپ گوشی جابه‌جا می‌شود (بدون تکان دادن خود کاور)
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val gyroRoll = HardwareGyroscopeManager.roll
+                                val gyroPitch = HardwareGyroscopeManager.pitch
+                                val w = size.width
+                                val h = size.height
+                                val sheenX = w * (0.48f + gyroRoll * 0.68f)
+                                val sheenY = h * (0.38f + gyroPitch * 0.62f)
+                                val beamSpan = w * 0.65f
+
+                                drawRect(
+                                    brush = Brush.linearGradient(
+                                        colorStops = arrayOf(
+                                            0.00f to Color.Transparent,
+                                            0.36f to Color.White.copy(alpha = 0.03f),
+                                            0.48f to Color.White.copy(alpha = 0.16f),
+                                            0.53f to coverAccent.copy(alpha = 0.11f),
+                                            0.66f to Color.Transparent,
+                                            1.00f to Color.Transparent
+                                        ),
+                                        start = Offset(sheenX - beamSpan, sheenY - beamSpan * 0.75f),
+                                        end = Offset(sheenX + beamSpan, sheenY + beamSpan * 0.75f)
+                                    ),
+                                    blendMode = BlendMode.Screen
                                 )
                             }
                         }
@@ -694,6 +733,53 @@ fun NowPlayingScreen(
                     }
 
                     Spacer(modifier = Modifier.width(8.dp))
+
+                    // دکمه دانلود انتخابی آهنگ در فضای گوشی (فقط آهنگی که کاربر دوست دارد به فضای گوشی اضافه می‌شود)
+                    if (isOnlineTrack) {
+                        IconButton(
+                            onClick = {
+                                triggerHaptic()
+                                onDownloadTrack(track)
+                            },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .liquidGlass(
+                                    shape = CircleShape,
+                                    thickness = GlassThickness.THIN,
+                                    tintColor = if (isDownloadedToPhone) Color(0xFF1ED760) else coverAccent,
+                                    tintAlpha = if (isDownloadedToPhone) 0.32f else 0.18f
+                                )
+                                .testTag("download_online_track_button")
+                        ) {
+                            when {
+                                isDownloadingNow -> {
+                                    CircularProgressIndicator(
+                                        color = Color(0xFF1ED760),
+                                        strokeWidth = 2.2.dp,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                isDownloadedToPhone -> {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudDone,
+                                        contentDescription = "Downloaded to Device",
+                                        tint = Color(0xFF1ED760),
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                else -> {
+                                    Icon(
+                                        imageVector = Icons.Default.Download,
+                                        contentDescription = "Download to Device",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
 
                     IconButton(
                         onClick = {

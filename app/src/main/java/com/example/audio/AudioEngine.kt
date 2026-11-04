@@ -577,6 +577,12 @@ class AudioEngine(private val context: Context) {
             mp.setOnErrorListener { _, what, extra ->
                 if (transitionId.get() != currentTransitionId) return@setOnErrorListener true
                 Log.e(tag, "MediaPlayer Error: what=$what, extra=$extra for track ${track.title}")
+                val fallbackUrl = com.example.OnlineMusicRepository.getFallbackStreamUrl(track)
+                if (fallbackUrl != null && fallbackUrl != track.uri) {
+                    Log.d(tag, "Switching to fallback stream URL for ${track.title}")
+                    playTrack(track.copy(uri = fallbackUrl), startPositionMs, autoPlay = _isPlayWhenReady.value)
+                    return@setOnErrorListener true
+                }
                 _status.value = PlayerStatus.ERROR
                 _isPlayWhenReady.value = false
                 stopProgressTracker()
@@ -594,6 +600,11 @@ class AudioEngine(private val context: Context) {
             } catch (_: Exception) {}
             mediaPlayer = null
             isPlayerPrepared = false
+            val fallbackUrl = com.example.OnlineMusicRepository.getFallbackStreamUrl(track)
+            if (fallbackUrl != null && fallbackUrl != track.uri) {
+                playTrack(track.copy(uri = fallbackUrl), startPositionMs, autoPlay = autoPlay)
+                return
+            }
             _status.value = PlayerStatus.ERROR
             _isPlayWhenReady.value = false
             onError?.invoke("Cannot open audio: ${e.localizedMessage ?: "File missing"}")
@@ -601,7 +612,15 @@ class AudioEngine(private val context: Context) {
     }
 
     private fun setDataSourceForTrack(mp: MediaPlayer, track: Track) {
-        if (track.isDemo || track.uri.contains("aura/demo") || track.uri.startsWith("/")) {
+        val cachedOnlineFile = com.example.OnlineCacheHolder.getCachedFileIfPresent(context, track.id)
+        if (cachedOnlineFile != null) {
+            mp.setDataSource(cachedOnlineFile.absolutePath)
+            return
+        }
+
+        if (track.uri.startsWith("http://") || track.uri.startsWith("https://")) {
+            mp.setDataSource(context, Uri.parse(track.uri))
+        } else if (track.isDemo || track.uri.contains("aura/demo") || track.uri.startsWith("/")) {
             val file = if (track.uri.startsWith("file://")) {
                 File(Uri.parse(track.uri).path ?: "")
             } else if (track.uri.startsWith("/")) {
@@ -630,6 +649,7 @@ class AudioEngine(private val context: Context) {
     }
 
     fun preloadTrack(track: Track) {
+        if (track.uri.startsWith("http://") || track.uri.startsWith("https://")) return
         if (preloadedTrackId == track.id && preloadedPlayer != null) return
         try {
             preloadedPlayer?.release()

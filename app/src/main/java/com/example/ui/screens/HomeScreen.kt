@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
+import com.example.OnlineCacheHolder
 import com.example.audio.AmbientPalette
 import com.example.data.model.*
 import com.example.ui.components.MusicArtworkPlaceholder
@@ -78,17 +79,32 @@ fun HomeScreen(
     onToggleGymMode: () -> Unit = {},
     currentPositionProvider: () -> Long = { playbackState.currentPositionMs },
     onSeekTo: (Long) -> Unit = {},
+    onlineTrendingTracks: List<Track> = emptyList(),
+    selectedTrendingMode: String = "FOR_YOU",
+    isLoadingOnlineRecommendations: Boolean = false,
+    userTopArtists: List<String> = emptyList(),
+    onlineRecentTracks: List<Track> = emptyList(),
+    onSelectTrendingMode: (String) -> Unit = {},
+    onRefreshOnlineRecommendations: () -> Unit = {},
+    onDownloadTrack: (Track) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val lang = appSettings.language
+    val isFa = lang == AppLanguage.PERSIAN
     val context = LocalContext.current
+    val downloadingIds by OnlineCacheHolder.downloadingTrackIds.collectAsState()
+    val downloadedIds by OnlineCacheHolder.downloadedTrackIds.collectAsState()
+
+    val mergedRecentlyPlayed = remember(onlineRecentTracks, recentlyPlayed) {
+        (onlineRecentTracks + recentlyPlayed).distinctBy { "${it.title.lowercase().trim()}|${it.artist.lowercase().trim()}" }.take(16)
+    }
 
     val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
     val timeSlotGreeting = when (currentHour) {
-        in 5..11 -> if (lang == AppLanguage.PERSIAN) "موسیقی برای صبح دل‌انگیز شما" else "Music for Your Morning Focus"
-        in 12..16 -> if (lang == AppLanguage.PERSIAN) "ریتم پرانرژی بعدازظهر" else "Afternoon Energy Boost"
-        in 17..21 -> if (lang == AppLanguage.PERSIAN) "آرامش و موسیقی غروب" else "Evening Wind-Down"
-        else -> if (lang == AppLanguage.PERSIAN) "موزیک‌های نیمه‌شب و سکوت" else "Late Night Ambient Flow"
+        in 5..11 -> if (isFa) "وایب صبح ☀️" else "Morning Vibe ☀️"
+        in 12..16 -> if (isFa) "انرژی روز ⚡" else "Daytime Energy ⚡"
+        in 17..21 -> if (isFa) "وایب عصر 🌆" else "Evening Vibe 🌆"
+        else -> if (isFa) "وایب شب 🌙" else "Late Night 🌙"
     }
 
     LazyColumn(
@@ -180,14 +196,17 @@ fun HomeScreen(
         }
 
         // Section 1.1: Elevated Ambient Top Now Playing Card (Shows dynamic playing/featured track)
-        val heroTrack = playbackState.currentTrack ?: allTracks.firstOrNull()
+        val heroTrack = playbackState.currentTrack
+            ?: onlineTrendingTracks.firstOrNull()
+            ?: timeSlotTracks.firstOrNull()
+            ?: allTracks.firstOrNull()
         if (heroTrack != null) {
             item {
                 HeroQuickPlayCard(
                     heroTrack = heroTrack,
                     playbackState = playbackState,
                     palette = palette,
-                    allTracks = allTracks,
+                    allTracks = if (allTracks.isNotEmpty()) allTracks else onlineTrendingTracks.ifEmpty { listOf(heroTrack) },
                     hasActiveTrack = playbackState.currentTrack != null,
                     appSettings = appSettings,
                     currentPositionProvider = currentPositionProvider,
@@ -197,7 +216,7 @@ fun HomeScreen(
                         if (playbackState.currentTrack != null) {
                             onTogglePlay()
                         } else {
-                            onPlayTrack(heroTrack, if (allTracks.isNotEmpty()) allTracks else listOf(heroTrack))
+                            onPlayTrack(heroTrack, onlineTrendingTracks.ifEmpty { allTracks.ifEmpty { listOf(heroTrack) } })
                         }
                     },
                     onExpandNowPlaying = onExpandNowPlaying
@@ -258,7 +277,7 @@ fun HomeScreen(
             }
         }
 
-        // Feature 2: Time-of-Day Contextual Carousel
+        // Feature 2: Minimal Time-of-Day Online Carousel
         if (timeSlotTracks.isNotEmpty()) {
             item {
                 Column {
@@ -267,48 +286,101 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Schedule,
-                                contentDescription = null,
-                                tint = palette.accent,
-                                modifier = Modifier.size(18.dp)
+                        Text(
+                            text = timeSlotGreeting,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = timeSlotGreeting,
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
+                        )
+
+                        IconButton(
+                            onClick = onRefreshOnlineRecommendations,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Refresh",
+                                tint = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
+
                     Spacer(modifier = Modifier.height(10.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        items(timeSlotTracks) { track ->
+
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(timeSlotTracks, key = { "timeslot_${it.id}" }) { track ->
+                            val isSaved = downloadedIds.contains(track.id) ||
+                                downloadedIds.contains(track.id.removePrefix("online_")) ||
+                                OnlineCacheHolder.isTrackCached(context, track.id)
+                            val isDownloadingThis = downloadingIds.contains(track.id) ||
+                                downloadingIds.contains(track.id.removePrefix("online_"))
+
                             Box(
                                 modifier = Modifier
                                     .width(148.dp)
                                     .liquidGlass(
-                                        shape = RoundedCornerShape(20.dp),
-                                        thickness = GlassThickness.REGULAR,
+                                        shape = RoundedCornerShape(18.dp),
+                                        thickness = GlassThickness.THIN,
                                         tintColor = Color(0xFF161A2E),
-                                        tintAlpha = 0.65f,
-                                        borderWidth = 1.dp
+                                        tintAlpha = 0.50f,
+                                        borderWidth = 0.8.dp
                                     )
                                     .clickable { onPlayTrack(track, timeSlotTracks) }
-                                    .padding(12.dp)
+                                    .padding(10.dp)
                             ) {
                                 Column {
-                                    TrackArtworkThumbnail(
-                                        artworkUri = track.artworkUri,
-                                        accentColor = palette.primary,
-                                        size = 124.dp,
-                                        shape = RoundedCornerShape(14.dp),
-                                        iconSize = 38.dp
-                                    )
-                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Box(modifier = Modifier.size(128.dp)) {
+                                        TrackArtworkThumbnail(
+                                            artworkUri = track.artworkUri,
+                                            accentColor = palette.primary,
+                                            size = 128.dp,
+                                            shape = RoundedCornerShape(14.dp),
+                                            iconSize = 36.dp,
+                                            title = track.title,
+                                            artist = track.artist,
+                                            trackId = track.id
+                                        )
+
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(6.dp)
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xCC070912))
+                                                .clickable { onDownloadTrack(track) },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            when {
+                                                isDownloadingThis -> {
+                                                    CircularProgressIndicator(
+                                                        color = Color(0xFF1ED760),
+                                                        strokeWidth = 2.dp,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                                isSaved -> {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = "Saved",
+                                                        tint = Color(0xFF1ED760),
+                                                        modifier = Modifier.size(15.dp)
+                                                    )
+                                                }
+                                                else -> {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Download,
+                                                        contentDescription = "Download",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(15.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
                                     Text(
                                         text = track.title,
                                         style = MaterialTheme.typography.bodyMedium.copy(
@@ -321,7 +393,191 @@ fun HomeScreen(
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = track.artist,
-                                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA6A8BA), fontSize = 12.sp),
+                                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA6A8BA), fontSize = 11.5.sp),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Feature 2.5: Gen-Z Trending & Personalized Taste Feed (Minimal & Clean)
+        item {
+            val tasteCategories = remember(isFa) {
+                listOf(
+                    "FOR_YOU" to (if (isFa) "✨ برای تو" else "✨ For You"),
+                    "TIKTOK_INSTA" to (if (isFa) "🔥 اینستا و تیک‌تاک" else "🔥 TikTok & Reels"),
+                    "YOUTUBE" to (if (isFa) "▶️ یوتیوب" else "▶️ YouTube"),
+                    "RAPPERS" to (if (isFa) "🎤 رپرها" else "🎤 Rappers"),
+                    "PERSIAN" to (if (isFa) "💎 فارسی" else "💎 Persian"),
+                    "PHONK_NIGHT" to (if (isFa) "🌙 فونک و شب" else "🌙 Phonk & Night")
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = if (isFa) "ترند روز 🔥" else "Trending Now 🔥",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
+                        )
+                        if (userTopArtists.isNotEmpty()) {
+                            Surface(
+                                color = Color(0x1FFFFFFF),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text(
+                                    text = userTopArtists.first(),
+                                    color = Color(0xFF1ED760),
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    if (isLoadingOnlineRecommendations) {
+                        CircularProgressIndicator(
+                            color = Color(0xFF1ED760),
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                // دسته‌بندی‌های مینیمال نسل زد
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(tasteCategories, key = { it.first }) { (modeKey, label) ->
+                        val isSelected = selectedTrendingMode == modeKey
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(
+                                    if (isSelected) Color(0xFF1ED760) else Color(0x1FFFFFFF)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (isSelected) Color.Transparent else Color.White.copy(alpha = 0.12f),
+                                    shape = RoundedCornerShape(18.dp)
+                                )
+                                .clickable { onSelectTrendingMode(modeKey) }
+                                .padding(horizontal = 13.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (isSelected) Color(0xFF060A08) else Color.White.copy(alpha = 0.88f),
+                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+
+                if (onlineTrendingTracks.isNotEmpty()) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(onlineTrendingTracks, key = { "trending_${it.id}" }) { track ->
+                            val isSaved = downloadedIds.contains(track.id) ||
+                                downloadedIds.contains(track.id.removePrefix("online_")) ||
+                                OnlineCacheHolder.isTrackCached(context, track.id)
+                            val isDownloadingThis = downloadingIds.contains(track.id) ||
+                                downloadingIds.contains(track.id.removePrefix("online_"))
+
+                            Box(
+                                modifier = Modifier
+                                    .width(152.dp)
+                                    .liquidGlass(
+                                        shape = RoundedCornerShape(18.dp),
+                                        thickness = GlassThickness.THIN,
+                                        tintColor = palette.primary,
+                                        tintAlpha = 0.16f,
+                                        borderWidth = 0.8.dp
+                                    )
+                                    .clickable { onPlayTrack(track, onlineTrendingTracks) }
+                                    .padding(10.dp)
+                            ) {
+                                Column {
+                                    Box(modifier = Modifier.size(132.dp)) {
+                                        TrackArtworkThumbnail(
+                                            artworkUri = track.artworkUri,
+                                            accentColor = palette.primary,
+                                            size = 132.dp,
+                                            shape = RoundedCornerShape(14.dp),
+                                            iconSize = 36.dp,
+                                            title = track.title,
+                                            artist = track.artist,
+                                            trackId = track.id
+                                        )
+
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(6.dp)
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xCC070912))
+                                                .clickable { onDownloadTrack(track) },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            when {
+                                                isDownloadingThis -> {
+                                                    CircularProgressIndicator(
+                                                        color = Color(0xFF1ED760),
+                                                        strokeWidth = 2.dp,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                                isSaved -> {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = "Downloaded",
+                                                        tint = Color(0xFF1ED760),
+                                                        modifier = Modifier.size(15.dp)
+                                                    )
+                                                }
+                                                else -> {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Download,
+                                                        contentDescription = "Download",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(15.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = track.title,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = track.artist,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            color = Color(0xFFA6A8BA),
+                                            fontSize = 11.5.sp
+                                        ),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -457,8 +713,8 @@ fun HomeScreen(
             }
         }
 
-        // Recently Played
-        if (recentlyPlayed.isNotEmpty()) {
+        // Recently Played (شامل هم آهنگ‌های آنلاین گوش‌داده‌شده و هم آرشیو گوشی)
+        if (mergedRecentlyPlayed.isNotEmpty()) {
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -466,19 +722,25 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (lang == AppLanguage.PERSIAN) "اخیراً پخش شده" else "Recently Played",
+                        text = if (isFa) "اخیراً گوش داده شده" else "Recently Played",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                     )
                     TextButton(onClick = onOpenLibrary) {
-                        Text(if (lang == AppLanguage.PERSIAN) "همه" else "See All", color = palette.accent, fontSize = 12.sp)
+                        Text(if (isFa) "آرشیو من" else "My Library", color = palette.accent, fontSize = 12.sp)
                     }
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    items(recentlyPlayed) { track ->
+                    items(mergedRecentlyPlayed, key = { "recent_${it.id}" }) { track ->
+                        val isOnline = track.id.startsWith("online_") || track.uri.startsWith("http")
+                        val isSaved = downloadedIds.contains(track.id) ||
+                            downloadedIds.contains(track.id.removePrefix("online_")) ||
+                            OnlineCacheHolder.isTrackCached(context, track.id) ||
+                            !isOnline
+
                         Box(
                             modifier = Modifier
                                 .width(148.dp)
@@ -489,20 +751,42 @@ fun HomeScreen(
                                     tintAlpha = 0.65f,
                                     borderWidth = 1.dp
                                 )
-                                .clickable { onPlayTrack(track, allTracks) }
+                                .clickable { onPlayTrack(track, mergedRecentlyPlayed) }
                                 .padding(12.dp)
                         ) {
                             Column {
-                                TrackArtworkThumbnail(
-                                    artworkUri = track.artworkUri,
-                                    accentColor = palette.primary,
-                                    size = 124.dp,
-                                    shape = RoundedCornerShape(14.dp),
-                                    iconSize = 38.dp,
-                                    title = track.title,
-                                    artist = track.artist,
-                                    trackId = track.id
-                                )
+                                Box(modifier = Modifier.size(124.dp)) {
+                                    TrackArtworkThumbnail(
+                                        artworkUri = track.artworkUri,
+                                        accentColor = palette.primary,
+                                        size = 124.dp,
+                                        shape = RoundedCornerShape(14.dp),
+                                        iconSize = 38.dp,
+                                        title = track.title,
+                                        artist = track.artist,
+                                        trackId = track.id
+                                    )
+                                    if (isOnline && !isSaved) {
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(6.dp)
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xCC070912))
+                                                .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape)
+                                                .clickable { onDownloadTrack(track) },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Download,
+                                                contentDescription = "Download to Phone",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
+                                    }
+                                }
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Text(
                                     text = track.title,

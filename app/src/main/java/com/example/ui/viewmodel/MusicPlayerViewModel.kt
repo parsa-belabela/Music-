@@ -6,6 +6,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.AuraApplication
+import com.example.LyricsRepository
+import com.example.OnlineCacheHolder
+import com.example.OnlineMusicRepository
+import com.example.OnlineTasteEngine
 import com.example.audio.AmbientPalette
 import com.example.audio.ArtworkPaletteExtractor
 import com.example.audio.AudioAnalysisData
@@ -75,6 +79,21 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     private val _timeSlotTracks = MutableStateFlow<List<Track>>(emptyList())
     val timeSlotTracks: StateFlow<List<Track>> = _timeSlotTracks.asStateFlow()
+
+    private val _onlineTrendingTracks = MutableStateFlow<List<Track>>(emptyList())
+    val onlineTrendingTracks: StateFlow<List<Track>> = _onlineTrendingTracks.asStateFlow()
+
+    private val _selectedTrendingMode = MutableStateFlow("FOR_YOU")
+    val selectedTrendingMode: StateFlow<String> = _selectedTrendingMode.asStateFlow()
+
+    private val _isLoadingOnlineRecommendations = MutableStateFlow(false)
+    val isLoadingOnlineRecommendations: StateFlow<Boolean> = _isLoadingOnlineRecommendations.asStateFlow()
+
+    private val _userTopArtists = MutableStateFlow<List<String>>(emptyList())
+    val userTopArtists: StateFlow<List<String>> = _userTopArtists.asStateFlow()
+
+    private val _onlineRecentTracks = MutableStateFlow<List<Track>>(emptyList())
+    val onlineRecentTracks: StateFlow<List<Track>> = _onlineRecentTracks.asStateFlow()
 
     private val _duplicateGroups = MutableStateFlow<List<DuplicateGroup>>(emptyList())
     val duplicateGroups: StateFlow<List<DuplicateGroup>> = _duplicateGroups.asStateFlow()
@@ -235,6 +254,11 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
 
+        // بارگذاری اولیه پیشنهادهای آنلاین ساعتی و ترند آمریکا و جهان بر اساس سلیقه کاربر
+        OnlineCacheHolder.refreshDownloadedSet(app)
+        _onlineRecentTracks.value = OnlineTasteEngine.getRecentOnlineTracks(app)
+        refreshOnlineRecommendations()
+
         // Feature 14: Instant Resume
         viewModelScope.launch {
             allTracks.collect { tracks ->
@@ -249,6 +273,87 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         // Live real-time detection of newly downloaded songs
         repository.startObservingMediaStore(viewModelScope) {
             checkSmartFeatures()
+        }
+    }
+
+    fun selectTrendingMode(mode: String) {
+        _selectedTrendingMode.value = mode
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            _isLoadingOnlineRecommendations.value = true
+            val topArtists = OnlineTasteEngine.getTopArtistsForUser(
+                context = app,
+                localRecent = recentlyPlayed.value,
+                localFavorites = favoriteTracks.value
+            )
+            _userTopArtists.value = topArtists
+            val trending = OnlineTasteEngine.fetchTrendingAndTasteFeed(app, mode, topArtists)
+            if (trending.isNotEmpty()) {
+                _onlineTrendingTracks.value = trending
+            }
+            _isLoadingOnlineRecommendations.value = false
+        }
+    }
+
+    fun refreshOnlineRecommendations() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            _isLoadingOnlineRecommendations.value = true
+            try {
+                val topArtists = OnlineTasteEngine.getTopArtistsForUser(
+                    context = app,
+                    localRecent = recentlyPlayed.value,
+                    localFavorites = favoriteTracks.value
+                )
+                _userTopArtists.value = topArtists
+                val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+
+                val onlineTimeSlot = OnlineTasteEngine.fetchOnlineTimeSlotTracks(app, hour, topArtists)
+                if (onlineTimeSlot.isNotEmpty()) {
+                    _timeSlotTracks.value = onlineTimeSlot
+                }
+
+                val trending = OnlineTasteEngine.fetchTrendingAndTasteFeed(
+                    context = app,
+                    mode = _selectedTrendingMode.value,
+                    topArtists = topArtists
+                )
+                if (trending.isNotEmpty()) {
+                    _onlineTrendingTracks.value = trending
+                }
+            } catch (_: Exception) {
+            } finally {
+                _isLoadingOnlineRecommendations.value = false
+            }
+        }
+    }
+
+    /**
+     * دانلود انتخابی آهنگ در فضای گوشی و افزودن دائمی به آرشیو آهنگ‌های کاربر
+     */
+    fun downloadTrackToDeviceLibrary(track: Track) {
+        OnlineCacheHolder.downloadTrackExplicitly(app, track) { downloadedFile ->
+            if (downloadedFile != null) {
+                viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val savedTrack = track.copy(
+                        uri = downloadedFile.absolutePath,
+                        dateAdded = System.currentTimeMillis(),
+                        isDemo = false
+                    )
+                    repository.saveDownloadedTrackToLibrary(savedTrack)
+                }
+                val isFa = _appSettings.value.language == AppLanguage.PERSIAN
+                android.widget.Toast.makeText(
+                    app,
+                    if (isFa) "«${track.title}» دانلود شد و به آهنگ‌های گوشی اضافه گردید ✓" else "\"${track.title}\" saved to device songs ✓",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            } else {
+                val isFa = _appSettings.value.language == AppLanguage.PERSIAN
+                android.widget.Toast.makeText(
+                    app,
+                    if (isFa) "خطا در دانلود فایل صوتی" else "Failed to download track",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
         }
     }
 
@@ -286,9 +391,13 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
             _unlockedStyles.value = unlocked
 
-            // Time of day recommendation tracks
-            val recs = repository.getTracksForCurrentTimeSlot(12)
-            _timeSlotTracks.value = recs
+            // Time of day recommendation tracks (prioritize online recommendations; fallback to local only if offline)
+            if (_timeSlotTracks.value.isEmpty()) {
+                val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                val topArtists = OnlineTasteEngine.getTopArtistsForUser(app, recentlyPlayed.value, favoriteTracks.value)
+                val onlineRecs = OnlineTasteEngine.fetchOnlineTimeSlotTracks(app, hour, topArtists)
+                _timeSlotTracks.value = onlineRecs.ifEmpty { repository.getTracksForCurrentTimeSlot(12) }
+            }
 
             // Background audio profile analysis
             repository.ensureAudioProfilesAnalyzed(
@@ -302,6 +411,10 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun handleTrackError() {
         val state = _playbackState.value
+        val cur = state.currentTrack
+        if (cur != null && (cur.uri.startsWith("http://") || cur.uri.startsWith("https://"))) {
+            return
+        }
         if (state.queue.size > 1) {
             viewModelScope.launch {
                 kotlinx.coroutines.delay(600L)
@@ -370,14 +483,31 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             )
         }
 
-        audioEngine.playTrack(track, startPositionMs)
-        loadLyricsForTrack(track.id)
+        // ۲. شروع بلافاصله پخش صوتی بدون هیچ تاخیر یا درخواست اضافی قبل از پخش
+        val cachedFile = OnlineCacheHolder.getCachedFileIfPresent(app, track.id)
+        if (cachedFile != null) {
+            val localReadyTrack = track.copy(uri = cachedFile.absolutePath)
+            audioEngine.playTrack(localReadyTrack, startPositionMs)
+        } else {
+            audioEngine.playTrack(track, startPositionMs)
+        }
+
+        // ثبت در پروفایل سلیقه آنلاین و لیست پخش‌های اخیر کاربر در پس‌زمینه
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            OnlineTasteEngine.recordTrackListen(app, track)
+            _onlineRecentTracks.value = OnlineTasteEngine.getRecentOnlineTracks(app)
+            _userTopArtists.value = OnlineTasteEngine.getTopArtistsForUser(app, recentlyPlayed.value, favoriteTracks.value)
+        }
+
+        loadLyricsForTrack(track)
 
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             var profile = repository.getAudioProfile(track.id)
             if (profile == null) {
                 profile = trackAnalyzer.analyze(app, track)
-                repository.saveAudioProfile(profile)
+                if (!track.uri.startsWith("http://") && !track.uri.startsWith("https://")) {
+                    repository.saveAudioProfile(profile)
+                }
             }
             _currentTrackAudioProfile.value = profile
             val envFloats = profile.waveformEnvelope
@@ -396,7 +526,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             if (_appSettings.value.preloadNextTrack && queue.size > 1) {
                 val nextIdx = (safeIdx + 1) % queue.size
                 queue.getOrNull(nextIdx)?.let { nextTrack ->
-                    audioEngine.preloadTrack(nextTrack)
+                    if (!nextTrack.uri.startsWith("http://") && !nextTrack.uri.startsWith("https://")) {
+                        audioEngine.preloadTrack(nextTrack)
+                    }
                 }
             }
         }
@@ -726,7 +858,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    private fun loadLyricsForTrack(trackId: String) {
+    private fun loadLyricsForTrack(track: Track) {
+        val trackId = track.id
         lyricsJob?.cancel()
         lyricsJob = viewModelScope.launch {
             repository.getLyrics(trackId).collect { entity ->
@@ -736,7 +869,21 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     val parsed = LrcParser.parse(entity.rawLrc, entity.offsetMs)
                     _currentLyrics.value = parsed
                 } else {
-                    _currentLyrics.value = emptyList()
+                    // دریافت خودکار متن هماهنگ آهنگ (Synced LRC / Plain) از LRCLIB برای آهنگ‌های آنلاین و آفلاین
+                    val durationSec = (track.durationMs / 1000L).toInt().coerceAtLeast(30)
+                    val fetchedLines = LyricsRepository.fetchLyrics(
+                        artist = track.artist,
+                        trackName = track.title,
+                        durationSec = durationSec
+                    )
+                    if (_playbackState.value.currentTrack?.id == trackId) {
+                        val playerLines = LyricsRepository.toPlayerLyricsLines(fetchedLines, track.durationMs)
+                        _currentLyrics.value = playerLines
+                        if (fetchedLines.isNotEmpty() && fetchedLines.first().text != "متنی برای این آهنگ یافت نشد.") {
+                            val rawLrc = LyricsRepository.toRawLrcString(fetchedLines)
+                            repository.saveLyrics(trackId, rawLrc, 0L)
+                        }
+                    }
                 }
             }
         }
@@ -1406,7 +1553,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
         val palette = ArtworkPaletteExtractor.extract(track, _appSettings.value, app)
         _activePalette.value = palette
-        loadLyricsForTrack(track.id)
+        loadLyricsForTrack(track)
 
         audioEngine.prepareTrack(track, lastPos)
 

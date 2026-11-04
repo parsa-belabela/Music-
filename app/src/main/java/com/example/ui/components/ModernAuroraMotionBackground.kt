@@ -189,23 +189,21 @@ fun ModernAuroraMotionBackground(
                 )
             }
 
-            // ۵. تکسچر استودیویی میکرو-گرین
-            val step = 28.dp.toPx().coerceAtLeast(18f)
-            val cols = (w / step).toInt()
-            val rows = (h / step).toInt()
-            for (r in 0..rows) {
-                val y = r * step
-                for (c in 0..cols) {
-                    if ((r + c) % 2 == 0) {
-                        val x = c * step
-                        drawCircle(
-                            color = Color.White.copy(alpha = 0.024f),
-                            radius = 1.1f,
-                            center = Offset(x, y)
-                        )
-                    }
-                }
-            }
+            // ۵. شیدینگ ابریشمی عمیق برای یکدست شدن فضای پس‌زمینه (بدون نقاط شبکه‌ای سنگین)
+            drawRect(
+                brush = Brush.linearGradient(
+                    colorStops = arrayOf(
+                        0.00f to Color.Transparent,
+                        0.35f to animPrimary.copy(alpha = 0.05f),
+                        0.52f to Color.White.copy(alpha = 0.028f),
+                        0.70f to animAccent.copy(alpha = 0.05f),
+                        1.00f to Color.Transparent
+                    ),
+                    start = Offset(0f, 0f),
+                    end = Offset(w, h)
+                ),
+                blendMode = BlendMode.Screen
+            )
 
             // ۶. لایه محافظ کنتراست مخملی عمیق
             drawRect(

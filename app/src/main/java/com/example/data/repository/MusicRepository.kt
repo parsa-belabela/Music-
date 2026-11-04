@@ -344,6 +344,20 @@ class MusicRepository(
         tracksFound.size
     }
 
+    suspend fun saveDownloadedTrackToLibrary(track: Track) = withContext(Dispatchers.IO) {
+        val existing = musicDao.getTrackById(track.id)
+        val merged = if (existing != null) {
+            existing.copy(
+                uri = track.uri,
+                artworkUri = track.artworkUri ?: existing.artworkUri,
+                dateAdded = System.currentTimeMillis()
+            )
+        } else {
+            track.copy(dateAdded = System.currentTimeMillis())
+        }
+        musicDao.insertTrack(merged)
+    }
+
     suspend fun toggleFavorite(trackId: String, currentFavorite: Boolean) = withContext(Dispatchers.IO) {
         musicDao.setFavorite(trackId, !currentFavorite)
     }

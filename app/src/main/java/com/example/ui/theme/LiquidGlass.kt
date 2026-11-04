@@ -121,7 +121,7 @@ object HardwareGyroscopeManager : SensorEventListener {
 }
 
 @Composable
-fun rememberGyroscopeTilt(): Pair<Float, Float> {
+fun rememberGyroscopeSensorActive() {
     val context = LocalContext.current
     DisposableEffect(context) {
         HardwareGyroscopeManager.acquire(context)
@@ -129,6 +129,11 @@ fun rememberGyroscopeTilt(): Pair<Float, Float> {
             HardwareGyroscopeManager.release()
         }
     }
+}
+
+@Composable
+fun rememberGyroscopeTilt(): Pair<Float, Float> {
+    rememberGyroscopeSensorActive()
     return HardwareGyroscopeManager.roll to HardwareGyroscopeManager.pitch
 }
 
@@ -260,21 +265,15 @@ fun Modifier.liquidGlass(
         with(density) { configuration.screenHeightDp.dp.toPx().coerceAtLeast(1f) }
     }
 
-    val (gyroRoll, gyroPitch) = rememberGyroscopeTilt()
+    rememberGyroscopeSensorActive()
     var windowY by remember { mutableFloatStateOf(0f) }
-
-    val smoothScrollRatio by animateFloatAsState(
-        targetValue = (windowY / screenHeightPx).coerceIn(-0.3f, 1.3f),
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "ScrollLightReflection"
-    )
 
     this
         .onGloballyPositioned { coordinates ->
-            windowY = coordinates.positionInWindow().y
+            val newY = coordinates.positionInWindow().y
+            if (kotlin.math.abs(newY - windowY) > 2f) {
+                windowY = newY
+            }
         }
         .clip(shape)
         .drawWithCache {
@@ -291,6 +290,22 @@ fun Modifier.liquidGlass(
                     is Outline.Rectangle -> addRect(outline.rect)
                 }
             }
+
+            val baseAlpha = when (thickness) {
+                GlassThickness.THIN -> 0.80f
+                GlassThickness.REGULAR -> 0.86f
+                GlassThickness.THICK -> 0.92f
+            }
+
+            val glassBodyBrush = Brush.linearGradient(
+                colors = listOf(
+                    Color(0xFF121626).copy(alpha = baseAlpha),
+                    safeTint.copy(alpha = (tintAlpha * 1.15f).coerceIn(0.12f, 0.32f)),
+                    Color(0xFF080A14).copy(alpha = (baseAlpha + 0.05f).coerceAtMost(0.96f))
+                ),
+                start = Offset(0f, 0f),
+                end = Offset(w, h)
+            )
 
             if (isSmallButton) {
                 val btnFill = Brush.verticalGradient(
@@ -320,64 +335,54 @@ fun Modifier.liquidGlass(
                     )
                 }
             } else {
-                // Combine vertical scroll with real-time hardware gyroscope roll & pitch
-                val sweepProgress = ((1f - smoothScrollRatio) * 1.45f - 0.22f) + (gyroRoll * 0.48f)
-                val beamCenterX = w * sweepProgress
-                val beamCenterY = h * (0.22f + smoothScrollRatio * 0.56f + gyroPitch * 0.35f)
-                val beamWidth = (w * 0.52f).coerceAtLeast(160f)
-
-                val baseAlpha = when (thickness) {
-                    GlassThickness.THIN -> 0.80f
-                    GlassThickness.REGULAR -> 0.86f
-                    GlassThickness.THICK -> 0.92f
-                }
-
-                val glassBodyBrush = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFF121626).copy(alpha = baseAlpha),
-                        safeTint.copy(alpha = (tintAlpha * 1.15f).coerceIn(0.12f, 0.32f)),
-                        Color(0xFF080A14).copy(alpha = (baseAlpha + 0.05f).coerceAtMost(0.96f))
-                    ),
-                    start = Offset(0f, 0f),
-                    end = Offset(w, h)
-                )
-
-                val specularReflectionBrush = Brush.linearGradient(
-                    colorStops = arrayOf(
-                        0.00f to Color.Transparent,
-                        0.34f to safeTint.copy(alpha = 0.06f),
-                        0.45f to Color.White.copy(alpha = 0.12f),
-                        0.50f to Color.White.copy(alpha = 0.22f),
-                        0.55f to secondaryAccent.copy(alpha = 0.10f),
-                        0.66f to Color.Transparent,
-                        1.00f to Color.Transparent
-                    ),
-                    start = Offset(beamCenterX - beamWidth, beamCenterY - beamWidth * 0.7f),
-                    end = Offset(beamCenterX + beamWidth, beamCenterY + beamWidth * 0.7f)
-                )
-
-                val rimAngle = ((smoothScrollRatio * PI) + (gyroRoll * 1.35f) + (gyroPitch * 0.85f)).toFloat()
-                val rimStart = Offset(
-                    x = (w * 0.5f) + cos(rimAngle) * w * 0.6f,
-                    y = (h * 0.5f) + sin(rimAngle) * h * 0.6f
-                )
-                val rimEnd = Offset(
-                    x = (w * 0.5f) - cos(rimAngle) * w * 0.6f,
-                    y = (h * 0.5f) - sin(rimAngle) * h * 0.6f
-                )
-
-                val dynamicBorderBrush = Brush.linearGradient(
-                    colorStops = arrayOf(
-                        0.00f to activeTint.copy(alpha = 0.85f),
-                        0.35f to Color.White.copy(alpha = 0.88f),
-                        0.65f to secondaryAccent.copy(alpha = 0.78f),
-                        1.00f to activeTint.copy(alpha = 0.60f)
-                    ),
-                    start = rimStart,
-                    end = rimEnd
-                )
+                val beamWidth = (w * 0.54f).coerceAtLeast(160f)
+                val strokePx = borderWidth.toPx()
 
                 onDrawWithContent {
+                    // خواندن ژیروسکوپ فقط در فاز Draw برای اجرای ۱۲۰ فریم بدون هیچ Recomposition
+                    val gyroRoll = HardwareGyroscopeManager.roll
+                    val gyroPitch = HardwareGyroscopeManager.pitch
+                    val scrollRatio = (windowY / screenHeightPx).coerceIn(-0.3f, 1.3f)
+
+                    val sweepProgress = ((1f - scrollRatio) * 1.35f - 0.18f) + (gyroRoll * 0.55f)
+                    val beamCenterX = w * sweepProgress
+                    val beamCenterY = h * (0.24f + scrollRatio * 0.52f + gyroPitch * 0.42f)
+
+                    val specularReflectionBrush = Brush.linearGradient(
+                        colorStops = arrayOf(
+                            0.00f to Color.Transparent,
+                            0.32f to safeTint.copy(alpha = 0.07f),
+                            0.44f to Color.White.copy(alpha = 0.14f),
+                            0.50f to Color.White.copy(alpha = 0.25f),
+                            0.56f to secondaryAccent.copy(alpha = 0.11f),
+                            0.68f to Color.Transparent,
+                            1.00f to Color.Transparent
+                        ),
+                        start = Offset(beamCenterX - beamWidth, beamCenterY - beamWidth * 0.7f),
+                        end = Offset(beamCenterX + beamWidth, beamCenterY + beamWidth * 0.7f)
+                    )
+
+                    val rimAngle = ((scrollRatio * PI) + (gyroRoll * 1.45f) + (gyroPitch * 0.95f)).toFloat()
+                    val rimStart = Offset(
+                        x = (w * 0.5f) + cos(rimAngle) * w * 0.6f,
+                        y = (h * 0.5f) + sin(rimAngle) * h * 0.6f
+                    )
+                    val rimEnd = Offset(
+                        x = (w * 0.5f) - cos(rimAngle) * w * 0.6f,
+                        y = (h * 0.5f) - sin(rimAngle) * h * 0.6f
+                    )
+
+                    val dynamicBorderBrush = Brush.linearGradient(
+                        colorStops = arrayOf(
+                            0.00f to activeTint.copy(alpha = 0.85f),
+                            0.35f to Color.White.copy(alpha = 0.90f),
+                            0.65f to secondaryAccent.copy(alpha = 0.80f),
+                            1.00f to activeTint.copy(alpha = 0.62f)
+                        ),
+                        start = rimStart,
+                        end = rimEnd
+                    )
+
                     clipPath(outlinePath) {
                         drawRect(brush = glassBodyBrush)
                         drawRect(brush = specularReflectionBrush)
@@ -386,7 +391,7 @@ fun Modifier.liquidGlass(
                     drawPath(
                         path = outlinePath,
                         brush = dynamicBorderBrush,
-                        style = Stroke(width = borderWidth.toPx())
+                        style = Stroke(width = strokePx)
                     )
                 }
             }

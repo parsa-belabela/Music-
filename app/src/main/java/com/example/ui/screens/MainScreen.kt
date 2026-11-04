@@ -62,6 +62,11 @@ fun MainScreen(
 
     // 15 Features States
     val timeSlotTracks by viewModel.timeSlotTracks.collectAsStateWithLifecycle()
+    val onlineTrendingTracks by viewModel.onlineTrendingTracks.collectAsStateWithLifecycle()
+    val selectedTrendingMode by viewModel.selectedTrendingMode.collectAsStateWithLifecycle()
+    val isLoadingOnlineRecommendations by viewModel.isLoadingOnlineRecommendations.collectAsStateWithLifecycle()
+    val userTopArtists by viewModel.userTopArtists.collectAsStateWithLifecycle()
+    val onlineRecentTracks by viewModel.onlineRecentTracks.collectAsStateWithLifecycle()
     val onThisDayHighlight by viewModel.onThisDayHighlight.collectAsStateWithLifecycle()
     val weeklyRecapStats by viewModel.weeklyRecapStats.collectAsStateWithLifecycle()
     val duplicateGroups by viewModel.duplicateGroups.collectAsStateWithLifecycle()
@@ -338,9 +343,17 @@ fun MainScreen(
                             didRestoreSession = didRestoreSession,
                             duplicateCount = duplicateGroups.sumOf { it.losers.size },
                             onOpenDuplicatesReview = { viewModel.showDuplicatesReview.value = true },
-                            currentPositionProvider = { viewModel.currentPositionMs.value },
+                             currentPositionProvider = { viewModel.currentPositionMs.value },
                             onSeekTo = { viewModel.seekTo(it) },
                             onToggleGymMode = { viewModel.toggleGymMode() },
+                            onlineTrendingTracks = onlineTrendingTracks,
+                            selectedTrendingMode = selectedTrendingMode,
+                            isLoadingOnlineRecommendations = isLoadingOnlineRecommendations,
+                            userTopArtists = userTopArtists,
+                            onlineRecentTracks = onlineRecentTracks,
+                            onSelectTrendingMode = { viewModel.selectTrendingMode(it) },
+                            onRefreshOnlineRecommendations = { viewModel.refreshOnlineRecommendations() },
+                            onDownloadTrack = { viewModel.downloadTrackToDeviceLibrary(it) },
                             bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()
                         )
@@ -356,6 +369,7 @@ fun MainScreen(
                             onPlayNext = { viewModel.playNextInQueue(it) },
                             onAddToQueue = { viewModel.addToQueue(it) },
                             onToggleFavorite = { viewModel.toggleFavorite(it) },
+                            onDownloadTrack = { viewModel.downloadTrackToDeviceLibrary(it) },
                             bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()
                         )
@@ -499,7 +513,8 @@ fun MainScreen(
                         loopStartMs = loopStartMs,
                         loopEndMs = loopEndMs,
                         onSetAbLoop = { a, b -> viewModel.setAbLoop(a, b) },
-                        onClearAbLoop = { viewModel.clearAbLoop() }
+                        onClearAbLoop = { viewModel.clearAbLoop() },
+                        onDownloadTrack = { trk -> viewModel.downloadTrackToDeviceLibrary(trk) }
                     )
                 }
             }

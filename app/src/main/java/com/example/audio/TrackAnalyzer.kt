@@ -20,7 +20,13 @@ class TrackAnalyzer {
 
     suspend fun analyze(context: Context, track: Track): TrackAudioProfile = withContext(Dispatchers.IO) {
         try {
-            if (track.isDemo || track.uri.startsWith("android.resource://") || track.uri.isEmpty()) {
+            if (
+                track.isDemo ||
+                track.uri.startsWith("android.resource://") ||
+                track.uri.startsWith("http://") ||
+                track.uri.startsWith("https://") ||
+                track.uri.isEmpty()
+            ) {
                 return@withContext generateFallbackProfile(track)
             }
 

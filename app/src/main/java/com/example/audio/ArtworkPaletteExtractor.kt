@@ -77,6 +77,11 @@ object ArtworkPaletteExtractor {
         val artworkUriStr = track.artworkUri
         if (!artworkUriStr.isNullOrBlank()) {
             try {
+                if (artworkUriStr.startsWith("http://") || artworkUriStr.startsWith("https://")) {
+                    com.example.OnlineMusicRepository.loadCoverBitmapBlocking(artworkUriStr)?.let {
+                        return ensureSoftwareBitmap(it)
+                    }
+                }
                 val uri = Uri.parse(artworkUriStr)
                 when (uri.scheme) {
                     "content" -> {
@@ -116,7 +121,7 @@ object ArtworkPaletteExtractor {
         }
 
         // مرحله ۲: استخراج مستقیم کاورِ جاسازی‌شده (Embedded ID3 Artwork) از داخل فایل صوتی
-        if (track.uri.isNotBlank() && !track.isDemo) {
+        if (track.uri.isNotBlank() && !track.isDemo && !track.uri.startsWith("http")) {
             val retriever = MediaMetadataRetriever()
             try {
                 val trackUri = Uri.parse(track.uri)

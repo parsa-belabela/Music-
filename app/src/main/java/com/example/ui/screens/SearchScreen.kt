@@ -31,6 +31,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.OnlineMusicRepository
+import com.example.OnlineMusicScreen
 import com.example.audio.AmbientPalette
 import com.example.data.model.AppLanguage
 import com.example.data.model.AppSettings
@@ -89,9 +91,11 @@ fun SearchScreen(
     onEditMetadata: (Track) -> Unit = {},
     onDeleteTrack: (Track) -> Unit = {},
     onPlayTrackList: (List<Track>) -> Unit = {},
+    onDownloadTrack: (Track) -> Unit = {},
     bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
     modifier: Modifier = Modifier
 ) {
+    var isOnlineStreamMode by remember { mutableStateOf(true) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedScope by remember { mutableStateOf(SearchFilterScope.ALL) }
     var selectedGenreBucket by remember { mutableStateOf<RealGenreBucket?>(null) }
@@ -213,14 +217,150 @@ fun SearchScreen(
         SearchFilterScope.GENRES to if (isFa) "ژانرها" else "Genres"
     )
 
-    LazyColumn(
+    Column(
         modifier = modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = maxOf(bottomPadding + 24.dp, 128.dp)),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // سوییچر شیشه‌ای فوق‌مدرن بین «استریم آنلاین جهانی (Spotify Cloud)» و «آرشیو آفلاین دستگاه»
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .liquidGlass(
+                    shape = RoundedCornerShape(22.dp),
+                    thickness = GlassThickness.REGULAR,
+                    tintColor = palette.primary,
+                    tintAlpha = 0.18f,
+                    borderWidth = 1.1.dp,
+                    secondaryAccent = palette.accent
+                )
+                .padding(4.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(
+                            if (isOnlineStreamMode) {
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        Color(0xFF1DB954).copy(alpha = 0.85f),
+                                        palette.primary.copy(alpha = 0.80f)
+                                    )
+                                )
+                            } else {
+                                Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))
+                            }
+                        )
+                        .clickable { isOnlineStreamMode = true }
+                        .padding(vertical = 10.dp, horizontal = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudQueue,
+                            contentDescription = null,
+                            tint = if (isOnlineStreamMode) Color.White else Color.White.copy(alpha = 0.65f),
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isFa) "استریم آنلاین (Spotify)" else "Online Stream",
+                            color = if (isOnlineStreamMode) Color.White else Color.White.copy(alpha = 0.68f),
+                            fontWeight = if (isOnlineStreamMode) FontWeight.ExtraBold else FontWeight.Medium,
+                            fontSize = 12.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(
+                            if (!isOnlineStreamMode) {
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        palette.primary.copy(alpha = 0.85f),
+                                        palette.accent.copy(alpha = 0.75f)
+                                    )
+                                )
+                            } else {
+                                Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))
+                            }
+                        )
+                        .clickable { isOnlineStreamMode = false }
+                        .padding(vertical = 10.dp, horizontal = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LibraryMusic,
+                            contentDescription = null,
+                            tint = if (!isOnlineStreamMode) Color.White else Color.White.copy(alpha = 0.65f),
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isFa) "آرشیو گوشی (${tracks.size})" else "On-Device (${tracks.size})",
+                            color = if (!isOnlineStreamMode) Color.White else Color.White.copy(alpha = 0.68f),
+                            fontWeight = if (!isOnlineStreamMode) FontWeight.ExtraBold else FontWeight.Medium,
+                            fontSize = 12.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+
+        if (isOnlineStreamMode) {
+            OnlineMusicScreen(
+                palette = palette,
+                lang = lang,
+                activePlayingTrackId = playbackState.currentTrack?.id,
+                isGlobalPlayerPlaying = playbackState.isPlaying,
+                bottomPadding = bottomPadding,
+                onExternalPlay = { onlineTrack, streamUrl, onlineQueue ->
+                    val targetAppTrack = onlineTrack.toAppTrack(streamUrl)
+                    val appQueue = onlineQueue.map { item ->
+                        if (item.id == onlineTrack.id) {
+                            targetAppTrack
+                        } else {
+                            item.toAppTrack(OnlineMusicRepository.buildStreamUrl(item))
+                        }
+                    }
+                    onPlayTrack(targetAppTrack, appQueue)
+                },
+                onAddToQueue = { onlineTrack, streamUrl ->
+                    onAddToQueue(onlineTrack.toAppTrack(streamUrl))
+                },
+                onDownloadToDeviceLibrary = { appTrack ->
+                    onDownloadTrack(appTrack)
+                }
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = maxOf(bottomPadding + 24.dp, 128.dp)),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
         // =========================================================================
         // هدر و نوار جستجوی شیشه‌ای
         // =========================================================================
@@ -810,6 +950,8 @@ fun SearchScreen(
                         }
                     }
                 }
+            }
+        }
             }
         }
     }

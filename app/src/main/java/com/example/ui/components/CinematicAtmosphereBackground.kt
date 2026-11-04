@@ -297,33 +297,21 @@ fun CinematicAtmosphereBackground(
                 }
             }
 
-            // ۶. تکسچر ظریف آکوستیک و گرین استودیویی (Fine Acoustic Micro-Texture & Grain Mesh)
-            val gridStep = 26.dp.toPx().coerceAtLeast(18f)
-            val cols = (w / gridStep).toInt()
-            val rows = (h / gridStep).toInt()
-            for (r in 0..rows) {
-                val y = r * gridStep
-                // خطوط افقی میکرو-تکسچر ابریشمی
-                if (r % 2 == 0) {
-                    drawLine(
-                        color = Color.White.copy(alpha = 0.016f),
-                        start = Offset(0f, y),
-                        end = Offset(w, y),
-                        strokeWidth = 1f
-                    )
-                }
-                for (c in 0..cols) {
-                    if ((r + c) % 2 == 0) {
-                        val x = c * gridStep + (if (r % 2 == 0) 0f else gridStep * 0.5f)
-                        val grainAlpha = if ((r * 7 + c * 13) % 5 == 0) 0.045f else 0.022f
-                        drawCircle(
-                            color = Color.White.copy(alpha = grainAlpha),
-                            radius = 1.15f,
-                            center = Offset(x, y)
-                        )
-                    }
-                }
-            }
+            // ۶. بافت ابریشمی نوری استودیویی (بدون نقاط شبکه‌ای سنگین و لگ‌زا)
+            drawRect(
+                brush = Brush.linearGradient(
+                    colorStops = arrayOf(
+                        0.00f to Color.Transparent,
+                        0.28f to animatedPrimary.copy(alpha = 0.06f),
+                        0.50f to Color.White.copy(alpha = 0.035f),
+                        0.72f to animatedAccent.copy(alpha = 0.06f),
+                        1.00f to Color.Transparent
+                    ),
+                    start = Offset(0f, h * 0.12f),
+                    end = Offset(w, h * 0.88f)
+                ),
+                blendMode = BlendMode.Screen
+            )
         }
 
         // لایه ۳: سایه عمیق و سینمایی لبه‌های بالا و پایین برای کنتراست و خوانایی ۱۰۰٪ متن‌ها
