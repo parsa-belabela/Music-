@@ -241,17 +241,24 @@ object OnlineMusicRepository {
         return artistPictureCache[artistName.trim().lowercase()]
     }
 
+    fun getCachedCoverBitmap(url: String): Bitmap? {
+        if (url.isBlank()) return null
+        return imageMemoryCache.get(url)
+    }
+
+    fun cacheCoverBitmap(url: String, bitmap: Bitmap) {
+        if (url.isBlank()) return
+        imageMemoryCache.put(url, bitmap)
+    }
+
     fun getFallbackStreamUrl(track: Track): String? {
         val cacheKey = "${track.artist.lowercase().trim()}|${track.title.lowercase().trim()}"
         val cachedFull = fullStreamUrlCache[cacheKey]
         if (!cachedFull.isNullOrBlank() && track.uri != cachedFull) {
             return cachedFull
         }
-        val preview = getPreviewUrl(track.id)
-        if (!preview.isNullOrBlank() && track.uri != preview) {
-            return preview
-        }
-        val workerUrl = buildStreamUrlForTitleArtist(track.artist, track.title)
+        val cleanId = track.id.removePrefix("online_")
+        val workerUrl = buildStreamUrlForTitleArtist(track.artist, track.title, cleanId)
         if (track.uri != workerUrl && track.uri.startsWith("http")) {
             return workerUrl
         }
@@ -259,10 +266,8 @@ object OnlineMusicRepository {
     }
 
     suspend fun resolvePreviewUrlIfNeeded(track: Track): String? = withContext(Dispatchers.IO) {
-        getPreviewUrl(track.id)?.let { if (it.isNotBlank()) return@withContext it }
-        val results = searchCatalog("${track.artist} ${track.title}")
-        val match = results.firstOrNull { it.previewUrl.isNotBlank() }
-        match?.previewUrl?.also { registerPreviewUrl(track.id, it) }
+        // هرگز از لینک ۳۰ ثانیه‌ای دیزر استفاده نمی‌شود؛ همیشه لینک کامل استریم برگردانده می‌شود
+        resolveFullLengthAudioUrl(track.artist, track.title)
     }
 
     /**
@@ -509,20 +514,18 @@ object OnlineMusicRepository {
     }
 
     fun buildStreamUrl(track: OnlineTrack): String {
-        if (track.previewUrl.isNotBlank()) {
-            registerPreviewUrl(track.id, track.previewUrl)
-        }
-        val cacheKey = "${track.artist.lowercase().trim()}|${track.title.lowercase().trim()}"
-        fullStreamUrlCache[cacheKey]?.let { if (it.isNotBlank()) return it }
-        val searchKeyword = URLEncoder.encode("${track.artist} - ${track.title} audio", "UTF-8")
-        return "$WORKER_URL/?q=$searchKeyword"
+        return "$WORKER_URL/?id=${track.id}&q=${URLEncoder.encode("${track.artist} - ${track.title}", "UTF-8")}"
     }
 
-    fun buildStreamUrlForTitleArtist(artist: String, title: String): String {
-        val cacheKey = "${artist.lowercase().trim()}|${title.lowercase().trim()}"
-        fullStreamUrlCache[cacheKey]?.let { if (it.isNotBlank()) return it }
-        val searchKeyword = URLEncoder.encode("$artist - $title audio", "UTF-8")
-        return "$WORKER_URL/?q=$searchKeyword"
+    fun buildStreamUrlForTitleArtist(artist: String, title: String, trackId: String = ""): String {
+        val cleanId = trackId.removePrefix("online_")
+        return "$WORKER_URL/?id=$cleanId&q=${URLEncoder.encode("$artist - $title", "UTF-8")}"
+    }
+
+    fun buildDownloadUrl(trackId: String, artist: String, title: String): String {
+        val cleanId = trackId.removePrefix("online_")
+        val encodedQuery = URLEncoder.encode("$artist - $title", "UTF-8")
+        return "$WORKER_URL/?id=$cleanId&q=$encodedQuery&dl=1"
     }
 }
 
@@ -926,6 +929,63 @@ object OnlineCacheHolder {
     // حداقل حجم برای تشخیص فایل کامل صوتی (بیشتر از پیش‌نمایش ۳۰ ثانیه‌ای ۴۸۰ کیلوبایتی)
     private const val MIN_FULL_SONG_BYTES = 850_000L
 
+    /**
+     * تنظیمات استاندارد شبکه و کش با پشتیبانی از Cross-Protocol Redirects و تایم‌اوت ۲۰ ثانیه‌ای
+     * و فلگ FLAG_IGNORE_CACHE_ON_ERROR برای جلوگیری از خطا در استریم و کش آنلاین
+     */
+    class DefaultHttpDataSource {
+        class Factory {
+            var allowCrossProtocolRedirects: Boolean = true
+                private set
+            var connectTimeoutMs: Int = 20000
+                private set
+            var readTimeoutMs: Int = 20000
+                private set
+
+            fun setAllowCrossProtocolRedirects(allow: Boolean): Factory = apply {
+                this.allowCrossProtocolRedirects = allow
+            }
+
+            fun setConnectTimeoutMs(timeoutMs: Int): Factory = apply {
+                this.connectTimeoutMs = timeoutMs
+            }
+
+            fun setReadTimeoutMs(timeoutMs: Int): Factory = apply {
+                this.readTimeoutMs = timeoutMs
+            }
+        }
+    }
+
+    class CacheDataSource {
+        companion object {
+            const val FLAG_IGNORE_CACHE_ON_ERROR: Int = 1 shl 1
+        }
+
+        class Factory {
+            var upstreamDataSourceFactory: DefaultHttpDataSource.Factory = DefaultHttpDataSource.Factory()
+                private set
+            var flags: Int = FLAG_IGNORE_CACHE_ON_ERROR
+                private set
+
+            fun setUpstreamDataSourceFactory(factory: DefaultHttpDataSource.Factory): Factory = apply {
+                this.upstreamDataSourceFactory = factory
+            }
+
+            fun setFlags(flags: Int): Factory = apply {
+                this.flags = flags
+            }
+        }
+    }
+
+    val httpDataSourceFactory: DefaultHttpDataSource.Factory = DefaultHttpDataSource.Factory()
+        .setAllowCrossProtocolRedirects(true)
+        .setConnectTimeoutMs(20000)
+        .setReadTimeoutMs(20000)
+
+    val cacheDataSourceFactory: CacheDataSource.Factory = CacheDataSource.Factory()
+        .setUpstreamDataSourceFactory(httpDataSourceFactory)
+        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
     private val cacheScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val activeDownloads = HashSet<String>()
     private val activeStreamBuffers = HashSet<String>()
@@ -933,10 +993,42 @@ object OnlineCacheHolder {
     private val _downloadingTrackIds = MutableStateFlow<Set<String>>(emptySet())
     val downloadingTrackIds: StateFlow<Set<String>> = _downloadingTrackIds.asStateFlow()
 
+    private val _downloadProgressMap = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val downloadProgressMap: StateFlow<Map<String, Int>> = _downloadProgressMap.asStateFlow()
+
     private val _downloadedTrackIds = MutableStateFlow<Set<String>>(emptySet())
     val downloadedTrackIds: StateFlow<Set<String>> = _downloadedTrackIds.asStateFlow()
 
+    private fun updateTrackDownloadProgress(rawId: String, percent: Int?) {
+        val clean = rawId.removePrefix("online_")
+        val next = _downloadProgressMap.value.toMutableMap()
+        if (percent == null) {
+            next.remove(clean)
+            next.remove("online_$clean")
+        } else {
+            val safePct = percent.coerceIn(0, 100)
+            next[clean] = safePct
+            next["online_$clean"] = safePct
+        }
+        _downloadProgressMap.value = next
+    }
+
+    /**
+     * پوشه اصلی ذخیره دائمی آهنگ‌های دانلودشده در فضای خارجی اختصاصی موزیک گوشی:
+     * context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
+     */
     fun getCacheDir(context: Context): File {
+        val extMusicDir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC)
+        if (extMusicDir != null) {
+            if (!extMusicDir.exists()) extMusicDir.mkdirs()
+            return extMusicDir
+        }
+        val fallbackDir = File(context.filesDir, "aura_downloaded_music")
+        if (!fallbackDir.exists()) fallbackDir.mkdirs()
+        return fallbackDir
+    }
+
+    private fun getInternalDownloadedDir(context: Context): File {
         val dir = File(context.filesDir, "aura_downloaded_music")
         if (!dir.exists()) dir.mkdirs()
         return dir
@@ -961,29 +1053,20 @@ object OnlineCacheHolder {
 
     fun refreshDownloadedSet(context: Context) {
         val ids = mutableSetOf<String>()
-        getCacheDir(context).listFiles()?.forEach { f ->
-            if (f.isFile && f.length() > MIN_VALID_AUDIO_BYTES) {
-                val rawId = f.name.removePrefix("aura_track_").removeSuffix(".mp3")
-                ids.add(rawId)
-                ids.add("online_$rawId")
-            }
-        }
-        getLegacyCacheDir(context).listFiles()?.forEach { f ->
-            if (f.isFile && f.length() > MIN_VALID_AUDIO_BYTES) {
-                val rawId = f.name.removePrefix("aura_track_").removeSuffix(".mp3")
-                ids.add(rawId)
-                ids.add("online_$rawId")
+        listOf(getCacheDir(context), getInternalDownloadedDir(context), getLegacyCacheDir(context)).forEach { dir ->
+            dir.listFiles()?.forEach { f ->
+                if (f.isFile && f.length() > MIN_VALID_AUDIO_BYTES && f.name.endsWith(".mp3")) {
+                    val rawId = f.name.removePrefix("aura_track_").removeSuffix(".mp3")
+                    ids.add(rawId)
+                    ids.add("online_$rawId")
+                }
             }
         }
         _downloadedTrackIds.value = ids
     }
 
     fun isTrackCached(context: Context, trackId: String): Boolean {
-        val key = normalizeKey(trackId)
-        val primary = File(getCacheDir(context), key)
-        if (primary.exists() && primary.length() > MIN_VALID_AUDIO_BYTES) return true
-        val legacy = File(getLegacyCacheDir(context), key)
-        return legacy.exists() && legacy.length() > MIN_VALID_AUDIO_BYTES
+        return getCachedFileIfPresent(context, trackId) != null
     }
 
     fun getCachedFileIfPresent(context: Context, trackId: String): File? {
@@ -992,6 +1075,11 @@ object OnlineCacheHolder {
         if (primary.exists() && primary.length() > MIN_VALID_AUDIO_BYTES) {
             primary.setLastModified(System.currentTimeMillis())
             return primary
+        }
+        val internal = File(getInternalDownloadedDir(context), key)
+        if (internal.exists() && internal.length() > MIN_VALID_AUDIO_BYTES) {
+            internal.setLastModified(System.currentTimeMillis())
+            return internal
         }
         val legacy = File(getLegacyCacheDir(context), key)
         return if (legacy.exists() && legacy.length() > MIN_VALID_AUDIO_BYTES) {
@@ -1011,32 +1099,41 @@ object OnlineCacheHolder {
 
     fun getCurrentCacheSizeBytes(context: Context): Long {
         val s1 = getCacheDir(context).listFiles()?.sumOf { it.length() } ?: 0L
-        val s2 = getLegacyCacheDir(context).listFiles()?.sumOf { it.length() } ?: 0L
-        return s1 + s2
+        val s2 = getInternalDownloadedDir(context).listFiles()?.sumOf { it.length() } ?: 0L
+        val s3 = getLegacyCacheDir(context).listFiles()?.sumOf { it.length() } ?: 0L
+        return s1 + s2 + s3
     }
 
     fun getCachedTracksCount(context: Context): Int {
         val c1 = getCacheDir(context).listFiles()?.count { it.isFile && it.length() > MIN_VALID_AUDIO_BYTES } ?: 0
-        val c2 = getLegacyCacheDir(context).listFiles()?.count { it.isFile && it.length() > MIN_VALID_AUDIO_BYTES } ?: 0
-        return c1 + c2
+        val c2 = getInternalDownloadedDir(context).listFiles()?.count { it.isFile && it.length() > MIN_VALID_AUDIO_BYTES } ?: 0
+        val c3 = getLegacyCacheDir(context).listFiles()?.count { it.isFile && it.length() > MIN_VALID_AUDIO_BYTES } ?: 0
+        return c1 + c2 + c3
     }
 
     /**
-     * دانلود کامل و بدون قطعی فایل صوتی با پشتیبانی از Resume (HTTP Range)
-     * تا هرگز آخر آهنگ نصفه نماند یا وسط دانلود قطع نشود.
+     * دانلود کامل و واقعی فایل صوتی (Full File Download) با HttpURLConnection در Dispatchers.IO
+     * همراه با گزارش لحظه‌ای درصد پیشرفت (0 تا 100 درصد) و پشتیبانی از Cross-Protocol Redirects و HTTP Range Resume
      */
-    private fun downloadUrlToTempFile(urlStr: String, tempFile: File, depth: Int = 0): Boolean {
+    private fun downloadUrlToTempFile(
+        urlStr: String,
+        tempFile: File,
+        depth: Int = 0,
+        onProgress: ((Int) -> Unit)? = null
+    ): Boolean {
         if (depth > 5 || urlStr.isBlank()) return false
         var currentUrl = urlStr
         var redirects = 0
+        val connectTimeoutMs = httpDataSourceFactory.connectTimeoutMs
+        val readTimeoutMs = httpDataSourceFactory.readTimeoutMs
 
         while (redirects < 6) {
             var conn: HttpURLConnection? = null
             try {
                 conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
                     instanceFollowRedirects = false
-                    connectTimeout = 25000
-                    readTimeout = 60000
+                    connectTimeout = connectTimeoutMs
+                    readTimeout = readTimeoutMs.coerceAtLeast(20000)
                     requestMethod = "GET"
                     setRequestProperty(
                         "User-Agent",
@@ -1048,7 +1145,7 @@ object OnlineCacheHolder {
                 }
 
                 val code = conn.responseCode
-                if (code in listOf(301, 302, 303, 307, 308)) {
+                if (httpDataSourceFactory.allowCrossProtocolRedirects && code in listOf(301, 302, 303, 307, 308)) {
                     val location = conn.getHeaderField("Location")
                     conn.disconnect()
                     if (location.isNullOrBlank()) return false
@@ -1065,14 +1162,29 @@ object OnlineCacheHolder {
                     }
 
                     val expectedTotalBytes = conn.contentLengthLong
+                    val estimatedBytesForProgress = if (expectedTotalBytes > MIN_VALID_AUDIO_BYTES) {
+                        expectedTotalBytes
+                    } else {
+                        3_800_000L
+                    }
                     if (tempFile.exists()) tempFile.delete()
+                    onProgress?.invoke(1)
+
+                    var totalBytesRead = 0L
+                    var lastReportedPct = 1
 
                     conn.inputStream.use { input ->
                         FileOutputStream(tempFile).use { output ->
-                            val buf = ByteArray(64 * 1024)
+                            val buf = ByteArray(32 * 1024)
                             var read: Int
                             while (input.read(buf).also { read = it } != -1) {
                                 output.write(buf, 0, read)
+                                totalBytesRead += read
+                                val pct = ((totalBytesRead * 98L) / estimatedBytesForProgress).toInt().coerceIn(1, 98)
+                                if (pct > lastReportedPct) {
+                                    lastReportedPct = pct
+                                    onProgress?.invoke(pct)
+                                }
                             }
                             output.flush()
                         }
@@ -1092,15 +1204,15 @@ object OnlineCacheHolder {
                                 .ifBlank { json.optString("stream") }
                                 .ifBlank { json.optString("link") }
                             if (innerUrl.startsWith("http")) {
-                                return downloadUrlToTempFile(innerUrl, tempFile, depth + 1)
+                                return downloadUrlToTempFile(innerUrl, tempFile, depth + 1, onProgress)
                             }
                         } else if (text.startsWith("http://") || text.startsWith("https://")) {
-                            return downloadUrlToTempFile(text.lines().first().trim(), tempFile, depth + 1)
+                            return downloadUrlToTempFile(text.lines().first().trim(), tempFile, depth + 1, onProgress)
                         }
                         return false
                     }
 
-                    // اگر ارتباط شبکه قبل از دریافت ۱۰۰٪ بایت‌های فایل قطع شد، با HTTP Range ادامه فایل را تا انتها دانلود کن
+                    // اگر ارتباط شبکه قبل از دریافت ۱۰۰٪ بایت‌های فایل قطع شد، با HTTP Range ادامه فایل را تا بایت آخر دانلود کن
                     var resumeAttempt = 0
                     while (expectedTotalBytes > MIN_VALID_AUDIO_BYTES &&
                         tempFile.exists() &&
@@ -1113,8 +1225,8 @@ object OnlineCacheHolder {
                         try {
                             rangeConn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
                                 instanceFollowRedirects = true
-                                connectTimeout = 20000
-                                readTimeout = 45000
+                                connectTimeout = connectTimeoutMs
+                                readTimeout = readTimeoutMs.coerceAtLeast(25000)
                                 requestMethod = "GET"
                                 setRequestProperty("Range", "bytes=$downloadedSoFar-")
                                 setRequestProperty("Accept-Encoding", "identity")
@@ -1123,10 +1235,17 @@ object OnlineCacheHolder {
                             if (rangeConn.responseCode == HttpURLConnection.HTTP_PARTIAL) {
                                 rangeConn.inputStream.use { input ->
                                     FileOutputStream(tempFile, true).use { output ->
-                                        val buf = ByteArray(64 * 1024)
+                                        val buf = ByteArray(32 * 1024)
                                         var read: Int
+                                        var currentLen = downloadedSoFar
                                         while (input.read(buf).also { read = it } != -1) {
                                             output.write(buf, 0, read)
+                                            currentLen += read
+                                            val pct = ((currentLen * 99L) / expectedTotalBytes).toInt().coerceIn(lastReportedPct, 99)
+                                            if (pct > lastReportedPct) {
+                                                lastReportedPct = pct
+                                                onProgress?.invoke(pct)
+                                            }
                                         }
                                         output.flush()
                                     }
@@ -1142,11 +1261,11 @@ object OnlineCacheHolder {
                     }
 
                     if (tempFile.exists() && tempFile.length() > MIN_VALID_AUDIO_BYTES) {
-                        // اطمینان از اینکه فایل ناقص رها نشده باشد
                         if (expectedTotalBytes > 0 && tempFile.length() < (expectedTotalBytes * 0.92f).toLong()) {
                             tempFile.delete()
                             return false
                         }
+                        onProgress?.invoke(100)
                         return true
                     }
                     tempFile.delete()
@@ -1165,34 +1284,47 @@ object OnlineCacheHolder {
     }
 
     /**
-     * دانلود کامل یک آهنگ با اولویت نسخه کامل (Full-Length Song از ۰:۰۰ تا انتها)
+     * دانلود کامل فایل صوتی از آدرس دقیق "$WORKER_URL/?id=${track.id}&q=$encodedQuery&dl=1"
+     * بدون استفاده از لینک ۳۰ ثانیه‌ای دیزر
      */
-    private suspend fun fetchCompleteTrackFile(track: Track, tempFile: File): Boolean {
-        val workerUrl = if (track.uri.startsWith("http") && !track.uri.contains("dzcdn.net")) {
-            track.uri
-        } else {
-            OnlineMusicRepository.buildStreamUrlForTitleArtist(track.artist, track.title)
+    private suspend fun fetchCompleteTrackFile(
+        track: Track,
+        tempFile: File,
+        onProgress: ((Int) -> Unit)? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val rawId = track.id.removePrefix("online_")
+        val encodedQuery = URLEncoder.encode("${track.artist} - ${track.title}", "UTF-8")
+        // آدرس دقیق درخواستی برای دانلود کامل فایل صوتی از سرور کلودفلر
+        val workerDownloadUrl = "${OnlineMusicRepository.WORKER_URL}/?id=$rawId&q=$encodedQuery&dl=1"
+
+        // گام اول: دانلود مستقیم فایل کامل از آدرس ?id=...&q=...&dl=1 در Dispatchers.IO
+        val downloaded = downloadUrlToTempFile(workerDownloadUrl, tempFile, onProgress = onProgress)
+        if (downloaded && tempFile.exists() && tempFile.length() >= MIN_FULL_SONG_BYTES) {
+            return@withContext true
         }
 
-        // گام اول: تلاش برای دریافت فایل کامل از سرور کلودفلر کاربر
-        var downloaded = downloadUrlToTempFile(workerUrl, tempFile)
-        val isFullSongFromWorker = downloaded && tempFile.exists() && tempFile.length() >= MIN_FULL_SONG_BYTES
-
-        if (isFullSongFromWorker) {
-            return true
+        // گام دوم: اگر استریم مستقیم دیگری در track.uri بود (غیر از لینک ۳۰ ثانیه‌ای دیزر)
+        if (track.uri.startsWith("http") && !track.uri.contains("dzcdn.net") && track.uri != workerDownloadUrl) {
+            val fromTrackUri = downloadUrlToTempFile(track.uri, tempFile, onProgress = onProgress)
+            if (fromTrackUri && tempFile.exists() && tempFile.length() >= MIN_FULL_SONG_BYTES) {
+                return@withContext true
+            }
         }
 
-        // گام دوم: اگر خروجی سرور کلودفلر یک پیش‌نمایش کوتاه ۳۰ ثانیه‌ای بود یا خطا داد،
-        // نسخه کامل ۳۲۰ کیلوبیت (از ثانیه ۰:۰۰ تا آخر آهنگ) را دریافت کن
+        // گام سوم: فال‌بک به سرور پشتیبان فایل کامل ۳۲۰ کیلوبیت (هرگز از لینک ۳۰ ثانیه‌ای دیزر استفاده نمی‌شود)
         val fullBackupTemp = File(tempFile.parentFile, "${tempFile.name}.full.tmp")
         try {
             val fullAudioUrl = OnlineMusicRepository.resolveFullLengthAudioUrl(track.artist, track.title)
             if (!fullAudioUrl.isNullOrBlank()) {
-                val gotFull = downloadUrlToTempFile(fullAudioUrl, fullBackupTemp)
-                if (gotFull && fullBackupTemp.exists() && fullBackupTemp.length() >= MIN_FULL_SONG_BYTES) {
+                val gotFull = downloadUrlToTempFile(fullAudioUrl, fullBackupTemp, onProgress = onProgress)
+                if (gotFull && fullBackupTemp.exists() && fullBackupTemp.length() >= MIN_VALID_AUDIO_BYTES) {
                     if (tempFile.exists()) tempFile.delete()
-                    fullBackupTemp.renameTo(tempFile)
-                    return true
+                    val renamed = fullBackupTemp.renameTo(tempFile)
+                    if (!renamed) {
+                        fullBackupTemp.copyTo(tempFile, overwrite = true)
+                        fullBackupTemp.delete()
+                    }
+                    return@withContext true
                 }
             }
         } catch (_: Exception) {
@@ -1200,21 +1332,11 @@ object OnlineCacheHolder {
             if (fullBackupTemp.exists()) fullBackupTemp.delete()
         }
 
-        // گام سوم: اگر قبلاً از کلودفلر دانلود شده بود، همان را نگه دار؛ در غیر این صورت فال‌بک نهایی
-        if (downloaded && tempFile.exists() && tempFile.length() > MIN_VALID_AUDIO_BYTES) {
-            return true
-        }
-
-        val fallbackPreview = OnlineMusicRepository.resolvePreviewUrlIfNeeded(track)
-        if (!fallbackPreview.isNullOrBlank()) {
-            downloaded = downloadUrlToTempFile(fallbackPreview, tempFile)
-        }
-        return downloaded && tempFile.exists() && tempFile.length() > MIN_VALID_AUDIO_BYTES
+        downloaded && tempFile.exists() && tempFile.length() > MIN_VALID_AUDIO_BYTES
     }
 
     /**
      * بافر کردن نسخه کامل آهنگ در حافظه موقت هنگام پخش آنلاین تا وسط آهنگ نپرد یا قطع نشود
-     * (بدون اضافه شدن به لیست آهنگ‌های دانلودشده گوشی)
      */
     fun warmStreamBufferInBackground(
         context: Context,
@@ -1238,13 +1360,12 @@ object OnlineCacheHolder {
         }
 
         val appCtx = context.applicationContext
-        cacheScope.launch {
+        cacheScope.launch(Dispatchers.IO) {
             val bufferDir = getStreamBufferDir(appCtx)
             val tempFile = File(bufferDir, "$key.stream.tmp")
             val finalBufferFile = File(bufferDir, key)
             var result: File? = null
             try {
-                // پاک‌سازی بافرهای موقت قدیمی در صورت پر شدن کش موقت (حفظ ۸ آهنگ آخر)
                 val existingBuffers = bufferDir.listFiles()?.filter { it.isFile && it.name.endsWith(".mp3") }?.sortedBy { it.lastModified() } ?: emptyList()
                 if (existingBuffers.size > 8) {
                     existingBuffers.take(existingBuffers.size - 8).forEach { try { it.delete() } catch (_: Exception) {} }
@@ -1276,7 +1397,36 @@ object OnlineCacheHolder {
     }
 
     /**
-     * دانلود صریح و کامل آهنگ توسط کاربر برای اضافه شدن دائمی به آهنگ‌های فضای گوشی
+     * ثبت خودکار فایل دانلودشده در دیتابیس محلی (MusicRepository / MusicDao)
+     * تا بلافاصله در تب کتابخانه آفلاین (LibraryScreen) در دسترس باشد.
+     */
+    private suspend fun registerDownloadedFileInLocalDatabase(track: Track, downloadedFile: File) = withContext(Dispatchers.IO) {
+        try {
+            val realDurMs = try {
+                val mmr = android.media.MediaMetadataRetriever()
+                mmr.setDataSource(downloadedFile.absolutePath)
+                val d = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                mmr.release()
+                if (d != null && d > 5_000L) d else track.durationMs
+            } catch (_: Exception) {
+                track.durationMs
+            }
+            val savedTrack = track.copy(
+                id = if (track.id.startsWith("online_")) track.id else "online_${track.id}",
+                uri = downloadedFile.absolutePath,
+                durationMs = realDurMs,
+                dateAdded = System.currentTimeMillis(),
+                isDemo = false
+            )
+            AuraApplication.instance.repository.saveDownloadedTrackToLibrary(savedTrack)
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * دانلود کامل آهنگ (Full File Download) با HttpURLConnection در Dispatchers.IO:
+     * ۱. کل فایل صوتی را تا بایت آخر از "$WORKER_URL/?id=${track.id}&q=$encodedQuery&dl=1" در پوشه getExternalFilesDir(Environment.DIRECTORY_MUSIC) ذخیره می‌کند.
+     * ۲. وضعیت درصد دانلود (0 تا 100 درصد) را لحظه‌به‌لحظه منتشر می‌کند.
+     * ۳. پس از اتمام دانلود، فایل را در دیتابیس محلی (MusicRepository / MusicDao) ثبت می‌کند تا در LibraryScreen در دسترس باشد.
      */
     fun downloadTrackExplicitly(
         context: Context,
@@ -1287,7 +1437,12 @@ object OnlineCacheHolder {
         val key = normalizeKey(rawId)
         val existing = getCachedFileIfPresent(context, rawId)
         if (existing != null && existing.length() >= MIN_FULL_SONG_BYTES) {
+            updateTrackDownloadProgress(rawId, 100)
             refreshDownloadedSet(context)
+            cacheScope.launch(Dispatchers.IO) {
+                registerDownloadedFileInLocalDatabase(track, existing)
+                updateTrackDownloadProgress(rawId, null)
+            }
             onComplete?.invoke(existing)
             return
         }
@@ -1297,22 +1452,26 @@ object OnlineCacheHolder {
             activeDownloads.add(key)
         }
         _downloadingTrackIds.value = _downloadingTrackIds.value + setOf(rawId, "online_$rawId")
+        updateTrackDownloadProgress(rawId, 0)
 
         val appCtx = context.applicationContext
-        cacheScope.launch {
-            val cacheDir = getCacheDir(appCtx)
-            val tempFile = File(cacheDir, "$key.tmp")
-            val finalFile = File(cacheDir, key)
+        cacheScope.launch(Dispatchers.IO) {
+            val musicDir = getCacheDir(appCtx)
+            val tempFile = File(musicDir, "$key.tmp")
+            val finalFile = File(musicDir, key)
             var resultFile: File? = null
 
             try {
-                // اگر قبلاً در بافر استریم نسخه کامل آماده شده است، فوراً منتقل کن
                 val alreadyBuffered = getStreamBufferFileIfPresent(appCtx, rawId)
                 if (alreadyBuffered != null && alreadyBuffered.length() >= MIN_FULL_SONG_BYTES) {
+                    updateTrackDownloadProgress(rawId, 60)
                     alreadyBuffered.copyTo(finalFile, overwrite = true)
+                    updateTrackDownloadProgress(rawId, 100)
                     resultFile = finalFile
                 } else {
-                    val downloaded = fetchCompleteTrackFile(track, tempFile)
+                    val downloaded = fetchCompleteTrackFile(track, tempFile) { pct ->
+                        updateTrackDownloadProgress(rawId, pct)
+                    }
                     if (downloaded && tempFile.exists() && tempFile.length() > MIN_VALID_AUDIO_BYTES) {
                         if (finalFile.exists()) finalFile.delete()
                         val moved = tempFile.renameTo(finalFile)
@@ -1321,11 +1480,17 @@ object OnlineCacheHolder {
                             tempFile.delete()
                         }
                         if (finalFile.exists() && finalFile.length() > MIN_VALID_AUDIO_BYTES) {
+                            updateTrackDownloadProgress(rawId, 100)
                             resultFile = finalFile
                         }
                     } else {
                         if (tempFile.exists()) tempFile.delete()
                     }
+                }
+
+                // ثبت خودکار فایل دانلودشده در دیتابیس محلی (MusicRepository / MusicDao) برای نمایش در تب LibraryScreen
+                if (resultFile != null) {
+                    registerDownloadedFileInLocalDatabase(track, resultFile!!)
                 }
             } catch (_: Exception) {
                 if (tempFile.exists()) tempFile.delete()
@@ -1334,6 +1499,7 @@ object OnlineCacheHolder {
                     activeDownloads.remove(key)
                 }
                 _downloadingTrackIds.value = _downloadingTrackIds.value - setOf(rawId, "online_$rawId")
+                updateTrackDownloadProgress(rawId, null)
                 refreshDownloadedSet(appCtx)
                 withContext(Dispatchers.Main) {
                     onComplete?.invoke(resultFile)
@@ -1388,6 +1554,7 @@ fun OnlineMusicScreen(
     var isFetchingLyrics by remember { mutableStateOf(false) }
 
     val downloadingIds by OnlineCacheHolder.downloadingTrackIds.collectAsState()
+    val downloadProgressMap by OnlineCacheHolder.downloadProgressMap.collectAsState()
     val downloadedIds by OnlineCacheHolder.downloadedTrackIds.collectAsState()
 
     val genZCategories = remember(isFa) {
@@ -1487,9 +1654,14 @@ fun OnlineMusicScreen(
 
     fun triggerPlay(track: OnlineTrack, customQueue: List<OnlineTrack>? = null) {
         currentTrack = track
-        if (track.previewUrl.isNotBlank()) {
-            OnlineMusicRepository.registerPreviewUrl(track.id, track.previewUrl)
-        }
+        // توقف هرگونه پلیر داخلی احتمالی تا پخش به صورت یکپارچه از ثانیه ۰:۰۰ در پلیر اصلی انجام شود
+        try {
+            if (internalPlayer?.isPlaying == true) {
+                internalPlayer.stop()
+            }
+            internalPlayer?.reset()
+        } catch (_: Exception) {}
+
         val cachedFile = OnlineCacheHolder.getCachedFileIfPresent(context, track.id)
             ?: OnlineCacheHolder.getStreamBufferFileIfPresent(context, track.id)
         val streamUrl = cachedFile?.absolutePath ?: OnlineMusicRepository.buildStreamUrl(track)
@@ -1520,6 +1692,7 @@ fun OnlineMusicScreen(
                 internalPlayer.setOnPreparedListener { mp ->
                     isBuffering = false
                     isPlaying = true
+                    try { mp.seekTo(0) } catch (_: Exception) {}
                     mp.setVolume(1f, 1f)
                     mp.start()
                 }
@@ -2041,6 +2214,7 @@ fun OnlineMusicScreen(
                     OnlineCacheHolder.isTrackCached(context, track.id)
                 val isDownloadingThis = downloadingIds.contains(track.id) ||
                     downloadingIds.contains("online_${track.id}")
+                val downloadPercent = downloadProgressMap[track.id] ?: downloadProgressMap["online_${track.id}"]
 
                 OnlineTrackGlassRow(
                     track = track,
@@ -2048,6 +2222,7 @@ fun OnlineMusicScreen(
                     isPlaying = isSelected && (isGlobalPlayerPlaying || isPlaying),
                     isCachedOffline = isCachedOffline,
                     isDownloading = isDownloadingThis,
+                    downloadProgressPercent = downloadPercent,
                     palette = palette,
                     onClick = { triggerPlay(track) },
                     onArtistClick = {
@@ -2227,6 +2402,7 @@ fun OnlineMusicScreen(
                                     OnlineCacheHolder.isTrackCached(context, track.id)
                                 val isDownloadingThis = downloadingIds.contains(track.id) ||
                                     downloadingIds.contains("online_${track.id}")
+                                val downloadPercent = downloadProgressMap[track.id] ?: downloadProgressMap["online_${track.id}"]
 
                                 OnlineTrackGlassRow(
                                     track = track,
@@ -2236,6 +2412,7 @@ fun OnlineMusicScreen(
                                     isPlaying = isSelected && (isGlobalPlayerPlaying || isPlaying),
                                     isCachedOffline = isCachedOffline,
                                     isDownloading = isDownloadingThis,
+                                    downloadProgressPercent = downloadPercent,
                                     palette = palette,
                                     onClick = {
                                         triggerPlay(track, artistTopTracks)
@@ -2403,6 +2580,7 @@ fun OnlineMusicScreen(
                                     OnlineCacheHolder.isTrackCached(context, track.id)
                                 val isDownloadingThis = downloadingIds.contains(track.id) ||
                                     downloadingIds.contains("online_${track.id}")
+                                val downloadPercent = downloadProgressMap[track.id] ?: downloadProgressMap["online_${track.id}"]
 
                                 OnlineTrackGlassRow(
                                     track = track,
@@ -2412,6 +2590,7 @@ fun OnlineMusicScreen(
                                     isPlaying = isSelected && (isGlobalPlayerPlaying || isPlaying),
                                     isCachedOffline = isCachedOffline,
                                     isDownloading = isDownloadingThis,
+                                    downloadProgressPercent = downloadPercent,
                                     palette = palette,
                                     onClick = {
                                         triggerPlay(track, smartPlaylistTracks)
@@ -2730,6 +2909,7 @@ private fun OnlineTrackGlassRow(
     isPlaying: Boolean,
     isCachedOffline: Boolean,
     isDownloading: Boolean,
+    downloadProgressPercent: Int? = null,
     palette: AmbientPalette,
     onClick: () -> Unit,
     onArtistClick: (() -> Unit)? = null,
@@ -2865,18 +3045,37 @@ private fun OnlineTrackGlassRow(
                 )
             }
 
-            // دکمه دانلود کامل به فضای گوشی
+            // دکمه دانلود کامل به فضای گوشی (همراه با نمایش درصد ۰ تا ۱۰۰٪)
             IconButton(
                 onClick = onDownloadClick,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(42.dp)
             ) {
                 when {
                     isDownloading -> {
-                        CircularProgressIndicator(
-                            color = Color(0xFF1ED760),
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(17.dp)
-                        )
+                        val pct = (downloadProgressPercent ?: 0).coerceIn(0, 100)
+                        Box(contentAlignment = Alignment.Center) {
+                            if (pct > 0) {
+                                CircularProgressIndicator(
+                                    progress = { pct / 100f },
+                                    color = Color(0xFF1ED760),
+                                    trackColor = Color.White.copy(alpha = 0.16f),
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            } else {
+                                CircularProgressIndicator(
+                                    color = Color(0xFF1ED760),
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                            Text(
+                                text = "$pct%",
+                                color = Color(0xFF1ED760),
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
                     }
                     isCachedOffline -> {
                         Icon(

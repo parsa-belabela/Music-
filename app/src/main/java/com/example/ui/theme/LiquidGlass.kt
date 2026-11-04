@@ -59,7 +59,7 @@ object HardwareGyroscopeManager : SensorEventListener {
                         ?: sm?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
                         ?: sm?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
                     if (sensor != null) {
-                        sm?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_UI)
+                        sm?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)
                     }
                 } catch (_: Exception) {}
             }
@@ -86,15 +86,13 @@ object HardwareGyroscopeManager : SensorEventListener {
             baselineRoll = rawRoll
         } else {
             // Gently adapt baseline to resting hold angle so stationary phones/emulators stay centered at 0f
-            baselinePitch += (rawPitch - baselinePitch) * 0.05f
-            baselineRoll += (rawRoll - baselineRoll) * 0.05f
+            baselinePitch += (rawPitch - baselinePitch) * 0.025f
+            baselineRoll += (rawRoll - baselineRoll) * 0.025f
         }
-        val deltaPitch = ((rawPitch - baselinePitch) * 1.8f).coerceIn(-1f, 1f)
-        val deltaRoll = ((rawRoll - baselineRoll) * 1.8f).coerceIn(-1f, 1f)
-        val nextPitch = pitch + (deltaPitch - pitch) * 0.16f
-        val nextRoll = roll + (deltaRoll - roll) * 0.16f
-        if (kotlin.math.abs(nextPitch - pitch) > 0.004f) pitch = nextPitch
-        if (kotlin.math.abs(nextRoll - roll) > 0.004f) roll = nextRoll
+        val deltaPitch = ((rawPitch - baselinePitch) * 1.95f).coerceIn(-1f, 1f)
+        val deltaRoll = ((rawRoll - baselineRoll) * 1.95f).coerceIn(-1f, 1f)
+        pitch += (deltaPitch - pitch) * 0.34f
+        roll += (deltaRoll - roll) * 0.34f
     }
 
     override fun onSensorChanged(event: SensorEvent?) {

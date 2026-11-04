@@ -58,37 +58,54 @@ object LyricsRepository {
                 }
             }
 
-            // فالبک هوشمند: جستجو در LRCLIB در صورتی که ثانیه دقیق آهنگ ۱ یا ۲ ثانیه تفاوت داشته باشد
+            // فالبک خودکار: جستجو در LRCLIB با فرمت دقیق https://lrclib.net/api/search?q=${encodedArtist}+${encodedTrack}
             connection.disconnect()
-            val searchArtist = URLEncoder.encode(cleanArtist, "UTF-8")
-            val searchTrack = URLEncoder.encode(cleanTrack, "UTF-8")
-            val searchUrl = "https://lrclib.net/api/search?artist_name=$searchArtist&track_name=$searchTrack"
-            connection = (URL(searchUrl).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 5000
-                readTimeout = 5000
-                setRequestProperty("User-Agent", "AuraMusicPlayer/2.0 (https://lrclib.net)")
-            }
+            val searchUrls = listOf(
+                "https://lrclib.net/api/search?q=${encodedArtist}+${encodedTrack}",
+                "https://lrclib.net/api/search?q=${URLEncoder.encode(cleanArtist, "UTF-8")}+${URLEncoder.encode(cleanTrack, "UTF-8")}"
+            ).distinct()
 
-            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                val searchRes = connection.inputStream.bufferedReader().use { it.readText() }
-                val arr = JSONArray(searchRes)
-                if (arr.length() > 0) {
-                    val bestObj = arr.getJSONObject(0)
-                    val synced = bestObj.optString("syncedLyrics", "")
-                    if (synced.isNotBlank() && synced != "null") {
-                        val parsed = parseSyncedLyrics(synced)
-                        if (parsed.isNotEmpty()) return@withContext parsed
+            for (searchUrl in searchUrls) {
+                var searchConn: HttpURLConnection? = null
+                try {
+                    searchConn = (URL(searchUrl).openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 8000
+                        readTimeout = 8000
+                        setRequestProperty("User-Agent", "AuraMusicPlayer/2.0 (https://lrclib.net)")
                     }
-                    val plain = bestObj.optString("plainLyrics", "")
-                    if (plain.isNotBlank() && plain != "null") {
-                        plain.lines().forEach { line ->
-                            if (line.isNotBlank()) {
-                                lyricsList.add(LyricLine(0L, line.trim()))
+
+                    if (searchConn.responseCode == HttpURLConnection.HTTP_OK) {
+                        val searchRes = searchConn.inputStream.bufferedReader().use { it.readText() }
+                        val arr = JSONArray(searchRes)
+
+                        // اولویت اول: اولین آیتمی که دارای syncedLyrics معتبر است
+                        for (i in 0 until arr.length()) {
+                            val itemObj = arr.optJSONObject(i) ?: continue
+                            val synced = itemObj.optString("syncedLyrics", "")
+                            if (synced.isNotBlank() && synced != "null") {
+                                val parsed = parseSyncedLyrics(synced)
+                                if (parsed.isNotEmpty()) return@withContext parsed
                             }
                         }
-                        if (lyricsList.isNotEmpty()) return@withContext lyricsList
+
+                        // اولویت دوم: اولین آیتمی که دارای plainLyrics معتبر است
+                        for (i in 0 until arr.length()) {
+                            val itemObj = arr.optJSONObject(i) ?: continue
+                            val plain = itemObj.optString("plainLyrics", "")
+                            if (plain.isNotBlank() && plain != "null") {
+                                plain.lines().forEach { line ->
+                                    if (line.isNotBlank()) {
+                                        lyricsList.add(LyricLine(0L, line.trim()))
+                                    }
+                                }
+                                if (lyricsList.isNotEmpty()) return@withContext lyricsList
+                            }
+                        }
                     }
+                } catch (_: Exception) {
+                } finally {
+                    searchConn?.disconnect()
                 }
             }
         } catch (e: Exception) {

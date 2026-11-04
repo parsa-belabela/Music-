@@ -156,7 +156,14 @@ class AudioAnalysisEngine {
         visualizer = null
     }
 
-    private suspend fun ensureTrackEnvelopeLoaded(trackId: String) {
+    private suspend fun ensureTrackEnvelopeLoaded(trackId: String, trackUri: String = "") {
+        // اگر آدرس آهنگ با http یا https شروع شود (استریم آنلاین)، متدهای تحلیل فایل فیزیکی محلی اجرا نمی‌شوند تا استریم قطع نشود
+        if (trackUri.startsWith("http://", ignoreCase = true) || trackUri.startsWith("https://", ignoreCase = true)) {
+            cachedTrackId = trackId
+            cachedEnvelope = FloatArray(0)
+            cachedTrackEnergy = 0.65f
+            return
+        }
         if (cachedTrackId == trackId && cachedEnvelope.isNotEmpty()) return
         cachedTrackId = trackId
         try {
@@ -226,7 +233,7 @@ class AudioAnalysisEngine {
             val durMs = (engine?.duration?.value ?: 1L).coerceAtLeast(1L)
 
             if (activeTrack != null) {
-                ensureTrackEnvelopeLoaded(activeTrack.id)
+                ensureTrackEnvelopeLoaded(activeTrack.id, activeTrack.uri)
             }
 
             if (cachedEnvelope.size >= 4) {

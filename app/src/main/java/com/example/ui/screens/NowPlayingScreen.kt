@@ -107,6 +107,7 @@ fun NowPlayingScreen(
     val track = playbackState.currentTrack ?: return
     val downloadingIds by OnlineCacheHolder.downloadingTrackIds.collectAsState()
     val downloadedIds by OnlineCacheHolder.downloadedTrackIds.collectAsState()
+    val downloadProgressMap by OnlineCacheHolder.downloadProgressMap.collectAsState()
     val isOnlineTrack = track.id.startsWith("online_") || track.uri.startsWith("http")
     val isDownloadedToPhone = downloadedIds.contains(track.id) ||
         downloadedIds.contains(track.id.removePrefix("online_")) ||
@@ -114,6 +115,9 @@ fun NowPlayingScreen(
         (!isOnlineTrack && !track.uri.startsWith("http"))
     val isDownloadingNow = downloadingIds.contains(track.id) ||
         downloadingIds.contains(track.id.removePrefix("online_"))
+    val currentDownloadProgress = downloadProgressMap[track.id]
+        ?: downloadProgressMap[track.id.removePrefix("online_")]
+        ?: 0
     var centerView by remember { mutableStateOf(NowPlayingCenterView.ARTWORK_AND_HALO) }
     var isImmersive by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
@@ -191,6 +195,8 @@ fun NowPlayingScreen(
     var smoothBassLevel by remember { mutableFloatStateOf(0.25f) }
     var smoothKickImpact by remember { mutableFloatStateOf(0f) }
     var smoothEnergyLevel by remember { mutableFloatStateOf(0.45f) }
+    var smoothGyroRoll by remember { mutableFloatStateOf(0f) }
+    var smoothGyroPitch by remember { mutableFloatStateOf(0f) }
 
     val latestAnalysisProvider by rememberUpdatedState(analysisDataProvider)
     val trackBaseBpm = remember(audioProfile?.estimatedTempoBpm) {
@@ -206,6 +212,11 @@ fun NowPlayingScreen(
             withFrameNanos { nowNanos ->
                 val dtSec = ((nowNanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
                 lastFrameNanos = nowNanos
+
+                // درون‌یابی ۱۲۰ فریم بر ثانیه برای حرکت فوق‌العاده نرم و روان انعکاس روی کاور با تکان دادن گوشی
+                val gyroLerp = (dtSec * 22f).coerceIn(0f, 1f)
+                smoothGyroRoll += (HardwareGyroscopeManager.roll - smoothGyroRoll) * gyroLerp
+                smoothGyroPitch += (HardwareGyroscopeManager.pitch - smoothGyroPitch) * gyroLerp
 
                 val audio = latestAnalysisProvider()
                 val rawBass = if (isPlaying) {
@@ -612,14 +623,14 @@ fun NowPlayingScreen(
                                 )
                             }
 
-                            // لایه انعکاس نوری کریستالی روی کاور که فقط با حرکت ژیروسکوپ گوشی جابه‌جا می‌شود (بدون تکان دادن خود کاور)
+                            // لایه انعکاس نوری کریستالی ۱۲۰ فریم بر ثانیه روی کاور که فقط با حرکت ژیروسکوپ گوشی جابه‌جا می‌شود (بدون تکان دادن خود کاور)
                             Canvas(modifier = Modifier.fillMaxSize()) {
-                                val gyroRoll = HardwareGyroscopeManager.roll
-                                val gyroPitch = HardwareGyroscopeManager.pitch
+                                val gyroRoll = smoothGyroRoll
+                                val gyroPitch = smoothGyroPitch
                                 val w = size.width
                                 val h = size.height
-                                val sheenX = w * (0.48f + gyroRoll * 0.68f)
-                                val sheenY = h * (0.38f + gyroPitch * 0.62f)
+                                val sheenX = w * (0.48f + gyroRoll * 0.72f)
+                                val sheenY = h * (0.38f + gyroPitch * 0.68f)
                                 val beamSpan = w * 0.65f
 
                                 drawRect(
@@ -627,8 +638,8 @@ fun NowPlayingScreen(
                                         colorStops = arrayOf(
                                             0.00f to Color.Transparent,
                                             0.36f to Color.White.copy(alpha = 0.03f),
-                                            0.48f to Color.White.copy(alpha = 0.16f),
-                                            0.53f to coverAccent.copy(alpha = 0.11f),
+                                            0.48f to Color.White.copy(alpha = 0.17f),
+                                            0.53f to coverAccent.copy(alpha = 0.12f),
                                             0.66f to Color.Transparent,
                                             1.00f to Color.Transparent
                                         ),
@@ -753,11 +764,20 @@ fun NowPlayingScreen(
                         ) {
                             when {
                                 isDownloadingNow -> {
-                                    CircularProgressIndicator(
-                                        color = Color(0xFF1ED760),
-                                        strokeWidth = 2.2.dp,
-                                        modifier = Modifier.size(20.dp)
-                                    )
+                                    Box(contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(
+                                            progress = { (currentDownloadProgress / 100f).coerceIn(0.05f, 1f) },
+                                            color = Color(0xFF1ED760),
+                                            strokeWidth = 2.2.dp,
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                        Text(
+                                            text = "${currentDownloadProgress}%",
+                                            color = Color.White,
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                                 isDownloadedToPhone -> {
                                     Icon(

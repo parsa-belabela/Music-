@@ -477,6 +477,8 @@ class AudioEngine(private val context: Context) {
 
                 if (startPositionMs > 0 && startPositionMs < trackDuration) {
                     preloaded.seekTo(startPositionMs.toInt())
+                } else {
+                    try { preloaded.seekTo(0) } catch (_: Exception) {}
                 }
 
                 if (_isPlayWhenReady.value) {
@@ -502,7 +504,10 @@ class AudioEngine(private val context: Context) {
                     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build()
             )
-            // صفر کردن کامل صدای اولیه قبل از آماده‌سازی برای جلوگیری ۱۰۰٪ از پرش صدای ۰.۰۱ ثانیه‌ای در شروع آهنگ بعدی
+            try {
+                mp.setWakeMode(context, android.os.PowerManager.PARTIAL_WAKE_LOCK)
+            } catch (_: Exception) {}
+            // صفر کردن کامل صدای اولیه قبل از آماده‌سازی برای جلوگیری ۱۰۰٪ از پرش صدای اولیه
             mp.setVolume(0f, 0f)
 
             setDataSourceForTrack(mp, track)
@@ -542,6 +547,8 @@ class AudioEngine(private val context: Context) {
 
                 if (startPositionMs > 0 && startPositionMs < trackDuration) {
                     preparedMp.seekTo(startPositionMs.toInt())
+                } else {
+                    try { preparedMp.seekTo(0) } catch (_: Exception) {}
                 }
 
                 preparedMp.isLooping = (repeatMode == RepeatMode.ONE)
@@ -718,13 +725,11 @@ class AudioEngine(private val context: Context) {
      */
     private fun performSoftFadeIn(mp: MediaPlayer, currentTransitionId: Long) {
         fadeJob?.cancel()
-        val baseVolume = if (isDucked) masterVolume * 0.3f else masterVolume
-        val targetVolume = (baseVolume * getHeadroomScale()).coerceIn(0f, 1f)
+        val targetVolume = getEffectiveTargetVolume()
 
         try {
-            // ۱. قفل کردن صدا و گین LoudnessEnhancer روی صفر مطلق قبل از استارت سخت‌افزاری
+            // ۱. قفل کردن صدا روی صفر مطلق قبل از استارت سخت‌افزاری تا هیچ پیک ۱ ثانیه‌ای در ولوم پایین رخ ندهد
             mp.setVolume(0f, 0f)
-            try { loudnessEnhancer?.setTargetGain(0) } catch (_: Exception) {}
             mp.start()
             mp.setVolume(0f, 0f)
             _status.value = PlayerStatus.PLAYING
@@ -735,18 +740,19 @@ class AudioEngine(private val context: Context) {
         }
 
         fadeJob = engineScope.launch {
-            // ۲. صبر ۴۵ میلی‌ثانیه‌ای در سکوت کامل تا بافر اولیه AudioTrack بدون هیچ پیک صدایی تخلیه شود
-            delay(45L)
-            val steps = 18
-            val totalDurationMs = 360L
+            // ۲. صبر ۶۰ میلی‌ثانیه‌ای در سکوت کامل تا بافر اولیه AudioFlinger تخلیه شود
+            delay(60L)
+            val steps = 22
+            val totalDurationMs = 440L
             val stepDelay = totalDurationMs / steps
 
             for (i in 1..steps) {
                 if (transitionId.get() != currentTransitionId || !_isPlayWhenReady.value) break
                 val t = i.toFloat() / steps
-                // منحنی نرم S-Curve برای فید-این ابریشمی از صفر مطلق
-                val smoothCurve = t * t * (3f - 2f * t)
-                val currentVol = (smoothCurve * targetVolume).coerceIn(0f, 1f)
+                // منحنی نرم مکعبی برای فید-این ابریشمی از صفر مطلق متناسب با ولوم فعلی گوشی
+                val smoothCurve = t * t * t
+                val liveTarget = getEffectiveTargetVolume().coerceAtMost(targetVolume.coerceAtLeast(0.02f))
+                val currentVol = (smoothCurve * liveTarget).coerceIn(0f, 1f)
                 try {
                     mp.setVolume(currentVol, currentVol)
                 } catch (_: Exception) {}
@@ -754,7 +760,6 @@ class AudioEngine(private val context: Context) {
             }
             if (transitionId.get() == currentTransitionId && _isPlayWhenReady.value) {
                 applyVolume()
-                applyCurrentEffects()
             }
         }
     }
@@ -854,21 +859,52 @@ class AudioEngine(private val context: Context) {
         applyVolume()
     }
 
-    private var loudnessEnhancer: android.media.audiofx.LoudnessEnhancer? = null
+    private fun hasActiveDspCustomization(): Boolean {
+        if (!isEqEnabled) return false
+        return currentBassBoostStrength > 0 ||
+            beatFocusEnabled ||
+            vocalCrystalEnabled ||
+            currentEqBands.any { kotlin.math.abs(it) > 0.15f }
+    }
 
     /**
      * حفظ قدرت و پانچ واقعی صدا بدون تضعیف خودکار بیس
-     * فقط در صورت بوست بسیار شدید (+10dB به بالا) یک محافظ نرم اعمال میشود تا صدا دیستورت نشود
+     * و محافظت ۱۰۰٪ از گوش در ولوم‌های پایین گوشی برای جلوگیری از جهش ۱ ثانیه‌ای صدا هنگام انتخاب آهنگ
      */
     private fun getHeadroomScale(): Float {
         if (!isEqEnabled) return 1.0f
         val avgBoost = currentEqBands.filter { it > 0f }.average().toFloat().let { if (it.isNaN()) 0f else it }
-        return if (avgBoost > 9.5f) 0.92f else 1.0f
+        return if (avgBoost > 9.5f) 0.90f else 1.0f
+    }
+
+    private fun getLowVolumeAttenuationScale(): Float {
+        return try {
+            val maxSysVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+            val curSysVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).coerceIn(0, maxSysVol)
+            if (curSysVol == 0) {
+                0f
+            } else {
+                val ratio = curSysVol.toFloat() / maxSysVol.toFloat()
+                // وقتی صدای گوشی کم است (زیر ۳۵٪)، منحنی نرم نرم‌افزاری اعمال می‌شود تا پرش سخت‌افزاری AudioHAL رخ ندهد
+                if (ratio <= 0.35f) {
+                    val norm = (ratio / 0.35f).coerceIn(0.12f, 1f)
+                    (norm * norm).coerceIn(0.08f, 1f)
+                } else {
+                    1.0f
+                }
+            }
+        } catch (_: Exception) {
+            1.0f
+        }
+    }
+
+    private fun getEffectiveTargetVolume(): Float {
+        val base = if (isDucked) masterVolume * 0.3f else masterVolume
+        return (base * getHeadroomScale() * getLowVolumeAttenuationScale()).coerceIn(0f, 1f)
     }
 
     private fun applyVolume() {
-        val base = if (isDucked) masterVolume * 0.3f else masterVolume
-        val actual = (base * getHeadroomScale()).coerceIn(0f, 1f)
+        val actual = getEffectiveTargetVolume()
         try {
             mediaPlayer?.setVolume(actual, actual)
         } catch (_: Exception) {}
@@ -883,12 +919,12 @@ class AudioEngine(private val context: Context) {
         fadeJob = engineScope.launch {
             val steps = 24
             val delayMs = (durationSeconds * 1000L) / steps
-            val headroom = getHeadroomScale()
+            val startVol = getEffectiveTargetVolume()
             for (i in steps downTo 0) {
                 val t = i.toFloat() / steps
                 // Equal-power fade out curve: sin(pi/2 * t)
                 val equalPowerFactor = kotlin.math.sin((Math.PI / 2.0) * t).toFloat()
-                val vol = equalPowerFactor * masterVolume * headroom
+                val vol = (equalPowerFactor * startVol).coerceIn(0f, 1f)
                 try {
                     currentMp.setVolume(vol, vol)
                 } catch (_: Exception) {}
@@ -902,6 +938,7 @@ class AudioEngine(private val context: Context) {
 
     private fun initAudioEffects(sessionId: Int, startSilentForFade: Boolean = false) {
         if (sessionId <= 0) return
+        if (!hasActiveDspCustomization()) return
         try {
             equalizer = Equalizer(100, sessionId).apply {
                 enabled = isEqEnabled
@@ -919,19 +956,8 @@ class AudioEngine(private val context: Context) {
         }
 
         try {
-            loudnessEnhancer = android.media.audiofx.LoudnessEnhancer(sessionId).apply {
-                enabled = isEqEnabled
-                if (startSilentForFade) {
-                    try { setTargetGain(0) } catch (_: Exception) {}
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(tag, "LoudnessEnhancer init warning: ${e.message}")
-        }
-
-        try {
             virtualizer = Virtualizer(100, sessionId).apply {
-                enabled = isEqEnabled
+                enabled = isEqEnabled && currentBassBoostStrength > 100
             }
         } catch (_: Exception) {}
 
@@ -1039,23 +1065,7 @@ class AudioEngine(private val context: Context) {
             Log.w(tag, "Failed applying equalizer bands: ${e.message}")
         }
 
-        // ۳. اعمال LoudnessEnhancer برای جبران افت انرژی (با محافظ صفر در لحظه شروع فید-این)
-        try {
-            loudnessEnhancer?.let { le ->
-                le.enabled = isEqEnabled
-                if (isEqEnabled && !suppressLoudnessBoost) {
-                    val positiveEqBoost = currentEqBands.filter { it > 0f }.maxOrNull() ?: 0f
-                    val targetGainMb = ((bassNormalized * 450f) + (positiveEqBoost * 35f)).roundToInt().coerceIn(0, 900)
-                    le.setTargetGain(targetGainMb)
-                } else {
-                    le.setTargetGain(0)
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(tag, "LoudnessEnhancer error: ${e.message}")
-        }
-
-        // ۴. ایجاد فضای سهبعدی ملایم متناسب با بیس
+        // ۳. ایجاد فضای سه‌بعدی ملایم متناسب با بیس (بدون LoudnessEnhancer که باعث پرش ناگهانی صدا در ولوم کم می‌شد)
         try {
             virtualizer?.let { virt ->
                 virt.enabled = isEqEnabled && currentBassBoostStrength > 100
@@ -1069,11 +1079,9 @@ class AudioEngine(private val context: Context) {
     private fun releaseEffects() {
         try { equalizer?.release() } catch (_: Exception) {}
         try { bassBoost?.release() } catch (_: Exception) {}
-        try { loudnessEnhancer?.release() } catch (_: Exception) {}
         try { virtualizer?.release() } catch (_: Exception) {}
         equalizer = null
         bassBoost = null
-        loudnessEnhancer = null
         virtualizer = null
     }
 

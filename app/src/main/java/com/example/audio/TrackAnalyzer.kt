@@ -18,19 +18,23 @@ import kotlin.math.sqrt
 
 class TrackAnalyzer {
 
+    fun isOnlineStream(uriOrPath: String): Boolean {
+        return uriOrPath.startsWith("http://", ignoreCase = true) ||
+            uriOrPath.startsWith("https://", ignoreCase = true)
+    }
+
     suspend fun analyze(context: Context, track: Track): TrackAudioProfile = withContext(Dispatchers.IO) {
+        // اگر آدرس آهنگ با http یا https شروع شود (استریم آنلاین)، هرگز متدهای آنالیز فایل فیزیکی اجرا نمی‌شوند تا استریم قطع نشود
+        if (isOnlineStream(track.uri) || track.isDemo || track.uri.startsWith("android.resource://") || track.uri.isBlank()) {
+            return@withContext generateFallbackProfile(track)
+        }
+
         try {
-            if (
-                track.isDemo ||
-                track.uri.startsWith("android.resource://") ||
-                track.uri.startsWith("http://") ||
-                track.uri.startsWith("https://") ||
-                track.uri.isEmpty()
-            ) {
+            val uri = Uri.parse(track.uri)
+            val scheme = uri.scheme?.lowercase() ?: ""
+            if (scheme == "http" || scheme == "https") {
                 return@withContext generateFallbackProfile(track)
             }
-
-            val uri = Uri.parse(track.uri)
             val extractor = MediaExtractor()
             try {
                 extractor.setDataSource(context, uri, null)

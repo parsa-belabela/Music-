@@ -23,6 +23,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.R
+import kotlinx.coroutines.launch
 
 class AudioPlaybackService : Service() {
     private val channelId = "aura_music_playback"
@@ -30,6 +31,9 @@ class AudioPlaybackService : Service() {
 
     private var mediaSession: MediaSession? = null
     private var becomingNoisyReceiver: BroadcastReceiver? = null
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
+    private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -38,6 +42,42 @@ class AudioPlaybackService : Service() {
         createNotificationChannel()
         setupMediaSession()
         registerBecomingNoisyReceiver()
+        initBackgroundLocks()
+    }
+
+    private fun initBackgroundLocks() {
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            wakeLock = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "AuraMusic:StreamWakeLock")?.apply {
+                setReferenceCounted(false)
+            }
+            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            @Suppress("DEPRECATION")
+            val lockMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            } else {
+                android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            }
+            wifiLock = wm?.createWifiLock(lockMode, "AuraMusic:StreamWifiLock")?.apply {
+                setReferenceCounted(false)
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun updateBackgroundLocks(active: Boolean) {
+        try {
+            if (active) {
+                if (wakeLock?.isHeld == false) {
+                    wakeLock?.acquire(4 * 60 * 60 * 1000L)
+                }
+                if (wifiLock?.isHeld == false) {
+                    wifiLock?.acquire()
+                }
+            } else {
+                if (wakeLock?.isHeld == true) wakeLock?.release()
+                if (wifiLock?.isHeld == true) wifiLock?.release()
+            }
+        } catch (_: Exception) {}
     }
 
     private fun setupMediaSession() {
@@ -95,6 +135,7 @@ class AudioPlaybackService : Service() {
                 actionHandler?.invoke("PREVIOUS")
             }
             MediaNotificationReceiver.ACTION_STOP -> {
+                updateBackgroundLocks(false)
                 actionHandler?.invoke("STOP")
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -108,6 +149,8 @@ class AudioPlaybackService : Service() {
                 val isPlaying = intent.getBooleanExtra("EXTRA_IS_PLAYING", false)
                 val durationMs = intent.getLongExtra("EXTRA_DURATION", 0L)
                 val positionMs = intent.getLongExtra("EXTRA_POSITION", 0L)
+                val hasActiveDownloads = com.example.OnlineCacheHolder.downloadingTrackIds.value.isNotEmpty()
+                updateBackgroundLocks(isPlaying || hasActiveDownloads)
                 updateNotification(title, artist, album, artworkUri, isPlaying, durationMs, positionMs)
             }
         }
@@ -156,8 +199,37 @@ class AudioPlaybackService : Service() {
             .build()
         session.setPlaybackState(playbackState)
 
-        // 2. Resolve Artwork Bitmap (from Uri or fallback placeholder)
-        val artBitmap = loadArtworkBitmap(artworkUri) ?: createArtworkPlaceholder(title, artist)
+        // 2. Resolve Artwork Bitmap (from local Uri, cached online bitmap, or fallback placeholder)
+        val cachedArt = loadArtworkBitmap(artworkUri)
+        val artBitmap = cachedArt ?: createArtworkPlaceholder(title, artist)
+
+        // اگر کاور آنلاین https بود و هنوز در کش حافظه نبود، در پس‌زمینه با پشتیبانی از Cross-Protocol Redirect دانلود و نوتیفیکیشن را آپدیت کن
+        if (cachedArt == null && !artworkUri.isNullOrBlank() &&
+            (artworkUri.startsWith("http://", ignoreCase = true) || artworkUri.startsWith("https://", ignoreCase = true))
+        ) {
+            serviceScope.launch {
+                val downloadedArt = loadRemoteBitmapWithRedirects(artworkUri)
+                if (downloadedArt != null) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        updateNotificationWithResolvedArt(title, artist, album, downloadedArt, isPlaying, durationMs, positionMs)
+                    }
+                }
+            }
+        }
+
+        updateNotificationWithResolvedArt(title, artist, album, artBitmap, isPlaying, durationMs, positionMs)
+    }
+
+    private fun updateNotificationWithResolvedArt(
+        title: String,
+        artist: String,
+        album: String,
+        artBitmap: Bitmap,
+        isPlaying: Boolean,
+        durationMs: Long,
+        positionMs: Long
+    ) {
+        val session = mediaSession ?: return
 
         // 3. Update MediaMetadata
         val metadata = MediaMetadata.Builder()
@@ -248,8 +320,51 @@ class AudioPlaybackService : Service() {
         }
     }
 
+    private fun loadRemoteBitmapWithRedirects(urlStr: String): Bitmap? {
+        com.example.OnlineMusicRepository.getCachedCoverBitmap(urlStr)?.let { return it }
+        var currentUrl = urlStr
+        var redirects = 0
+        while (redirects < 5) {
+            var conn: java.net.HttpURLConnection? = null
+            try {
+                conn = (java.net.URL(currentUrl).openConnection() as java.net.HttpURLConnection).apply {
+                    instanceFollowRedirects = false
+                    connectTimeout = 20000
+                    readTimeout = 20000
+                    doInput = true
+                }
+                val code = conn.responseCode
+                if (code in listOf(301, 302, 303, 307, 308)) {
+                    val loc = conn.getHeaderField("Location")
+                    conn.disconnect()
+                    if (loc.isNullOrBlank()) return null
+                    currentUrl = java.net.URL(java.net.URL(currentUrl), loc).toString()
+                    redirects++
+                    continue
+                }
+                if (code in 200..299) {
+                    val bmp = conn.inputStream.use { android.graphics.BitmapFactory.decodeStream(it) }
+                    conn.disconnect()
+                    if (bmp != null) {
+                        com.example.OnlineMusicRepository.cacheCoverBitmap(urlStr, bmp)
+                    }
+                    return bmp
+                }
+                conn.disconnect()
+                return null
+            } catch (_: Exception) {
+                try { conn?.disconnect() } catch (_: Exception) {}
+                return null
+            }
+        }
+        return null
+    }
+
     private fun loadArtworkBitmap(artworkUriString: String?): Bitmap? {
         if (artworkUriString.isNullOrBlank()) return null
+        if (artworkUriString.startsWith("http://", ignoreCase = true) || artworkUriString.startsWith("https://", ignoreCase = true)) {
+            return com.example.OnlineMusicRepository.getCachedCoverBitmap(artworkUriString)
+        }
         return try {
             val uri = android.net.Uri.parse(artworkUriString)
             if (uri.scheme == "content" || uri.scheme == "file") {
@@ -292,6 +407,7 @@ class AudioPlaybackService : Service() {
     }
 
     override fun onDestroy() {
+        updateBackgroundLocks(false)
         becomingNoisyReceiver?.let {
             try { unregisterReceiver(it) } catch (_: Exception) {}
         }

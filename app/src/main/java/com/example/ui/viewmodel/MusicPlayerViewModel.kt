@@ -245,8 +245,12 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 if (previousDeviceName != null && previousDeviceName != newName) {
                     // Save previous device volume
                     DeviceVolumeMemory.saveVolume(app, previousDeviceName!!, _playbackState.value.volume)
-                    // Restore new device volume
-                    val restoredVol = DeviceVolumeMemory.getSavedVolume(app, newName, defaultVolume = 0.85f)
+                    // Restore new device volume without forcing a loud jump
+                    val restoredVol = DeviceVolumeMemory.getSavedVolume(
+                        app,
+                        newName,
+                        defaultVolume = _playbackState.value.volume
+                    )
                     audioEngine.setVolume(restoredVol)
                     _playbackState.update { it.copy(volume = restoredVol) }
                 }
@@ -493,7 +497,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             )
         }
 
-        // ۲. شروع بلافاصله پخش صوتی + بافر کامل استریم در پس‌زمینه برای جلوگیری از پرش یا قطع شدن وسط آهنگ
+        // ۲. شروع بلافاصله پخش صوتی از ثانیه صفر (seekTo(0L)) + بافر استریم در پس‌زمینه
         val cachedFile = OnlineCacheHolder.getCachedFileIfPresent(app, track.id)
             ?: OnlineCacheHolder.getStreamBufferFileIfPresent(app, track.id)
         if (cachedFile != null) {
@@ -504,13 +508,13 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             if (track.uri.startsWith("http://") || track.uri.startsWith("https://")) {
                 OnlineCacheHolder.warmStreamBufferInBackground(app, track) { bufferedFile ->
                     if (bufferedFile != null && _playbackState.value.currentTrack?.id == track.id) {
-                        val currentPos = audioEngine.currentPosition.value
-                        val currentDur = audioEngine.duration.value
-                        // اگر استریم قبلی در حال بافر بود، خطا داده بود، یا فقط یک پیش‌نمایش ۳۰ ثانیه‌ای بود، به فایل کامل سوئیچ کن
-                        val isPreviewLength = currentDur in 1_000L..36_000L && track.durationMs > 45_000L
-                        val isStuckOrError = audioEngine.status.value == PlayerStatus.ERROR || audioEngine.status.value == PlayerStatus.BUFFERING
-                        if (isStuckOrError || (isPreviewLength && currentPos < 15_000L)) {
-                            audioEngine.playTrack(track.copy(uri = bufferedFile.absolutePath), currentPos, autoPlay = _playbackState.value.isPlayWhenReady)
+                        // فقط در صورتی که استریم آنلاین با خطا مواجه شده باشد از فایل بافر شده استفاده کن و همیشه از ثانیه ۰ شروع کن تا وسط آهنگ نپرد
+                        if (audioEngine.status.value == PlayerStatus.ERROR) {
+                            audioEngine.playTrack(
+                                track.copy(uri = bufferedFile.absolutePath),
+                                0L,
+                                autoPlay = _playbackState.value.isPlayWhenReady
+                            )
                         }
                     }
                 }
