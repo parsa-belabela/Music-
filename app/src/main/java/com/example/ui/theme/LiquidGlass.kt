@@ -85,14 +85,24 @@ object HardwareGyroscopeManager : SensorEventListener {
             baselinePitch = rawPitch
             baselineRoll = rawRoll
         } else {
-            // Gently adapt baseline to resting hold angle so stationary phones/emulators stay centered at 0f
-            baselinePitch += (rawPitch - baselinePitch) * 0.025f
-            baselineRoll += (rawRoll - baselineRoll) * 0.025f
+            // انطباق پیوسته و بسیار آرام با زاویه در دست گرفتن گوشی
+            baselinePitch += (rawPitch - baselinePitch) * 0.015f
+            baselineRoll += (rawRoll - baselineRoll) * 0.015f
         }
-        val deltaPitch = ((rawPitch - baselinePitch) * 1.95f).coerceIn(-1f, 1f)
-        val deltaRoll = ((rawRoll - baselineRoll) * 1.95f).coerceIn(-1f, 1f)
-        pitch += (deltaPitch - pitch) * 0.34f
-        roll += (deltaRoll - roll) * 0.34f
+        val diffPitch = rawPitch - baselinePitch
+        val diffRoll = rawRoll - baselineRoll
+
+        // ددزون ملایم برای حذف لرزش‌های ریز دست کاربر تا صفحه بیهوده تکان نخورد
+        val deadzonedPitch = if (kotlin.math.abs(diffPitch) < 0.04f) 0f else diffPitch
+        val deadzonedRoll = if (kotlin.math.abs(diffRoll) < 0.04f) 0f else diffRoll
+
+        // ضریب حساسیت ملایم و کنترل‌شده جهت جلوگیری از پرش سریع بالا و پایین
+        val deltaPitch = (deadzonedPitch * 0.45f).coerceIn(-0.65f, 0.65f)
+        val deltaRoll = (deadzonedRoll * 0.45f).coerceIn(-0.65f, 0.65f)
+
+        // فیلتر پایین‌گذر نرم و روان برای حرکتی چشم‌نواز و بدون پرش
+        pitch += (deltaPitch - pitch) * 0.11f
+        roll += (deltaRoll - roll) * 0.11f
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
@@ -102,15 +112,15 @@ object HardwareGyroscopeManager : SensorEventListener {
                 try {
                     SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
                     SensorManager.getOrientation(rotationMatrix, orientationAngles)
-                    val rawPitch = (orientationAngles[1] / (PI.toFloat() * 0.35f)).coerceIn(-2f, 2f)
-                    val rawRoll = (orientationAngles[2] / (PI.toFloat() * 0.35f)).coerceIn(-2f, 2f)
+                    val rawPitch = (orientationAngles[1] / (PI.toFloat() * 0.60f)).coerceIn(-1.5f, 1.5f)
+                    val rawRoll = (orientationAngles[2] / (PI.toFloat() * 0.60f)).coerceIn(-1.5f, 1.5f)
                     updateCalibratedTilt(rawPitch, rawRoll)
                 } catch (_: Exception) {}
             }
             Sensor.TYPE_ACCELEROMETER -> {
-                val gx = (event.values.getOrNull(0) ?: 0f) / 9.81f
-                val gy = (event.values.getOrNull(1) ?: 0f) / 9.81f
-                updateCalibratedTilt(gy, -gx)
+                val gx = ((event.values.getOrNull(0) ?: 0f) / 9.81f).coerceIn(-1f, 1f)
+                val gy = ((event.values.getOrNull(1) ?: 0f) / 9.81f).coerceIn(-1f, 1f)
+                updateCalibratedTilt(gy * 0.5f, -gx * 0.5f)
             }
         }
     }
@@ -342,9 +352,9 @@ fun Modifier.liquidGlass(
                     val gyroPitch = HardwareGyroscopeManager.pitch
                     val scrollRatio = (windowY / screenHeightPx).coerceIn(-0.3f, 1.3f)
 
-                    val sweepProgress = ((1f - scrollRatio) * 1.35f - 0.18f) + (gyroRoll * 0.55f)
+                    val sweepProgress = ((1f - scrollRatio) * 1.35f - 0.18f) + (gyroRoll * 0.18f)
                     val beamCenterX = w * sweepProgress
-                    val beamCenterY = h * (0.24f + scrollRatio * 0.52f + gyroPitch * 0.42f)
+                    val beamCenterY = h * (0.24f + scrollRatio * 0.52f + gyroPitch * 0.15f)
 
                     val specularReflectionBrush = Brush.linearGradient(
                         colorStops = arrayOf(
@@ -360,7 +370,7 @@ fun Modifier.liquidGlass(
                         end = Offset(beamCenterX + beamWidth, beamCenterY + beamWidth * 0.7f)
                     )
 
-                    val rimAngle = ((scrollRatio * PI) + (gyroRoll * 1.45f) + (gyroPitch * 0.95f)).toFloat()
+                    val rimAngle = ((scrollRatio * PI) + (gyroRoll * 0.35f) + (gyroPitch * 0.20f)).toFloat()
                     val rimStart = Offset(
                         x = (w * 0.5f) + cos(rimAngle) * w * 0.6f,
                         y = (h * 0.5f) + sin(rimAngle) * h * 0.6f

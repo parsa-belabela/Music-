@@ -1582,6 +1582,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 artworkUri = newArtworkUri
             )
             repository.updateTrackMetadata(updated)
+            com.example.data.model.UserTrackMetadataStore.saveOverride(app, track.id, newTitle, newArtist, newAlbum)
             if (_playbackState.value.currentTrack?.id == track.id) {
                 _playbackState.update { it.copy(currentTrack = updated) }
                 val palette = ArtworkPaletteExtractor.extract(updated, _appSettings.value, app)

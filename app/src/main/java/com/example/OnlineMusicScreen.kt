@@ -158,12 +158,16 @@ data class OnlineTrack(
             RealTrackGenreRegistry.registerGenre(appTrackId, rawGenre)
             RealTrackGenreRegistry.registerGenre(id, rawGenre)
         }
-        val resolvedAlbumName = RealAlbumRegistry.resolveAlbum(title = title, artist = artist, rawAlbum = album)
-        return Track(
+        val cleaned = com.example.data.model.SmartTrackMetadataResolver.resolve(
+            rawTitle = title,
+            rawArtist = artist,
+            rawAlbum = album
+        )
+        val initialTrack = Track(
             id = appTrackId,
-            title = title,
-            artist = artist,
-            album = resolvedAlbumName,
+            title = cleaned.title,
+            artist = cleaned.artist,
+            album = cleaned.album,
             durationMs = (durationSec.coerceAtLeast(1) * 1000L),
             uri = finalStream,
             artworkUri = finalCover.ifBlank { null },
@@ -171,6 +175,7 @@ data class OnlineTrack(
             sampleRate = 48000,
             genre = rawGenre.ifBlank { "Online" }
         )
+        return com.example.data.model.UserTrackMetadataStore.applyOverride(initialTrack)
     }
 }
 
@@ -1632,17 +1637,22 @@ object OnlineMusicRepository {
                         RealTrackGenreRegistry.registerGenre("online_$id", rawGenre)
                     }
 
-                    val resolvedAlb = RealAlbumRegistry.resolveAlbum(
-                        title = title,
-                        artist = artistName,
+                    val cleaned = com.example.data.model.SmartTrackMetadataResolver.resolve(
+                        rawTitle = title,
+                        rawArtist = artistName,
                         rawAlbum = obj.optString("album", "")
                     )
+                    val userOv = com.example.data.model.UserTrackMetadataStore.getOverride(id)
+                    val finalTitle = userOv?.title ?: cleaned.title
+                    val finalArtist = userOv?.artist ?: cleaned.artist
+                    val finalAlbum = userOv?.album ?: cleaned.album
+
                     tracksList.add(
                         OnlineTrack(
                             id = id,
-                            title = title,
-                            artist = artistName,
-                            album = resolvedAlb,
+                            title = finalTitle,
+                            artist = finalArtist,
+                            album = finalAlbum,
                             coverUrl = coverUrl,
                             durationSec = durationSec,
                             streamUrl = streamUrl,
@@ -2241,13 +2251,21 @@ object OnlineTasteEngine {
                 if (id.isNotBlank() && uri.isNotBlank()) {
                     val tTitle = obj.optString("title", "Unknown")
                     val tArtist = obj.optString("artist", "Unknown")
-                    val tAlbum = RealAlbumRegistry.resolveAlbum(tTitle, tArtist, obj.optString("album", "Single"))
+                    val cleaned = com.example.data.model.SmartTrackMetadataResolver.resolve(
+                        rawTitle = tTitle,
+                        rawArtist = tArtist,
+                        rawAlbum = obj.optString("album", "Single")
+                    )
+                    val userOv = com.example.data.model.UserTrackMetadataStore.getOverride(id)
+                    val finalTitle = userOv?.title ?: cleaned.title
+                    val finalArtist = userOv?.artist ?: cleaned.artist
+                    val finalAlbum = userOv?.album ?: cleaned.album
                     list.add(
                         Track(
                             id = id,
-                            title = tTitle,
-                            artist = tArtist,
-                            album = tAlbum,
+                            title = finalTitle,
+                            artist = finalArtist,
+                            album = finalAlbum,
                             durationMs = obj.optLong("durationMs", 180_000L),
                             uri = uri,
                             artworkUri = obj.optString("artworkUri").takeIf { it.isNotBlank() },
@@ -3791,8 +3809,16 @@ private fun SpotifyTrackRowItem(
     track: Track,
     isPlaying: Boolean,
     onClick: () -> Unit,
-    onDownloadClick: (() -> Unit)? = null
+    onDownloadClick: (() -> Unit)? = null,
+    isPersian: Boolean = true
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val storeVersion = com.example.data.model.UserTrackMetadataStore.version
+    val effectiveTrack = remember(track, storeVersion) {
+        com.example.data.model.UserTrackMetadataStore.applyOverride(track)
+    }
+    var showEditDialog by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -3807,9 +3833,9 @@ private fun SpotifyTrackRowItem(
         verticalAlignment = Alignment.CenterVertically
     ) {
         CloudTrackCoverBox(
-            artworkUri = track.artworkUri,
-            trackId = track.id,
-            fallbackName = SmartArtistParser.extractPrimaryArtist(track.artist, track.title),
+            artworkUri = effectiveTrack.artworkUri,
+            trackId = effectiveTrack.id,
+            fallbackName = SmartArtistParser.extractPrimaryArtist(effectiveTrack.artist, effectiveTrack.title),
             size = 48.dp,
             shape = RoundedCornerShape(10.dp)
         )
@@ -3818,7 +3844,7 @@ private fun SpotifyTrackRowItem(
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = track.title,
+                text = effectiveTrack.title,
                 color = if (isPlaying) Color(0xFF1DB954) else Color.White,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
@@ -3826,7 +3852,7 @@ private fun SpotifyTrackRowItem(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = "${track.artist} • ${track.album}",
+                text = "${effectiveTrack.artist} • ${effectiveTrack.album}",
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 12.sp,
                 maxLines = 1,
@@ -3848,11 +3874,46 @@ private fun SpotifyTrackRowItem(
             }
         }
 
+        IconButton(
+            onClick = { showEditDialog = true },
+            modifier = Modifier.size(36.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = "Edit Track Info",
+                tint = Color.White.copy(alpha = 0.55f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
         Icon(
             imageVector = if (isPlaying) Icons.Default.GraphicEq else Icons.Default.PlayArrow,
             contentDescription = null,
             tint = if (isPlaying) Color(0xFF1DB954) else Color.White.copy(alpha = 0.7f),
             modifier = Modifier.size(24.dp)
+        )
+    }
+
+    if (showEditDialog) {
+        com.example.ui.components.MetadataEditorDialog(
+            track = effectiveTrack,
+            lang = if (isPersian) AppLanguage.PERSIAN else AppLanguage.ENGLISH,
+            onSave = { newTitle, newArtist, newAlbum, newGenre, newYear, newArtworkUri ->
+                com.example.data.model.UserTrackMetadataStore.saveOverride(
+                    context,
+                    track.id,
+                    newTitle,
+                    newArtist,
+                    newAlbum
+                )
+                android.widget.Toast.makeText(
+                    context,
+                    if (isPersian) "مشخصات آهنگ با موفقیت اصلاح شد" else "Track info updated",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+                showEditDialog = false
+            },
+            onDismiss = { showEditDialog = false }
         )
     }
 }

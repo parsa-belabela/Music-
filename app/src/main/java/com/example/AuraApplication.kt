@@ -28,6 +28,7 @@ class AuraApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        com.example.data.model.UserTrackMetadataStore.init(this)
 
         if (BuildConfig.DEBUG) {
             StrictMode.setThreadPolicy(

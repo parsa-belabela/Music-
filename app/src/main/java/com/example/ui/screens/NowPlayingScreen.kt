@@ -207,8 +207,8 @@ fun NowPlayingScreen(
                 val dtSec = ((nowNanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
                 lastFrameNanos = nowNanos
 
-                // درون‌یابی ۱۲۰ فریم بر ثانیه برای حرکت فوق‌العاده نرم و روان انعکاس روی کاور با تکان دادن گوشی
-                val gyroLerp = (dtSec * 22f).coerceIn(0f, 1f)
+                // درون‌یابی نرم و ابریشمی با ریت کنترل‌شده برای حرکتی آرام و بدون جهش‌های آزاردهنده
+                val gyroLerp = (dtSec * 6f).coerceIn(0f, 1f)
                 smoothGyroRoll += (HardwareGyroscopeManager.roll - smoothGyroRoll) * gyroLerp
                 smoothGyroPitch += (HardwareGyroscopeManager.pitch - smoothGyroPitch) * gyroLerp
 
@@ -645,8 +645,8 @@ fun NowPlayingScreen(
                                 val gyroPitch = smoothGyroPitch
                                 val w = size.width
                                 val h = size.height
-                                val sheenX = w * (0.48f + gyroRoll * 0.72f)
-                                val sheenY = h * (0.38f + gyroPitch * 0.68f)
+                                val sheenX = w * (0.50f + gyroRoll * 0.22f)
+                                val sheenY = h * (0.42f + gyroPitch * 0.20f)
                                 val beamSpan = w * 0.65f
 
                                 drawRect(

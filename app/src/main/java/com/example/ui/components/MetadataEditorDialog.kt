@@ -12,8 +12,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.SwapCalls
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,7 +30,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.model.AppLanguage
+import com.example.data.model.SmartTrackMetadataResolver
 import com.example.data.model.Track
+import com.example.data.model.UserTrackMetadataStore
 
 @Composable
 fun MetadataEditorDialog(
@@ -49,7 +54,6 @@ fun MetadataEditorDialog(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            // Take persistable URI permission if needed
             try {
                 context.contentResolver.takePersistableUriPermission(
                     uri,
@@ -64,7 +68,7 @@ fun MetadataEditorDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = if (lang == AppLanguage.PERSIAN) "ویرایش اطلاعات و کاور آهنگ" else "Edit Song Metadata & Artwork",
+                text = if (lang == AppLanguage.PERSIAN) "ویرایش و اصلاح مشخصات آهنگ" else "Edit Track Info & Artwork",
                 fontWeight = FontWeight.Bold
             )
         },
@@ -76,7 +80,7 @@ fun MetadataEditorDialog(
                 // Artwork selection preview
                 Box(
                     modifier = Modifier
-                        .size(90.dp)
+                        .size(80.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .background(Color(0xFF1E2232))
                         .border(1.5.dp, Color(0xFF00E5FF).copy(alpha = 0.5f), RoundedCornerShape(16.dp))
@@ -103,7 +107,7 @@ fun MetadataEditorDialog(
                                 imageVector = Icons.Default.AddPhotoAlternate,
                                 contentDescription = "Add Cover",
                                 tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(28.dp)
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
@@ -124,6 +128,70 @@ fun MetadataEditorDialog(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(if (lang == AppLanguage.PERSIAN) "حذف کاور" else "Remove Cover", fontSize = 12.sp)
                     }
+                }
+
+                // دکمه‌های سریع برای اصلاح و جابجایی نام‌ها
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            val temp = title
+                            title = artist
+                            artist = temp
+                        },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (lang == AppLanguage.PERSIAN) "آهنگ ↔ خواننده" else "Title ↔ Artist",
+                            fontSize = 11.sp,
+                            maxLines = 1
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            val temp = title
+                            title = album
+                            album = temp
+                        },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Default.SwapCalls, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (lang == AppLanguage.PERSIAN) "آهنگ ↔ آلبوم" else "Title ↔ Album",
+                            fontSize = 11.sp,
+                            maxLines = 1
+                        )
+                    }
+                }
+
+                FilledTonalButton(
+                    onClick = {
+                        val cleaned = SmartTrackMetadataResolver.resolve(title, artist, album)
+                        title = cleaned.title
+                        artist = cleaned.artist
+                        album = cleaned.album
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = Color(0xFF1DB954).copy(alpha = 0.20f),
+                        contentColor = Color(0xFF1DB954)
+                    )
+                ) {
+                    Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (lang == AppLanguage.PERSIAN) "اصلاح هوشمند خودکار" else "Auto Smart Fix",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
 
                 OutlinedTextField(
@@ -162,6 +230,7 @@ fun MetadataEditorDialog(
             Button(
                 onClick = {
                     val yr = yearText.toIntOrNull() ?: track.year
+                    UserTrackMetadataStore.saveOverride(context, track.id, title, artist, album)
                     onSave(title, artist, album, genre, yr, selectedArtworkUri)
                     onDismiss()
                 }
@@ -170,8 +239,21 @@ fun MetadataEditorDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(if (lang == AppLanguage.PERSIAN) "انصراف" else "Cancel")
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (UserTrackMetadataStore.hasOverride(track.id)) {
+                    TextButton(
+                        onClick = {
+                            UserTrackMetadataStore.removeOverride(context, track.id)
+                            onDismiss()
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFFB74D))
+                    ) {
+                        Text(if (lang == AppLanguage.PERSIAN) "پیش‌فرض" else "Reset")
+                    }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text(if (lang == AppLanguage.PERSIAN) "انصراف" else "Cancel")
+                }
             }
         }
     )
