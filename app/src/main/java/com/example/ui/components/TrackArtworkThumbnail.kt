@@ -14,15 +14,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.OnlineMusicRepository
 
 /**
- * High-performance, memory-efficient artwork thumbnail with graceful fallback icon
- * for all lists, rows, cards, and bottom sheets throughout the app.
+ * High-performance, memory-efficient artwork thumbnail with persistent private disk cache
+ * for Telegram/Cloudflare track covers and graceful fallback icon.
  */
 @Composable
 fun TrackArtworkThumbnail(
@@ -39,17 +38,23 @@ fun TrackArtworkThumbnail(
     primaryBorderColor: Color? = null,
     secondaryBorderColor: Color? = null
 ) {
-    val cacheKey = artworkUri ?: trackId ?: ""
-    var loadedCoverBitmap by remember(cacheKey) {
-        mutableStateOf(if (cacheKey.isNotBlank()) OnlineMusicRepository.getCachedCoverBitmap(cacheKey) else null)
+    val resolvedUrl = remember(artworkUri, trackId, artist) {
+        artworkUri?.takeIf { it.isNotBlank() }
+            ?: (trackId?.let { OnlineMusicRepository.getCoverUrlForTrack(it, artist ?: "") }).orEmpty()
     }
-    LaunchedEffect(cacheKey) {
-        if (loadedCoverBitmap == null && cacheKey.isNotBlank()) {
-            val url = artworkUri?.takeIf { it.isNotBlank() }
-                ?: (trackId?.let { OnlineMusicRepository.getCoverUrlForTrack(it, artist ?: "") })
-            if (!url.isNullOrBlank()) {
-                loadedCoverBitmap = OnlineMusicRepository.loadCoverBitmap(url)
-            }
+    val isContentUri = resolvedUrl.startsWith("content://")
+
+    var loadedCoverBitmap by remember(resolvedUrl) {
+        mutableStateOf(
+            if (resolvedUrl.isNotBlank() && !isContentUri) {
+                OnlineMusicRepository.getCachedCoverBitmap(resolvedUrl)
+            } else null
+        )
+    }
+
+    LaunchedEffect(resolvedUrl) {
+        if (loadedCoverBitmap == null && resolvedUrl.isNotBlank() && !isContentUri) {
+            loadedCoverBitmap = OnlineMusicRepository.loadCoverBitmap(resolvedUrl)
         }
     }
 
@@ -68,9 +73,9 @@ fun TrackArtworkThumbnail(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
-        } else if (!artworkUri.isNullOrEmpty()) {
+        } else if (isContentUri) {
             AsyncImage(
-                model = artworkUri,
+                model = resolvedUrl,
                 contentDescription = title ?: "Artwork",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

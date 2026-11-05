@@ -10,6 +10,7 @@ import android.util.LruCache
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,6 +32,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -579,24 +582,214 @@ object RealCategoryClassifier {
     }
 }
 
+data class HubComputedData(
+    val albums: List<CloudAlbumCollection> = emptyList(),
+    val artists: List<CloudArtistProfile> = emptyList(),
+    val browseCategories: List<SpotifyBrowseCategory> = emptyList()
+)
+
 /**
  * مخزن ارتباط مستقیم با سرور Cloudflare Worker متصل به کانال آرشیو تلگرام
- * به همراه کش داخلی خصوصی کاتالوگ و پروفایل هنرمندان
+ * به همراه کش داخلی خصوصی کاتالوگ، کاورهای آهنگ تلگرام و پروفایل هنرمندان
  */
 object OnlineMusicRepository {
     const val WORKER_URL = com.example.WORKER_URL
     val BASE_URL: String get() = WORKER_URL.trimEnd('/')
     private const val PRIVATE_CATALOG_CACHE_FILE = "aura_cloud_catalog_cache_v2.json"
+    private const val PRIVATE_TRACK_COVERS_DIR = "track_covers_private_cache"
 
-    private val imageMemoryCache = object : LruCache<String, Bitmap>(110) {}
+    private val imageMemoryCache = object : LruCache<String, Bitmap>(160) {}
+    private val failedCoverUrls = ConcurrentHashMap.newKeySet<String>()
+    private val coverDownloadLocks = ConcurrentHashMap<String, Any>()
     private val streamUrlByTrackId = ConcurrentHashMap<String, String>()
     private val downloadUrlByTrackId = ConcurrentHashMap<String, String>()
     private val coverUrlByTrackId = ConcurrentHashMap<String, String>()
     private val artistPictureCache = ConcurrentHashMap<String, String>()
-    private val prefetchScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     @Volatile
     private var lastKnownArtists: List<ArchiveArtistItem> = emptyList()
+
+    @Volatile
+    private var memoryCachedResponse: WorkerTracksResponse? = null
+
+    @Volatile
+    private var memoryCachedAppTracks: List<Track> = emptyList()
+
+    @Volatile
+    private var cachedHubSignature: String = ""
+
+    @Volatile
+    private var cachedHubData: HubComputedData = HubComputedData()
+
+    fun getMemoryCachedAppTracks(): List<Track> = memoryCachedAppTracks
+
+    fun setMemoryCachedAppTracks(tracks: List<Track>) {
+        if (tracks.isNotEmpty()) {
+            memoryCachedAppTracks = tracks
+        }
+    }
+
+    suspend fun loadCachedAppTracksAsync(): List<Track> = withContext(Dispatchers.IO) {
+        if (memoryCachedAppTracks.isNotEmpty()) return@withContext memoryCachedAppTracks
+        val cached = loadCachedWorkerCatalog()
+        val mapped = cached?.tracks?.map { it.toAppTrack() }.orEmpty()
+        if (mapped.isNotEmpty()) {
+            memoryCachedAppTracks = mapped
+        }
+        mapped
+    }
+
+    fun getMemoryCachedHubData(tracks: List<Track>, isPersian: Boolean): HubComputedData? {
+        if (tracks.isEmpty()) return HubComputedData()
+        val sig = "${tracks.size}_${tracks.firstOrNull()?.id}_${tracks.lastOrNull()?.id}_$isPersian"
+        return if (cachedHubSignature == sig) cachedHubData else null
+    }
+
+    suspend fun computeHubDataAsync(tracks: List<Track>, isPersian: Boolean): HubComputedData =
+        withContext(Dispatchers.Default) {
+            if (tracks.isEmpty()) return@withContext HubComputedData()
+            val sig = "${tracks.size}_${tracks.firstOrNull()?.id}_${tracks.lastOrNull()?.id}_$isPersian"
+            if (cachedHubSignature == sig && cachedHubData.artists.isNotEmpty()) {
+                return@withContext cachedHubData
+            }
+
+            val workerArtistsMap = getKnownArtists().associateBy { it.name.trim().lowercase() }
+            val canonicalDisplayNames = LinkedHashMap<String, String>()
+            val artistAllTracks = LinkedHashMap<String, MutableList<Track>>()
+            val artistSoloTracks = LinkedHashMap<String, MutableList<Track>>()
+            val artistFeatTracks = LinkedHashMap<String, MutableList<Track>>()
+
+            workerArtistsMap.values.forEach { item ->
+                val clean = SmartArtistParser.cleanSingleArtistName(item.name)
+                if (clean.isNotBlank() && !SmartArtistParser.isCollaborationString(clean)) {
+                    canonicalDisplayNames[clean.lowercase()] = clean
+                }
+            }
+
+            for (track in tracks) {
+                val participants = SmartArtistParser.extractArtistsFromTrack(track.artist, track.title)
+                    .ifEmpty {
+                        listOf(if (isPersian) "هنرمند ناشناس" else "Unknown Artist")
+                    }
+                val isCollabTrack = participants.size > 1 || SmartArtistParser.isCollaborationString(track.artist)
+
+                participants.forEachIndexed { idx, participantName ->
+                    val key = participantName.lowercase().trim()
+                    if (key.isBlank()) return@forEachIndexed
+
+                    if (!canonicalDisplayNames.containsKey(key)) {
+                        canonicalDisplayNames[key] = participantName
+                    }
+
+                    val allList = artistAllTracks.getOrPut(key) { mutableListOf() }
+                    if (allList.none { it.id == track.id }) {
+                        allList.add(track)
+                    }
+
+                    if (!isCollabTrack && idx == 0) {
+                        val soloList = artistSoloTracks.getOrPut(key) { mutableListOf() }
+                        if (soloList.none { it.id == track.id }) {
+                            soloList.add(track)
+                        }
+                    } else {
+                        val featList = artistFeatTracks.getOrPut(key) { mutableListOf() }
+                        if (featList.none { it.id == track.id }) {
+                            featList.add(track)
+                        }
+                    }
+                }
+            }
+
+            // ساخت آلبوم‌ها و مجموعه‌های کامل برای هر خواننده (شامل تمام ترک‌های تکی و فیت‌های آن خواننده)
+            val allAlbumsList = mutableListOf<CloudAlbumCollection>()
+            val albumsByArtistKey = LinkedHashMap<String, List<CloudAlbumCollection>>()
+
+            for ((key, allTrackList) in artistAllTracks) {
+                val displayName = canonicalDisplayNames[key] ?: key
+                val artistAlbums = mutableListOf<CloudAlbumCollection>()
+
+                // ۱. اگر ترک‌ها دارای نام آلبوم اختصاصی (غیر از Single و Telegram Archive) هستند، آلبوم مستقل بساز
+                val specificAlbums = allTrackList
+                    .filter { trk ->
+                        val alb = trk.album.trim()
+                        alb.isNotBlank() &&
+                            !alb.equals("Single", ignoreCase = true) &&
+                            !alb.equals("unknown", ignoreCase = true) &&
+                            !alb.equals("Telegram", ignoreCase = true) &&
+                            !alb.equals("Telegram Archive", ignoreCase = true)
+                    }
+                    .groupBy { it.album.trim().lowercase() }
+
+                for ((albKey, albTracks) in specificAlbums) {
+                    val albTitle = albTracks.first().album.trim()
+                    val col = CloudAlbumCollection(
+                        id = "${key}__alb__$albKey",
+                        title = albTitle,
+                        artist = displayName,
+                        coverUri = albTracks.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri,
+                        tracks = albTracks
+                    )
+                    artistAlbums.add(col)
+                    allAlbumsList.add(col)
+                }
+
+                // ۲. مجموعه کامل آثار خواننده (شامل تمام ترک‌های آن خواننده تا هیچ آهنگی از قلم نیفتد)
+                val collectionTitle = if (isPersian) "مجموعه آثار $displayName" else "$displayName Collection"
+                val preferredCover = allTrackList.firstOrNull {
+                    !SmartArtistParser.isCollaborationString(it.artist) && !it.artworkUri.isNullOrBlank()
+                }?.artworkUri ?: allTrackList.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri
+
+                val mainCollection = CloudAlbumCollection(
+                    id = "${key}__collection",
+                    title = collectionTitle,
+                    artist = displayName,
+                    coverUri = preferredCover,
+                    tracks = allTrackList
+                )
+                artistAlbums.add(0, mainCollection)
+                allAlbumsList.add(mainCollection)
+
+                albumsByArtistKey[key] = artistAlbums
+            }
+
+            val sortedAlbums = allAlbumsList.sortedByDescending { it.tracks.size }
+
+            val computedArtists = artistAllTracks.entries
+                .map { (key, allTrackList) ->
+                    val displayName = canonicalDisplayNames[key] ?: key
+                    val workerItem = workerArtistsMap[key]
+                    val resolvedCover = workerItem?.cover?.ifBlank { workerItem.picture }
+                        ?.ifBlank { getArtistPicture(displayName).orEmpty() }
+                        ?: getArtistPicture(displayName).orEmpty()
+
+                    val soloList = artistSoloTracks[key].orEmpty()
+                    val featList = artistFeatTracks[key].orEmpty()
+
+                    CloudArtistProfile(
+                        name = displayName,
+                        tracks = allTrackList,
+                        soloTracks = soloList.ifEmpty { allTrackList },
+                        featuredTracks = featList,
+                        albums = albumsByArtistKey[key].orEmpty(),
+                        cover = resolvedCover,
+                        picture = resolvedCover
+                    )
+                }
+                .sortedWith(
+                    compareByDescending<CloudArtistProfile> { it.soloTracks.size }
+                        .thenByDescending { it.tracks.size }
+                )
+
+            val computedCategories = RealCategoryClassifier.buildRealCategories(tracks)
+            val result = HubComputedData(
+                albums = sortedAlbums,
+                artists = computedArtists,
+                browseCategories = computedCategories
+            )
+            cachedHubSignature = sig
+            cachedHubData = result
+            result
+        }
 
     fun resolveWorkerUrl(rawUrl: String): String {
         val trimmed = rawUrl.trim()
@@ -646,8 +839,11 @@ object OnlineMusicRepository {
         }
         if (coverUrl.isNotBlank()) {
             val resolvedCover = normalizeWorkerImageUrl(coverUrl)
-            coverUrlByTrackId[rawId] = resolvedCover
-            coverUrlByTrackId["online_$rawId"] = resolvedCover
+            // کاور آهنگ فقط باید از تلگرام (کلادفلر) یا فایل محلی باشد، نه لینک مسدودشده خارجی
+            if (!resolvedCover.contains("dzcdn.net") && !resolvedCover.contains("deezer.com")) {
+                coverUrlByTrackId[rawId] = resolvedCover
+                coverUrlByTrackId["online_$rawId"] = resolvedCover
+            }
         }
     }
 
@@ -656,18 +852,26 @@ object OnlineMusicRepository {
         val rawId = trackId.removePrefix("online_").trim()
         if (rawId.isBlank()) return
         val normalized = normalizeWorkerImageUrl(coverUrl)
-        coverUrlByTrackId[rawId] = normalized
-        coverUrlByTrackId["online_$rawId"] = normalized
+        if (!normalized.contains("dzcdn.net") && !normalized.contains("deezer.com")) {
+            coverUrlByTrackId[rawId] = normalized
+            coverUrlByTrackId["online_$rawId"] = normalized
+        }
     }
 
     fun getCoverUrlForTrack(trackId: String, artistName: String = ""): String {
         val rawId = trackId.removePrefix("online_").trim()
         if (rawId.isNotBlank()) {
-            coverUrlByTrackId[rawId]?.takeIf { it.isNotBlank() }?.let { return it }
-            coverUrlByTrackId["online_$rawId"]?.takeIf { it.isNotBlank() }?.let { return it }
-        }
-        if (artistName.isNotBlank()) {
-            getArtistPicture(artistName)?.takeIf { it.isNotBlank() }?.let { return it }
+            coverUrlByTrackId[rawId]?.takeIf {
+                it.isNotBlank() && !it.contains("dzcdn.net") && !it.contains("deezer.com")
+            }?.let { return it }
+            coverUrlByTrackId["online_$rawId"]?.takeIf {
+                it.isNotBlank() && !it.contains("dzcdn.net") && !it.contains("deezer.com")
+            }?.let { return it }
+            // کاور آهنگ مستقیماً از تلگرام از طریق سرور کلادفلر (بدون نیاز به فیلترشکن)
+            if (!rawId.startsWith("local_") && !rawId.startsWith("demo_")) {
+                val encodedId = try { URLEncoder.encode(rawId, "UTF-8") } catch (_: Exception) { rawId }
+                return "$BASE_URL/cover?id=$encodedId"
+            }
         }
         return ""
     }
@@ -692,7 +896,8 @@ object OnlineMusicRepository {
     fun registerArtistPicture(artistName: String, pictureUrl: String, overwrite: Boolean = true) {
         if (artistName.isBlank() || pictureUrl.isBlank()) return
         val key = artistName.trim().lowercase()
-        val normalized = normalizeWorkerImageUrl(pictureUrl)
+        val normalized = ArtistAvatarDiskCache.resolveCloudflareArtistUrl(artistName, pictureUrl)
+        if (normalized.isBlank()) return
         if (overwrite || !artistPictureCache.containsKey(key)) {
             artistPictureCache[key] = normalized
         }
@@ -728,16 +933,89 @@ object OnlineMusicRepository {
         imageMemoryCache.put(url, bitmap)
     }
 
+    private fun getPrivateTrackCoverCacheDir(): File? {
+        return try {
+            val appCtx = AuraApplication.instance.applicationContext
+            val dir = File(appCtx.filesDir, PRIVATE_TRACK_COVERS_DIR)
+            if (!dir.exists()) {
+                dir.mkdirs()
+            }
+            val noMedia = File(dir, ".nomedia")
+            if (!noMedia.exists()) {
+                try { noMedia.createNewFile() } catch (_: Exception) {}
+            }
+            dir
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun getPrivateTrackCoverFile(resolvedUrl: String): File? {
+        val dir = getPrivateTrackCoverCacheDir() ?: return null
+        val idPart = if (resolvedUrl.contains("id=")) {
+            resolvedUrl.substringAfter("id=").substringBefore("&")
+        } else {
+            resolvedUrl.hashCode().toUInt().toString(16)
+        }
+        val safeKey = idPart.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(64).ifBlank {
+            resolvedUrl.hashCode().toUInt().toString(16)
+        }
+        return File(dir, "tg_cover_$safeKey.jpg")
+    }
+
+    private fun decodeDownsampledCoverBytes(bytes: ByteArray, maxDim: Int = 320): Bitmap? {
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+            var sampleSize = 1
+            while (bounds.outWidth / (sampleSize * 2) >= maxDim && bounds.outHeight / (sampleSize * 2) >= maxDim) {
+                sampleSize *= 2
+            }
+            val opts = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.RGB_565
+            }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun decodeDownsampledCoverFile(file: File, maxDim: Int = 320): Bitmap? {
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+            var sampleSize = 1
+            while (bounds.outWidth / (sampleSize * 2) >= maxDim && bounds.outHeight / (sampleSize * 2) >= maxDim) {
+                sampleSize *= 2
+            }
+            val opts = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.RGB_565
+            }
+            BitmapFactory.decodeFile(file.absolutePath, opts)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     /**
-     * بارگذاری فوری کاتالوگ ذخیره‌شده در حافظه خصوصی داخلی گوشی (برای باز شدن آنی در دفعات بعدی)
+     * بارگذاری کاتالوگ ذخیره‌شده در حافظه خصوصی داخلی گوشی
      */
     fun loadCachedWorkerCatalog(): WorkerTracksResponse? {
+        memoryCachedResponse?.let { return it }
         return try {
             val appCtx = AuraApplication.instance.applicationContext
             val file = File(appCtx.filesDir, PRIVATE_CATALOG_CACHE_FILE)
             if (file.exists() && file.length() > 64L) {
                 val jsonText = file.readText()
-                parseWorkerTracksJson(jsonText)
+                val parsed = parseWorkerTracksJson(jsonText)
+                if (parsed.tracks.isNotEmpty()) {
+                    memoryCachedResponse = parsed
+                }
+                parsed
             } else {
                 null
             }
@@ -754,24 +1032,6 @@ object OnlineMusicRepository {
         } catch (_: Exception) {}
     }
 
-    private fun prefetchArtistAvatarsInBackground(artists: List<ArchiveArtistItem>) {
-        prefetchScope.launch {
-            try {
-                val appCtx = AuraApplication.instance.applicationContext
-                for (artist in artists) {
-                    val url = artist.cover.ifBlank { artist.picture }
-                    if (url.isNotBlank()) {
-                        ArtistAvatarDiskCache.loadOrDownloadArtistBitmap(
-                            context = appCtx,
-                            artistName = artist.name,
-                            remoteUrl = url
-                        )
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-    }
-
     suspend fun fetchFromWorker(
         query: String = "",
         artist: String = ""
@@ -784,8 +1044,8 @@ object OnlineMusicRepository {
             connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
                 requestMethod = "GET"
-                connectTimeout = 15000
-                readTimeout = 15000
+                connectTimeout = 12000
+                readTimeout = 12000
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("User-Agent", "Mozilla/5.0")
             }
@@ -796,8 +1056,9 @@ object OnlineMusicRepository {
                     saveWorkerCatalogToPrivateDisk(body)
                 }
                 val parsed = parseWorkerTracksJson(body)
-                if (parsed.artists.isNotEmpty()) {
-                    prefetchArtistAvatarsInBackground(parsed.artists)
+                if (query.isBlank() && artist.isBlank() && parsed.tracks.isNotEmpty()) {
+                    memoryCachedResponse = parsed
+                    memoryCachedAppTracks = parsed.tracks.map { it.toAppTrack() }
                 }
                 return@withContext parsed
             }
@@ -826,7 +1087,6 @@ object OnlineMusicRepository {
                         .ifBlank { obj.optString("picture", "") }
                         .ifBlank { obj.optString("cover_url", "") }
                         .ifBlank { obj.optString("picture_url", "") }
-                    val cover = normalizeWorkerImageUrl(rawCover)
 
                     val isCollab = SmartArtistParser.isCollaborationString(rawName)
                     val individualNames = SmartArtistParser.extractArtistsFromTrack(rawName)
@@ -834,6 +1094,7 @@ object OnlineMusicRepository {
                     if (!isCollab && individualNames.size == 1) {
                         val cleanName = individualNames.first()
                         val key = cleanName.lowercase()
+                        val cover = ArtistAvatarDiskCache.resolveCloudflareArtistUrl(cleanName, rawCover)
                         if (cover.isNotBlank()) {
                             registerArtistPicture(cleanName, cover, overwrite = true)
                         }
@@ -845,13 +1106,11 @@ object OnlineMusicRepository {
                             picture = cover.ifBlank { existing?.picture.orEmpty() }
                         )
                     } else {
-                        // اگر سرور نام فیت مثل "Future feat. X" فرستاده بود، آن را به پروفایل خواننده‌های اصلی اضافه کن
-                        // اما کاور ترک فیت را به عنوان عکس پروفایل خواننده ثبت نکن تا عکس شخص دیگری روی پروفایل نیفتد
                         individualNames.forEach { singleName ->
                             val key = singleName.lowercase()
                             val existing = mergedArtistsMap[key]
                             val bestCover = existing?.cover?.takeIf { it.isNotBlank() }
-                                ?: getArtistPicture(singleName).orEmpty()
+                                ?: ArtistAvatarDiskCache.resolveCloudflareArtistUrl(singleName, "")
                             mergedArtistsMap[key] = ArchiveArtistItem(
                                 name = existing?.name ?: singleName,
                                 trackCount = (existing?.trackCount ?: 0) + trackCount,
@@ -883,9 +1142,7 @@ object OnlineMusicRepository {
                                     .ifBlank { item.optString("cover_url", "") }
                                     .ifBlank { item.optString("picture_url", "") }
                                 val primaryName = SmartArtistParser.extractPrimaryArtist(rawName)
-                                val cover = normalizeWorkerImageUrl(rawCover).ifBlank {
-                                    getArtistPicture(primaryName) ?: ""
-                                }
+                                val cover = ArtistAvatarDiskCache.resolveCloudflareArtistUrl(primaryName, rawCover)
                                 if (cover.isNotBlank()) {
                                     registerArtistPicture(primaryName, cover, overwrite = !SmartArtistParser.isCollaborationString(rawName))
                                 }
@@ -903,7 +1160,7 @@ object OnlineMusicRepository {
                             val primaryName = SmartArtistParser.extractPrimaryArtist(item)
                             if (primaryName.isNotBlank()) {
                                 val fromAll = artistsList.firstOrNull { it.name.equals(primaryName, ignoreCase = true) }
-                                val pic = getArtistPicture(primaryName) ?: ""
+                                val pic = ArtistAvatarDiskCache.resolveCloudflareArtistUrl(primaryName, "")
                                 matchedList.add(
                                     fromAll ?: ArchiveArtistItem(
                                         name = primaryName,
@@ -946,9 +1203,16 @@ object OnlineMusicRepository {
 
                     val streamUrl = resolveWorkerUrl(rawStream)
                     val downloadUrl = resolveWorkerUrl(rawDownload)
-                    val coverUrl = normalizeWorkerImageUrl(rawCover).ifBlank {
-                        getArtistPicture(SmartArtistParser.extractPrimaryArtist(artistName, title)) ?: ""
+                    // کاور آهنگ همیشه از تلگرام از طریق سرور کلادفلر (/cover?id=...) دریافت می‌شود
+                    val encodedId = try { URLEncoder.encode(id, "UTF-8") } catch (_: Exception) { id }
+                    val coverUrl = normalizeWorkerImageUrl(rawCover).let { candidate ->
+                        if (candidate.isBlank() || candidate.contains("dzcdn.net") || candidate.contains("deezer.com") || candidate.contains("/artist-cover")) {
+                            "$BASE_URL/cover?id=$encodedId"
+                        } else {
+                            candidate
+                        }
                     }
+                    val primaryArtist = SmartArtistParser.extractPrimaryArtist(artistName, title)
 
                     registerTrackUrls(
                         trackId = id,
@@ -968,13 +1232,13 @@ object OnlineMusicRepository {
                             id = id,
                             title = title,
                             artist = artistName,
-                            album = obj.optString("album", "Telegram Archive"),
+                            album = obj.optString("album", "Single"),
                             coverUrl = coverUrl,
                             durationSec = durationSec,
                             streamUrl = streamUrl,
                             downloadUrl = downloadUrl,
                             previewUrl = streamUrl,
-                            artistPictureUrl = getArtistPicture(SmartArtistParser.extractPrimaryArtist(artistName, title)) ?: coverUrl,
+                            artistPictureUrl = ArtistAvatarDiskCache.resolveCloudflareArtistUrl(primaryArtist, ""),
                             rawGenre = rawGenre
                         )
                     )
@@ -1062,6 +1326,11 @@ object OnlineMusicRepository {
         imageMemoryCache.get(resolvedUrl)?.let { return it }
         imageMemoryCache.get(url)?.let { return it }
 
+        if (failedCoverUrls.contains(resolvedUrl)) {
+            return null
+        }
+
+        // ۱. بررسی فایل محلی (پخش آفلاین یا فایل دانلودشده)
         if (resolvedUrl.startsWith("/") || resolvedUrl.startsWith("file://")) {
             val filePath = if (resolvedUrl.startsWith("file://")) {
                 Uri.parse(resolvedUrl).path ?: resolvedUrl.removePrefix("file://")
@@ -1080,10 +1349,10 @@ object OnlineMusicRepository {
                             try { mmr.release() } catch (_: Exception) {}
                         }
                         if (bytes != null && bytes.isNotEmpty()) {
-                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            decodeDownsampledCoverBytes(bytes)
                         } else null
                     } else {
-                        BitmapFactory.decodeFile(file.absolutePath)
+                        decodeDownsampledCoverFile(file)
                     }
                 } catch (_: Exception) {
                     null
@@ -1097,30 +1366,74 @@ object OnlineMusicRepository {
             return null
         }
 
-        var connection: HttpURLConnection? = null
-        val bitmap = try {
-            connection = (URL(resolvedUrl).openConnection() as HttpURLConnection).apply {
-                instanceFollowRedirects = true
-                connectTimeout = 12000
-                readTimeout = 12000
-                doInput = true
-                setRequestProperty("User-Agent", "Mozilla/5.0")
+        // ۲. بررسی کش خصوصی دائمی کاورهای تلگرام در حافظه داخلی برنامه (filesDir/track_covers_private_cache)
+        val diskCoverFile = getPrivateTrackCoverFile(resolvedUrl)
+        if (diskCoverFile != null && diskCoverFile.exists() && diskCoverFile.length() > 512L) {
+            val diskBmp = decodeDownsampledCoverFile(diskCoverFile)
+            if (diskBmp != null) {
+                imageMemoryCache.put(resolvedUrl, diskBmp)
+                imageMemoryCache.put(url, diskBmp)
+                return diskBmp
             }
-            connection.connect()
-            if (connection.responseCode in 200..299) {
-                connection.inputStream.use { BitmapFactory.decodeStream(it) }
-            } else null
-        } catch (_: Exception) {
-            null
-        } finally {
-            connection?.disconnect()
         }
 
-        if (bitmap != null) {
-            imageMemoryCache.put(resolvedUrl, bitmap)
-            imageMemoryCache.put(url, bitmap)
+        // ۳. دانلود از سرور کلادفلر (بدون نیاز به فیلترشکن) و ذخیره دائمی در حافظه خصوصی داخلی
+        val lock = coverDownloadLocks.getOrPut(resolvedUrl) { Any() }
+        synchronized(lock) {
+            imageMemoryCache.get(resolvedUrl)?.let { return it }
+            if (diskCoverFile != null && diskCoverFile.exists() && diskCoverFile.length() > 512L) {
+                decodeDownsampledCoverFile(diskCoverFile)?.let { bmp ->
+                    imageMemoryCache.put(resolvedUrl, bmp)
+                    imageMemoryCache.put(url, bmp)
+                    return bmp
+                }
+            }
+
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL(resolvedUrl).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = true
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    doInput = true
+                    setRequestProperty("User-Agent", "Mozilla/5.0")
+                }
+                connection.connect()
+                val code = connection.responseCode
+                if (code in 200..299) {
+                    val bytes = connection.inputStream.use { it.readBytes() }
+                    if (bytes.size > 512) {
+                        val bitmap = decodeDownsampledCoverBytes(bytes)
+                        if (bitmap != null) {
+                            imageMemoryCache.put(resolvedUrl, bitmap)
+                            imageMemoryCache.put(url, bitmap)
+                            if (diskCoverFile != null) {
+                                try {
+                                    val tmp = File(diskCoverFile.parentFile, "${diskCoverFile.name}.tmp")
+                                    FileOutputStream(tmp).use { out ->
+                                        bitmap.compress(Bitmap.CompressFormat.JPEG, 88, out)
+                                    }
+                                    if (tmp.exists() && tmp.length() > 512L) {
+                                        if (diskCoverFile.exists()) diskCoverFile.delete()
+                                        tmp.renameTo(diskCoverFile)
+                                    } else {
+                                        tmp.delete()
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                            return bitmap
+                        }
+                    }
+                } else if (code in 400..499) {
+                    failedCoverUrls.add(resolvedUrl)
+                }
+            } catch (_: Throwable) {
+            } finally {
+                try { connection?.disconnect() } catch (_: Exception) {}
+            }
         }
-        return bitmap
+
+        return null
     }
 }
 
@@ -1607,147 +1920,28 @@ fun OnlineMusicScreen(
         }
     }
 
-    // ۱. گروه‌بندی هوشمند آلبوم‌ها بر اساس خواننده اصلی (بدون تداخل فیت‌ها)
-    val albums = remember(onlineTracks, isPersian) {
-        onlineTracks
-            .groupBy { track ->
-                val primaryArtist = SmartArtistParser.extractPrimaryArtist(track.artist, track.title).ifBlank {
-                    if (isPersian) "هنرمند ناشناس" else "Unknown Artist"
-                }
-                val cleanAlbum = track.album.trim().let {
-                    if (it.isBlank() || it.equals("unknown", true) || it.equals("Telegram", true) || it.equals("Telegram Archive", true)) {
-                        if (isPersian) "مجموعه آثار $primaryArtist" else "$primaryArtist Collection"
-                    } else it
-                }
-                "${primaryArtist.lowercase()}__${cleanAlbum.lowercase()}"
-            }
-            .map { (key, list) ->
-                val first = list.first()
-                val primaryArtist = SmartArtistParser.extractPrimaryArtist(first.artist, first.title).ifBlank {
-                    if (isPersian) "هنرمند ناشناس" else "Unknown Artist"
-                }
-                val cleanTitle = first.album.trim().let {
-                    if (it.isBlank() || it.equals("unknown", true) || it.equals("Telegram", true) || it.equals("Telegram Archive", true)) {
-                        if (isPersian) "مجموعه آثار $primaryArtist" else "$primaryArtist Collection"
-                    } else it
-                }
-                CloudAlbumCollection(
-                    id = key,
-                    title = cleanTitle,
-                    artist = primaryArtist,
-                    coverUri = list.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri,
-                    tracks = list
-                )
-            }
-            .sortedByDescending { it.tracks.size }
+    // محاسبه غیرمسدودکننده (Non-blocking) هنرمندان، آلبوم‌ها و دسته‌بندی‌ها در پس‌زمینه + کش حافظه
+    var hubData by remember(onlineTracks, isPersian) {
+        mutableStateOf(
+            OnlineMusicRepository.getMemoryCachedHubData(onlineTracks, isPersian)
+                ?: HubComputedData()
+        )
     }
 
-    // ۲. استخراج هوشمند پروفایل یکتای هر هنرمند:
-    // آهنگ‌های فیت (مثلاً "Future feat. Drake") هرگز به عنوان خواننده جدید ساخته نمی‌شوند،
-    // بلکه هم در پروفایل Future و هم در پروفایل Drake قرار می‌گیرند.
-    val artists = remember(onlineTracks, albums, isPersian) {
-        val workerArtistsMap = OnlineMusicRepository.getKnownArtists()
-            .associateBy { it.name.trim().lowercase() }
-
-        val canonicalDisplayNames = LinkedHashMap<String, String>()
-        val artistAllTracks = LinkedHashMap<String, MutableList<Track>>()
-        val artistSoloTracks = LinkedHashMap<String, MutableList<Track>>()
-        val artistFeatTracks = LinkedHashMap<String, MutableList<Track>>()
-
-        // ابتدا نام‌های استاندارد هنرمندان از سرور کلادفلر را ثبت کن
-        workerArtistsMap.values.forEach { item ->
-            val clean = SmartArtistParser.cleanSingleArtistName(item.name)
-            if (clean.isNotBlank() && !SmartArtistParser.isCollaborationString(clean)) {
-                canonicalDisplayNames[clean.lowercase()] = clean
-            }
-        }
-
-        for (track in onlineTracks) {
-            val participants = SmartArtistParser.extractArtistsFromTrack(track.artist, track.title)
-                .ifEmpty {
-                    listOf(if (isPersian) "هنرمند ناشناس" else "Unknown Artist")
-                }
-            val isCollabTrack = participants.size > 1 || SmartArtistParser.isCollaborationString(track.artist)
-
-            participants.forEachIndexed { idx, participantName ->
-                val key = participantName.lowercase().trim()
-                if (key.isBlank()) return@forEachIndexed
-
-                if (!canonicalDisplayNames.containsKey(key)) {
-                    canonicalDisplayNames[key] = participantName
-                }
-
-                val allList = artistAllTracks.getOrPut(key) { mutableListOf() }
-                if (allList.none { it.id == track.id }) {
-                    allList.add(track)
-                }
-
-                if (!isCollabTrack && idx == 0) {
-                    val soloList = artistSoloTracks.getOrPut(key) { mutableListOf() }
-                    if (soloList.none { it.id == track.id }) {
-                        soloList.add(track)
-                    }
-                } else {
-                    val featList = artistFeatTracks.getOrPut(key) { mutableListOf() }
-                    if (featList.none { it.id == track.id }) {
-                        featList.add(track)
-                    }
-                }
-            }
-        }
-
-        artistAllTracks.entries
-            .map { (key, allTrackList) ->
-                val displayName = canonicalDisplayNames[key] ?: key
-                val workerItem = workerArtistsMap[key]
-                val resolvedCover = workerItem?.cover?.ifBlank { workerItem.picture }
-                    ?.ifBlank { OnlineMusicRepository.getArtistPicture(displayName).orEmpty() }
-                    ?: OnlineMusicRepository.getArtistPicture(displayName).orEmpty()
-
-                val soloList = artistSoloTracks[key].orEmpty()
-                val featList = artistFeatTracks[key].orEmpty()
-
-                CloudArtistProfile(
-                    name = displayName,
-                    tracks = allTrackList,
-                    soloTracks = soloList.ifEmpty { allTrackList },
-                    featuredTracks = featList,
-                    albums = albums.filter { it.artist.equals(displayName, ignoreCase = true) },
-                    cover = resolvedCover,
-                    picture = resolvedCover
-                )
-            }
-            .sortedWith(
-                compareByDescending<CloudArtistProfile> { it.soloTracks.size }
-                    .thenByDescending { it.tracks.size }
-            )
-    }
-
-    // پیش‌ذخیره تصاویر هنرمندان در کش خصوصی داخلی برنامه (بدون دیده‌شدن در گالری)
-    LaunchedEffect(artists) {
-        withContext(Dispatchers.IO) {
-            artists.take(30).forEach { artist ->
-                val imgUrl = artist.cover.ifBlank { artist.picture }
-                if (imgUrl.isNotBlank()) {
-                    ArtistAvatarDiskCache.loadOrDownloadArtistBitmap(
-                        context = context,
-                        artistName = artist.name,
-                        remoteUrl = imgUrl
-                    )
-                }
-            }
+    LaunchedEffect(onlineTracks, isPersian) {
+        if (onlineTracks.isNotEmpty() && hubData.artists.isEmpty()) {
+            hubData = OnlineMusicRepository.computeHubDataAsync(onlineTracks, isPersian)
         }
     }
 
-    // ۳. پیشنهاد سریع ۳ ردیفه افقی
+    val albums = hubData.albums
+    val artists = hubData.artists
+    val browseCategories = hubData.browseCategories
+
     val quickPicks = remember(onlineTracks, quickPicksSeed) {
         if (onlineTracks.isEmpty()) emptyList()
+        else if (quickPicksSeed == 0) onlineTracks.take(15)
         else onlineTracks.shuffled().take(15)
-    }
-
-    // ۴. ساخت دسته‌بندی‌های ۱۰۰٪ واقعی
-    val browseCategories = remember(onlineTracks) {
-        RealCategoryClassifier.buildRealCategories(onlineTracks)
     }
 
     Box(
@@ -2040,17 +2234,27 @@ fun OnlineMusicScreen(
     onDownloadToDeviceLibrary: ((track: Track) -> Unit)? = null
 ) {
     var fetchedOnlineTracks by remember {
-        val cached = OnlineMusicRepository.loadCachedWorkerCatalog()
-        mutableStateOf(cached?.tracks?.map { it.toAppTrack() }.orEmpty())
+        mutableStateOf(OnlineMusicRepository.getMemoryCachedAppTracks())
     }
     var isLoading by remember { mutableStateOf(fetchedOnlineTracks.isEmpty()) }
     var refreshKey by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(refreshKey) {
-        if (fetchedOnlineTracks.isEmpty()) isLoading = true
+        if (fetchedOnlineTracks.isEmpty()) {
+            isLoading = true
+            val diskTracks = OnlineMusicRepository.loadCachedAppTracksAsync()
+            if (diskTracks.isNotEmpty()) {
+                fetchedOnlineTracks = diskTracks
+                isLoading = false
+            }
+        }
         val resp = OnlineMusicRepository.fetchFromWorker()
         if (resp.tracks.isNotEmpty()) {
-            fetchedOnlineTracks = resp.tracks.map { it.toAppTrack() }
+            val mapped = withContext(Dispatchers.Default) {
+                resp.tracks.map { it.toAppTrack() }
+            }
+            OnlineMusicRepository.setMemoryCachedAppTracks(mapped)
+            fetchedOnlineTracks = mapped
         }
         isLoading = false
     }
@@ -2387,27 +2591,13 @@ private fun QuickPicksThreeRowGrid(
                             .padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(52.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                        ) {
-                            if (!track.artworkUri.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = track.artworkUri,
-                                    contentDescription = track.title,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                SpotifyArtistAvatar(
-                                    artistName = SmartArtistParser.extractPrimaryArtist(track.artist, track.title),
-                                    size = 52.dp,
-                                    shape = RoundedCornerShape(12.dp),
-                                    showVerifiedBadge = false
-                                )
-                            }
-                        }
+                        CloudTrackCoverBox(
+                            artworkUri = track.artworkUri,
+                            trackId = track.id,
+                            fallbackName = SmartArtistParser.extractPrimaryArtist(track.artist, track.title),
+                            size = 52.dp,
+                            shape = RoundedCornerShape(12.dp)
+                        )
 
                         Spacer(modifier = Modifier.width(12.dp))
 
@@ -2589,21 +2779,13 @@ private fun SpotifyAlbumCardItem(
                 .size(134.dp)
                 .clip(RoundedCornerShape(14.dp))
         ) {
-            if (!album.coverUri.isNullOrBlank()) {
-                AsyncImage(
-                    model = album.coverUri,
-                    contentDescription = album.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                SpotifyArtistAvatar(
-                    artistName = album.title,
-                    size = 134.dp,
-                    shape = RoundedCornerShape(14.dp),
-                    showVerifiedBadge = false
-                )
-            }
+            CloudTrackCoverBox(
+                artworkUri = album.coverUri,
+                trackId = album.tracks.firstOrNull()?.id,
+                fallbackName = album.artist.ifBlank { album.title },
+                size = 134.dp,
+                shape = RoundedCornerShape(14.dp)
+            )
 
             Surface(
                 color = Color.Black.copy(alpha = 0.75f),
@@ -2952,27 +3134,13 @@ private fun SpotifyFullAlbumScreen(
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
                     }
                 }
-                Box(
-                    modifier = Modifier
-                        .size(170.dp)
-                        .clip(RoundedCornerShape(18.dp))
-                ) {
-                    if (!album.coverUri.isNullOrBlank()) {
-                        AsyncImage(
-                            model = album.coverUri,
-                            contentDescription = album.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        SpotifyArtistAvatar(
-                            artistName = album.title,
-                            size = 170.dp,
-                            shape = RoundedCornerShape(18.dp),
-                            showVerifiedBadge = false
-                        )
-                    }
-                }
+                CloudTrackCoverBox(
+                    artworkUri = album.coverUri,
+                    trackId = album.tracks.firstOrNull()?.id,
+                    fallbackName = album.artist.ifBlank { album.title },
+                    size = 170.dp,
+                    shape = RoundedCornerShape(18.dp)
+                )
                 Spacer(modifier = Modifier.height(14.dp))
                 Text(
                     text = album.title,
@@ -3205,27 +3373,13 @@ private fun SpotifyTrackRowItem(
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(10.dp))
-        ) {
-            if (!track.artworkUri.isNullOrBlank()) {
-                AsyncImage(
-                    model = track.artworkUri,
-                    contentDescription = track.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                SpotifyArtistAvatar(
-                    artistName = SmartArtistParser.extractPrimaryArtist(track.artist, track.title),
-                    size = 48.dp,
-                    shape = RoundedCornerShape(10.dp),
-                    showVerifiedBadge = false
-                )
-            }
-        }
+        CloudTrackCoverBox(
+            artworkUri = track.artworkUri,
+            trackId = track.id,
+            fallbackName = SmartArtistParser.extractPrimaryArtist(track.artist, track.title),
+            size = 48.dp,
+            shape = RoundedCornerShape(10.dp)
+        )
 
         Spacer(modifier = Modifier.width(12.dp))
 
@@ -3308,6 +3462,68 @@ private fun HubSectionHeader(
                     fontWeight = FontWeight.ExtraBold
                 )
             }
+        }
+    }
+}
+
+/**
+ * نمایش کاور آهنگ تلگرام با کش دائمی در حافظه خصوصی داخلی گوشی (بدون نیاز به فیلترشکن و بدون دانلود تکراری)
+ */
+@Composable
+private fun CloudTrackCoverBox(
+    artworkUri: String?,
+    trackId: String?,
+    fallbackName: String,
+    size: Dp,
+    shape: Shape
+) {
+    val resolvedUrl = remember(artworkUri, trackId) {
+        val raw = artworkUri?.trim().orEmpty()
+        if (raw.isNotBlank() && !raw.contains("dzcdn.net") && !raw.contains("deezer.com") && !raw.contains("/artist-cover")) {
+            OnlineMusicRepository.normalizeWorkerImageUrl(raw)
+        } else if (!trackId.isNullOrBlank()) {
+            OnlineMusicRepository.getCoverUrlForTrack(trackId)
+        } else {
+            ""
+        }
+    }
+
+    var cachedBitmap by remember(resolvedUrl) {
+        mutableStateOf(
+            if (resolvedUrl.isNotBlank()) OnlineMusicRepository.getCachedCoverBitmap(resolvedUrl) else null
+        )
+    }
+
+    LaunchedEffect(resolvedUrl) {
+        if (cachedBitmap == null && resolvedUrl.isNotBlank()) {
+            cachedBitmap = OnlineMusicRepository.loadCoverBitmap(resolvedUrl)
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(shape)
+            .background(Color(0xFF121622)),
+        contentAlignment = Alignment.Center
+    ) {
+        val bmp = cachedBitmap
+        if (bmp != null) {
+            Image(
+                bitmap = bmp.asImageBitmap(),
+                contentDescription = fallbackName,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(shape)
+            )
+        } else {
+            SpotifyArtistAvatar(
+                artistName = fallbackName,
+                size = size,
+                shape = shape,
+                showVerifiedBadge = false
+            )
         }
     }
 }

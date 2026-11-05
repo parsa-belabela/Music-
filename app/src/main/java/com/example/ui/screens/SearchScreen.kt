@@ -14,10 +14,12 @@ import com.example.data.model.AppSettings
 import com.example.data.model.PlaybackState
 import com.example.data.model.Playlist
 import com.example.data.model.Track
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
- * تب سرچ و کاوش اصلی که با زبان برنامه هماهنگ است (پیش‌فرض انگلیسی و تغییر خودکار به فارسی)
- * و از کش خصوصی داخلی برای بارگذاری فوری پروفایل‌ها و عکس‌های هنرمندان استفاده می‌کند.
+ * تب سرچ و کاوش اصلی که بدون هیچ‌گونه مکث یا فریز روی ترد اصلی (Main Thread) باز می‌شود
+ * و از کش خصوصی داخلی برای بارگذاری فوری کاتالوگ، کاورهای تلگرام و عکس‌های هنرمندان استفاده می‌کند.
  */
 @Composable
 fun SearchScreen(
@@ -41,10 +43,9 @@ fun SearchScreen(
     bottomPadding: Dp = 120.dp,
     modifier: Modifier = Modifier
 ) {
-    // بارگذاری آنی کاتالوگ ذخیره‌شده در حافظه خصوصی داخلی گوشی برای باز شدن فوری در مراجعات بعدی
+    // خواندن فوری از حافظه رم (۰ میلی‌ثانیه روی ترد اصلی، بدون هیچ‌گونه I/O یا پارس JSON در زمان کلیک روی تب سرچ)
     var onlineTracks by remember {
-        val cached = OnlineMusicRepository.loadCachedWorkerCatalog()
-        mutableStateOf(cached?.tracks?.map { it.toAppTrack() }.orEmpty())
+        mutableStateOf(OnlineMusicRepository.getMemoryCachedAppTracks())
     }
     var isLoadingOnline by remember { mutableStateOf(onlineTracks.isEmpty()) }
     var refreshTrigger by remember { mutableIntStateOf(0) }
@@ -52,11 +53,22 @@ fun SearchScreen(
     LaunchedEffect(refreshTrigger) {
         if (onlineTracks.isEmpty()) {
             isLoadingOnline = true
+            // ۱. بارگذاری کش دیسک روی ترد پس‌زمینه (IO) بدون قفل کردن رابط کاربری
+            val diskTracks = OnlineMusicRepository.loadCachedAppTracksAsync()
+            if (diskTracks.isNotEmpty()) {
+                onlineTracks = diskTracks
+                isLoadingOnline = false
+            }
         }
         try {
+            // ۲. دریافت آخرین وضعیت از سرور کلادفلر در پس‌زمینه
             val response = OnlineMusicRepository.fetchFromWorker()
             if (response.tracks.isNotEmpty()) {
-                onlineTracks = response.tracks.map { it.toAppTrack() }
+                val mapped = withContext(Dispatchers.Default) {
+                    response.tracks.map { it.toAppTrack() }
+                }
+                OnlineMusicRepository.setMemoryCachedAppTracks(mapped)
+                onlineTracks = mapped
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -65,12 +77,20 @@ fun SearchScreen(
         }
     }
 
-    val unifiedTracks = remember(tracks, onlineTracks) {
-        if (onlineTracks.isEmpty()) {
+    var unifiedTracks by remember {
+        mutableStateOf(if (onlineTracks.isNotEmpty()) onlineTracks else tracks)
+    }
+
+    LaunchedEffect(tracks, onlineTracks) {
+        unifiedTracks = if (onlineTracks.isEmpty()) {
             tracks
+        } else if (tracks.isEmpty()) {
+            onlineTracks
         } else {
-            (onlineTracks + tracks).distinctBy {
-                "${it.title.trim().lowercase()}__${it.artist.trim().lowercase()}"
+            withContext(Dispatchers.Default) {
+                (onlineTracks + tracks).distinctBy {
+                    "${it.title.trim().lowercase()}__${it.artist.trim().lowercase()}"
+                }
             }
         }
     }
@@ -102,7 +122,9 @@ fun SearchScreen(
     onRefreshOnline: () -> Unit = {}
 ) {
     val unifiedTracks = remember(localTracks, onlineTracks) {
-        (onlineTracks + localTracks).distinctBy { "${it.title.trim()}_${it.artist.trim()}" }
+        if (onlineTracks.isEmpty()) localTracks
+        else if (localTracks.isEmpty()) onlineTracks
+        else (onlineTracks + localTracks).distinctBy { "${it.title.trim()}_${it.artist.trim()}" }
     }
 
     OnlineMusicScreen(
