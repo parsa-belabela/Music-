@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.OnlineCacheHolder
+import com.example.OnlineMusicRepository
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
 import com.example.audio.ConnectedAudioDevice
@@ -599,7 +601,28 @@ fun NowPlayingScreen(
                                 },
                             contentAlignment = Alignment.Center
                         ) {
-                            if (!track.artworkUri.isNullOrEmpty()) {
+                            var loadedCoverBitmap by remember(track.id, track.artworkUri) {
+                                mutableStateOf(OnlineMusicRepository.getCachedCoverBitmap(track.artworkUri ?: track.id))
+                            }
+                            LaunchedEffect(track.id, track.artworkUri) {
+                                if (loadedCoverBitmap == null) {
+                                    val url = track.artworkUri?.takeIf { it.isNotBlank() }
+                                        ?: OnlineMusicRepository.getCoverUrlForTrack(track.id, track.artist)
+                                    if (!url.isNullOrBlank()) {
+                                        loadedCoverBitmap = OnlineMusicRepository.loadCoverBitmap(url)
+                                    }
+                                }
+                            }
+
+                            val bmp = loadedCoverBitmap
+                            if (bmp != null) {
+                                Image(
+                                    bitmap = bmp.asImageBitmap(),
+                                    contentDescription = track.title,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else if (!track.artworkUri.isNullOrEmpty()) {
                                 AsyncImage(
                                     model = track.artworkUri,
                                     contentDescription = track.title,
@@ -817,7 +840,13 @@ fun NowPlayingScreen(
                     }
                 }
 
-                val dur = if (track.durationMs > 0) track.durationMs else 1L
+                val dur = if (playbackState.durationMs > 1000L) {
+                    playbackState.durationMs
+                } else if (track.durationMs > 0) {
+                    track.durationMs
+                } else {
+                    1L
+                }
                 LiquidGlassProgressBar(
                     currentPositionProvider = currentPositionProvider,
                     durationMs = dur,

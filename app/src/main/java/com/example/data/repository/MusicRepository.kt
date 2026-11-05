@@ -349,7 +349,8 @@ class MusicRepository(
         val merged = if (existing != null) {
             existing.copy(
                 uri = track.uri,
-                artworkUri = track.artworkUri ?: existing.artworkUri,
+                durationMs = if (track.durationMs > 1000L) track.durationMs else existing.durationMs,
+                artworkUri = track.artworkUri?.takeIf { it.isNotBlank() } ?: existing.artworkUri,
                 dateAdded = System.currentTimeMillis()
             )
         } else {

@@ -31,7 +31,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import com.example.OnlineMusicRepository
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
 import com.example.audio.ConnectedAudioDevice
@@ -158,6 +163,18 @@ fun MiniPlayer(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 // Compact album artwork thumbnail
+                                var loadedCoverBitmap by remember(currentTrack.id, currentTrack.artworkUri) {
+                                    mutableStateOf(OnlineMusicRepository.getCachedCoverBitmap(currentTrack.artworkUri ?: currentTrack.id))
+                                }
+                                LaunchedEffect(currentTrack.id, currentTrack.artworkUri) {
+                                    if (loadedCoverBitmap == null) {
+                                        val url = currentTrack.artworkUri?.takeIf { it.isNotBlank() }
+                                            ?: OnlineMusicRepository.getCoverUrlForTrack(currentTrack.id, currentTrack.artist)
+                                        if (!url.isNullOrBlank()) {
+                                            loadedCoverBitmap = OnlineMusicRepository.loadCoverBitmap(url)
+                                        }
+                                    }
+                                }
                                 Box(
                                     modifier = Modifier
                                         .size(42.dp)
@@ -166,10 +183,19 @@ fun MiniPlayer(
                                         .background(Color(0xFF141322)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    if (currentTrack.artworkUri != null) {
+                                    val bmp = loadedCoverBitmap
+                                    if (bmp != null) {
+                                        Image(
+                                            bitmap = bmp.asImageBitmap(),
+                                            contentDescription = "Track Artwork",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else if (!currentTrack.artworkUri.isNullOrEmpty()) {
                                         AsyncImage(
                                             model = currentTrack.artworkUri,
                                             contentDescription = "Track Artwork",
+                                            contentScale = ContentScale.Crop,
                                             modifier = Modifier.fillMaxSize()
                                         )
                                     } else {

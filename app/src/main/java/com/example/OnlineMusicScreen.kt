@@ -3,34 +3,31 @@ package com.example
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Environment
 import android.util.LruCache
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -38,24 +35,27 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Lyrics
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QueueMusic
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -64,20 +64,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -85,16 +85,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -105,20 +102,17 @@ import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.datasource.DataSource
-import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import coil.compose.AsyncImage
 import com.example.audio.AmbientPalette
+import com.example.audio.AuraDspController
 import com.example.data.model.AppLanguage
 import com.example.data.model.Track
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
-import com.example.audio.AuraDspController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -137,41 +131,89 @@ import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+
+private const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev"
+
+/**
+ * مدل خواننده دریافتی از سرور کلادفلر (آرشیو تلگرام)
+ */
+data class ArchiveArtistItem(
+    val name: String,
+    val trackCount: Int = 0,
+    val cover: String = ""
+)
+
+/**
+ * پاسخ کامل اندپوینت `$WORKER_URL/tracks?q=...&artist=...`
+ */
+data class WorkerTracksResponse(
+    val artists: List<ArchiveArtistItem> = emptyList(),
+    val matchedArtists: List<ArchiveArtistItem> = emptyList(),
+    val tracks: List<OnlineTrack> = emptyList()
+)
 
 data class OnlineTrack(
     val id: String,
     val title: String,
     val artist: String,
-    val album: String,
-    val coverUrl: String,
-    val durationSec: Int,
+    val album: String = "Single",
+    val coverUrl: String = "",
+    val durationSec: Int = 180,
+    val streamUrl: String = "",
+    val downloadUrl: String = "",
     val previewUrl: String = "",
     val artistId: String = "",
     val artistPictureUrl: String = "",
     val rank: Int = 500_000
 ) {
-    val ratingScoreText: String
-        get() {
-            val normalized = (8.2f + (rank.coerceIn(100_000, 999_999) - 100_000) / 520_000f).coerceIn(8.2f, 9.9f)
-            return "%.1f".format(java.util.Locale.US, normalized)
-        }
+    val artist_name: String get() = artist
+    val duration: Int get() = durationSec
+    val stream_url: String get() = streamUrl
+    val download_url: String get() = downloadUrl
+    val cover_url: String get() = coverUrl
 
-    fun toAppTrack(streamUrl: String): Track {
-        if (previewUrl.isNotBlank()) {
-            OnlineMusicRepository.registerPreviewUrl(id, previewUrl)
+    fun resolvedStreamUrl(): String {
+        return OnlineMusicRepository.resolveWorkerUrl(streamUrl).ifBlank {
+            OnlineMusicRepository.buildStreamUrl(this)
         }
-        if (artistPictureUrl.isNotBlank()) {
-            OnlineMusicRepository.registerArtistPicture(artist, artistPictureUrl)
+    }
+
+    fun resolvedDownloadUrl(): String {
+        return OnlineMusicRepository.resolveWorkerUrl(downloadUrl).ifBlank {
+            OnlineMusicRepository.resolveWorkerUrl(streamUrl).ifBlank {
+                OnlineMusicRepository.buildDownloadUrl(id, artist, title)
+            }
         }
+    }
+
+    fun resolvedCoverUrl(): String {
+        return OnlineMusicRepository.normalizeWorkerImageUrl(coverUrl).ifBlank {
+            OnlineMusicRepository.getCoverUrlForTrack(id, artist)
+        }
+    }
+
+    fun toAppTrack(customStreamUrl: String = ""): Track {
+        val httpStream = resolvedStreamUrl()
+        val finalStream = customStreamUrl.ifBlank { httpStream }
+        val finalDownload = resolvedDownloadUrl()
+        val finalCover = resolvedCoverUrl()
+        OnlineMusicRepository.registerTrackUrls(
+            trackId = id,
+            streamUrl = httpStream,
+            downloadUrl = finalDownload,
+            coverUrl = finalCover,
+            artistName = artist
+        )
         return Track(
-            id = "online_$id",
+            id = if (id.startsWith("online_")) id else "online_$id",
             title = title,
             artist = artist,
             album = album.ifBlank { "Single" },
-            durationMs = (durationSec.coerceAtLeast(30) * 1000L),
-            uri = streamUrl,
-            artworkUri = coverUrl,
+            durationMs = (durationSec.coerceAtLeast(1) * 1000L),
+            uri = finalStream,
+            artworkUri = finalCover.ifBlank { null },
             bitrate = 320,
             sampleRate = 48000,
             genre = "Online"
@@ -181,10 +223,11 @@ data class OnlineTrack(
 
 data class OnlineArtistProfile(
     val name: String,
-    val roleLabelFa: String,
-    val roleLabelEn: String,
+    val roleLabelFa: String = "آرشیو اختصاصی",
+    val roleLabelEn: String = "Featured Artist",
     val defaultQuery: String = name,
-    val pictureUrl: String = ""
+    val pictureUrl: String = "",
+    val trackCount: Int = 0
 )
 
 data class OnlineSmartPlaylist(
@@ -200,55 +243,118 @@ data class OnlineSmartPlaylist(
     val accentColor: Color = Color(0xFF1ED760)
 )
 
-private const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev"
-
+/**
+ * مخزن ارتباط مستقیم با سرور Cloudflare Worker متصل به کانال آرشیو تلگرام
+ */
 object OnlineMusicRepository {
-    // آدرس سرور اختصاصی Cloudflare Workers کاربر برای عبور از تحریم بدون فیلترشکن
     const val WORKER_URL = com.example.WORKER_URL
     val BASE_URL: String get() = WORKER_URL.trimEnd('/')
 
-    private val imageMemoryCache = object : LruCache<String, Bitmap>(80) {}
-    private val catalogCache = object : LruCache<String, List<OnlineTrack>>(50) {}
-    private val previewUrlByTrackId = ConcurrentHashMap<String, String>()
-    private val fullStreamUrlCache = ConcurrentHashMap<String, String>()
+    private val imageMemoryCache = object : LruCache<String, Bitmap>(110) {}
+    private val streamUrlByTrackId = ConcurrentHashMap<String, String>()
+    private val downloadUrlByTrackId = ConcurrentHashMap<String, String>()
+    private val coverUrlByTrackId = ConcurrentHashMap<String, String>()
     private val artistPictureCache = ConcurrentHashMap<String, String>()
+    @Volatile
+    private var lastKnownArtists: List<ArchiveArtistItem> = emptyList()
 
-    val famousGlobalArtists: List<OnlineArtistProfile> = listOf(
-        OnlineArtistProfile("Travis Scott", "رپر و تهیه‌کننده جهانی", "Global Rap Icon"),
-        OnlineArtistProfile("The Weeknd", "پاپ و آراندبی مدرن", "R&B & Pop Superstar"),
-        OnlineArtistProfile("Playboi Carti", "ترند اول نسل زد", "Gen-Z Rage Pioneer"),
-        OnlineArtistProfile("Drake", "پرافتخارترین هیت‌میکر", "Global Hitmaker"),
-        OnlineArtistProfile("Billie Eilish", "پاپ آلترناتیو", "Alt-Pop Phenomenon"),
-        OnlineArtistProfile("Kendrick Lamar", "اسطوره هیپ‌هاپ", "Hip-Hop Lyricist"),
-        OnlineArtistProfile("Future", "پادشاه ترپ آتلانتا", "Trap Royalty"),
-        OnlineArtistProfile("Eminem", "افسانه رپ جهان", "Rap God"),
-        OnlineArtistProfile("Central Cee", "ستاره دریل بریتانیا", "UK Drill Star"),
-        OnlineArtistProfile("Don Toliver", "ملودیک ترپ و شبانه", "Melodic Trap"),
-        OnlineArtistProfile("Metro Boomin", "معمار بیت‌های جهانی", "Master Producer"),
-        OnlineArtistProfile("Yeat", "وایب تیک‌تاک و ریج", "Futuristic Rage"),
-        OnlineArtistProfile("SZA", "ملکه آراندبی", "Modern R&B Queen"),
-        OnlineArtistProfile("21 Savage", "رپ خیابانی و دارک", "Multi-Platinum Rapper"),
-        OnlineArtistProfile("Lana Del Rey", "فرکانس رویایی و سینمایی", "Cinematic Dream Pop"),
-        OnlineArtistProfile("Hiphopologist", "نسل چهار رپ فارسی", "Persian Rap Star"),
-        OnlineArtistProfile("Chvrsi", "ترپ و دریل فارسی", "Persian Trap"),
-        OnlineArtistProfile("Shayea", "رپ فارسی", "Persian Hip-Hop")
-    )
+    fun resolveWorkerUrl(rawUrl: String): String {
+        val trimmed = rawUrl.trim()
+        if (trimmed.isBlank()) return ""
+        return when {
+            trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
+            trimmed.startsWith("/") -> "$BASE_URL$trimmed"
+            else -> "$BASE_URL/$trimmed"
+        }
+    }
+
+    fun normalizeWorkerImageUrl(rawUrl: String): String {
+        val trimmed = rawUrl.trim()
+        if (trimmed.isBlank()) return ""
+        return when {
+            trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
+            trimmed.startsWith("file://") || trimmed.startsWith("content://") -> trimmed
+            trimmed.startsWith("/storage/") || trimmed.startsWith("/data/") || trimmed.startsWith("/sdcard/") -> trimmed
+            trimmed.startsWith("/img?u=") -> "$BASE_URL$trimmed"
+            trimmed.startsWith("/") -> "$BASE_URL$trimmed"
+            else -> "$BASE_URL/$trimmed"
+        }
+    }
+
+    fun registerTrackUrls(
+        trackId: String,
+        streamUrl: String,
+        downloadUrl: String,
+        coverUrl: String = "",
+        artistName: String = ""
+    ) {
+        val rawId = trackId.removePrefix("online_").trim()
+        if (rawId.isBlank()) return
+        if (streamUrl.isNotBlank() && (streamUrl.startsWith("http") || streamUrl.startsWith("/"))) {
+            if (!streamUrl.startsWith("/storage/") && !streamUrl.startsWith("/data/")) {
+                val resolved = resolveWorkerUrl(streamUrl)
+                streamUrlByTrackId[rawId] = resolved
+                streamUrlByTrackId["online_$rawId"] = resolved
+            }
+        }
+        if (downloadUrl.isNotBlank() && (downloadUrl.startsWith("http") || downloadUrl.startsWith("/"))) {
+            if (!downloadUrl.startsWith("/storage/") && !downloadUrl.startsWith("/data/")) {
+                val resolvedDl = resolveWorkerUrl(downloadUrl)
+                downloadUrlByTrackId[rawId] = resolvedDl
+                downloadUrlByTrackId["online_$rawId"] = resolvedDl
+            }
+        }
+        if (coverUrl.isNotBlank()) {
+            val resolvedCover = normalizeWorkerImageUrl(coverUrl)
+            coverUrlByTrackId[rawId] = resolvedCover
+            coverUrlByTrackId["online_$rawId"] = resolvedCover
+            if (artistName.isNotBlank()) {
+                registerArtistPicture(artistName, resolvedCover)
+            }
+        }
+    }
+
+    fun registerCoverUrlForTrack(trackId: String, coverUrl: String) {
+        if (coverUrl.isBlank()) return
+        val rawId = trackId.removePrefix("online_").trim()
+        if (rawId.isBlank()) return
+        val normalized = normalizeWorkerImageUrl(coverUrl)
+        coverUrlByTrackId[rawId] = normalized
+        coverUrlByTrackId["online_$rawId"] = normalized
+    }
+
+    fun getCoverUrlForTrack(trackId: String, artistName: String = ""): String {
+        val rawId = trackId.removePrefix("online_").trim()
+        if (rawId.isNotBlank()) {
+            coverUrlByTrackId[rawId]?.takeIf { it.isNotBlank() }?.let { return it }
+            coverUrlByTrackId["online_$rawId"]?.takeIf { it.isNotBlank() }?.let { return it }
+        }
+        if (artistName.isNotBlank()) {
+            getArtistPicture(artistName)?.takeIf { it.isNotBlank() }?.let { return it }
+        }
+        return ""
+    }
 
     fun registerPreviewUrl(trackId: String, previewUrl: String) {
         if (previewUrl.isBlank()) return
         val rawId = trackId.removePrefix("online_")
-        previewUrlByTrackId[rawId] = previewUrl
-        previewUrlByTrackId["online_$rawId"] = previewUrl
+        streamUrlByTrackId[rawId] = resolveWorkerUrl(previewUrl)
+        streamUrlByTrackId["online_$rawId"] = resolveWorkerUrl(previewUrl)
     }
 
     fun getPreviewUrl(trackId: String): String? {
         val rawId = trackId.removePrefix("online_")
-        return previewUrlByTrackId[rawId] ?: previewUrlByTrackId["online_$rawId"]
+        return streamUrlByTrackId[rawId] ?: streamUrlByTrackId["online_$rawId"]
+    }
+
+    fun getDownloadUrlForTrack(trackId: String): String? {
+        val rawId = trackId.removePrefix("online_")
+        return downloadUrlByTrackId[rawId] ?: downloadUrlByTrackId["online_$rawId"]
     }
 
     fun registerArtistPicture(artistName: String, pictureUrl: String) {
         if (artistName.isBlank() || pictureUrl.isBlank()) return
-        artistPictureCache[artistName.trim().lowercase()] = pictureUrl
+        artistPictureCache[artistName.trim().lowercase()] = normalizeWorkerImageUrl(pictureUrl)
     }
 
     fun getArtistPicture(artistName: String): String? {
@@ -257,390 +363,236 @@ object OnlineMusicRepository {
 
     fun getCachedCoverBitmap(url: String): Bitmap? {
         if (url.isBlank()) return null
-        return imageMemoryCache.get(url)
+        val normalized = normalizeWorkerImageUrl(url)
+        return imageMemoryCache.get(normalized) ?: imageMemoryCache.get(url)
     }
 
     fun cacheCoverBitmap(url: String, bitmap: Bitmap) {
         if (url.isBlank()) return
+        val normalized = normalizeWorkerImageUrl(url)
+        imageMemoryCache.put(normalized, bitmap)
         imageMemoryCache.put(url, bitmap)
     }
 
-    private val resolvedWorkerStreamCache = ConcurrentHashMap<String, String>()
-
-    fun buildWorkerProxyUrl(targetUrl: String): String {
-        return "$BASE_URL/img?u=${URLEncoder.encode(targetUrl, "UTF-8")}"
-    }
-
     /**
-     * اگر لینک مستقیم /?id=...&q=... روی سرور کلادفلر کد 404 برگرداند،
-     * از طریق مسیر فعال /img?u= همان سرور کلادفلر لینک صوتی معتبر را استخراج و پروکسی می‌کند
-     * تا ExoPlayer هرگز با خطای Response code: 404 متوقف نشود.
+     * فراخوانی مستقیم API سرور کلادفلر:
+     * `$WORKER_URL/tracks?q=$encodedQuery&artist=$encodedArtist`
      */
-    fun resolveGuaranteedWorkerStreamUrlBlocking(trackId: String, queryText: String): String? {
-        val cleanId = trackId.removePrefix("online_").trim()
-        val cacheKey = "$cleanId|${queryText.lowercase().trim()}"
-        resolvedWorkerStreamCache[cacheKey]?.let { if (it.isNotBlank()) return it }
-
-        // ۱. جستجوی نسخه کامل در Audius از طریق پروکسی کلادفلر (/img?u=)
-        if (queryText.isNotBlank()) {
-            var audiusConn: HttpURLConnection? = null
-            try {
-                val encodedQ = URLEncoder.encode(queryText, "UTF-8")
-                val audiusSearchUrl = buildWorkerProxyUrl(
-                    "https://discoveryprovider.audius.co/v1/tracks/search?query=$encodedQ&app_name=AuraMusic"
-                )
-                audiusConn = (URL(audiusSearchUrl).openConnection() as HttpURLConnection).apply {
-                    instanceFollowRedirects = true
-                    connectTimeout = 7000
-                    readTimeout = 7000
-                    setRequestProperty("User-Agent", "Mozilla/5.0")
-                }
-                if (audiusConn.responseCode in 200..299) {
-                    val body = audiusConn.inputStream.bufferedReader().use { it.readText() }
-                    val dataArr = JSONObject(body).optJSONArray("data")
-                    if (dataArr != null && dataArr.length() > 0) {
-                        val parts = queryText.split(" - ")
-                        val targetArtist = parts.firstOrNull()?.lowercase()?.trim() ?: ""
-                        val targetTitle = parts.lastOrNull()?.lowercase()?.trim() ?: ""
-                        for (i in 0 until minOf(dataArr.length(), 5)) {
-                            val item = dataArr.optJSONObject(i) ?: continue
-                            val itemId = item.optString("id")
-                            val itemTitle = item.optString("title").lowercase()
-                            val itemUser = item.optJSONObject("user")?.optString("name")?.lowercase() ?: ""
-                            val duration = item.optInt("duration", 0)
-                            val titleMatches = targetTitle.length >= 3 && itemTitle.contains(targetTitle.take(6))
-                            val artistMatches = targetArtist.length >= 3 &&
-                                (itemTitle.contains(targetArtist.take(5)) || itemUser.contains(targetArtist.take(5)))
-                            if (itemId.isNotBlank() && duration >= 60 && titleMatches && artistMatches) {
-                                val streamTarget = "https://discoveryprovider.audius.co/v1/tracks/$itemId/stream?app_name=AuraMusic"
-                                val proxiedStream = buildWorkerProxyUrl(streamTarget)
-                                resolvedWorkerStreamCache[cacheKey] = proxiedStream
-                                return proxiedStream
-                            }
-                        }
-                    }
-                }
-            } catch (_: Exception) {
-            } finally {
-                audiusConn?.disconnect()
-            }
-        }
-
-        // ۲. دریافت لینک صوتی مستقیم آهنگ از api.deezer.com/track/{id} از طریق پروکسی کلادفلر (/img?u=)
-        if (cleanId.isNotBlank() && cleanId.all { it.isDigit() }) {
-            var dzConn: HttpURLConnection? = null
-            try {
-                val dzTrackApi = buildWorkerProxyUrl("https://api.deezer.com/track/$cleanId")
-                dzConn = (URL(dzTrackApi).openConnection() as HttpURLConnection).apply {
-                    instanceFollowRedirects = true
-                    connectTimeout = 8000
-                    readTimeout = 8000
-                    setRequestProperty("User-Agent", "Mozilla/5.0")
-                }
-                if (dzConn.responseCode in 200..299) {
-                    val body = dzConn.inputStream.bufferedReader().use { it.readText() }
-                    val json = JSONObject(body)
-                    val freshAudioUrl = json.optString("preview")
-                    if (freshAudioUrl.startsWith("http")) {
-                        val proxiedAudio = buildWorkerProxyUrl(freshAudioUrl)
-                        resolvedWorkerStreamCache[cacheKey] = proxiedAudio
-                        return proxiedAudio
-                    }
-                }
-            } catch (_: Exception) {
-            } finally {
-                dzConn?.disconnect()
-            }
-        }
-
-        // ۳. اگر آیدی عددی نبود یا پیدا نشد، جستجو از طریق /search?q= و استخراج اولین آیدی معتبر
-        if (queryText.isNotBlank()) {
-            var searchConn: HttpURLConnection? = null
-            try {
-                val encodedQ = URLEncoder.encode(queryText, "UTF-8")
-                val dzSearchApi = buildWorkerProxyUrl("https://api.deezer.com/search?q=$encodedQ&limit=3")
-                searchConn = (URL(dzSearchApi).openConnection() as HttpURLConnection).apply {
-                    instanceFollowRedirects = true
-                    connectTimeout = 8000
-                    readTimeout = 8000
-                    setRequestProperty("User-Agent", "Mozilla/5.0")
-                }
-                if (searchConn.responseCode in 200..299) {
-                    val body = searchConn.inputStream.bufferedReader().use { it.readText() }
-                    val arr = JSONObject(body).optJSONArray("data")
-                    if (arr != null && arr.length() > 0) {
-                        val previewUrl = arr.optJSONObject(0)?.optString("preview") ?: ""
-                        if (previewUrl.startsWith("http")) {
-                            val proxiedAudio = buildWorkerProxyUrl(previewUrl)
-                            resolvedWorkerStreamCache[cacheKey] = proxiedAudio
-                            return proxiedAudio
-                        }
-                    }
-                }
-            } catch (_: Exception) {
-            } finally {
-                searchConn?.disconnect()
-            }
-        }
-
-        return null
-    }
-
-    fun getFallbackStreamUrl(track: Track): String? {
-        val cleanId = track.id.removePrefix("online_")
-        val cacheKey = "${track.artist.lowercase().trim()}|${track.title.lowercase().trim()}"
-        val cachedFull = fullStreamUrlCache[cacheKey]
-        if (!cachedFull.isNullOrBlank() && track.uri != cachedFull) {
-            return cachedFull
-        }
-        val query = "${track.artist} - ${track.title}"
-        val workerUrl = buildStreamUrlForTitleArtist(track.artist, track.title, cleanId)
-        if (track.uri != workerUrl && track.uri.startsWith("http")) {
-            return workerUrl
-        }
-        val guaranteed = resolveGuaranteedWorkerStreamUrlBlocking(cleanId, query)
-        if (!guaranteed.isNullOrBlank() && track.uri != guaranteed) {
-            return guaranteed
-        }
-        return null
-    }
-
-    suspend fun resolvePreviewUrlIfNeeded(track: Track): String? = withContext(Dispatchers.IO) {
-        val cleanId = track.id.removePrefix("online_")
-        resolveGuaranteedWorkerStreamUrlBlocking(cleanId, "${track.artist} - ${track.title}")
-            ?: resolveFullLengthAudioUrl(track.artist, track.title)
-    }
-
-    /**
-     * هدایت تمام درخواست‌های جستجو به سمت پروکسی Cloudflare کاربر ($WORKER_URL/search?q=)
-     * تا بدون فیلترشکن روی تمام اینترنت‌ها (ایرانسل، همراه اول، وای‌فای) کار کند.
-     */
-    suspend fun searchCatalog(query: String): List<OnlineTrack> = withContext(Dispatchers.IO) {
-        if (query.isBlank()) return@withContext emptyList()
-        val cleanQuery = query.trim()
-        catalogCache.get(cleanQuery.lowercase())?.let { cached ->
-            if (cached.isNotEmpty()) return@withContext cached
-        }
-
-        val results = mutableListOf<OnlineTrack>()
+    suspend fun fetchFromWorker(
+        query: String = "",
+        artist: String = ""
+    ): WorkerTracksResponse = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
         try {
-            val encodedQuery = URLEncoder.encode(cleanQuery, "UTF-8")
-            // استفاده از سرور کلادفلر به عنوان پروکسی برای عبور از تحریم
-            val url = URL("$BASE_URL/search?q=$encodedQuery")
-            connection = (url.openConnection() as HttpURLConnection).apply {
+            val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
+            val encodedArtist = URLEncoder.encode(artist.trim(), "UTF-8")
+            val endpoint = "$BASE_URL/tracks?q=$encodedQuery&artist=$encodedArtist"
+            connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = true
                 requestMethod = "GET"
-                connectTimeout = 10000
-                readTimeout = 10000
+                connectTimeout = 15000
+                readTimeout = 15000
                 setRequestProperty("Accept", "application/json")
+                setRequestProperty("User-Agent", "Mozilla/5.0")
             }
 
-            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                val responseText = connection.inputStream.bufferedReader().use { it.readText() }
-                parseDeezerSearchJson(responseText, results)
+            if (connection.responseCode in 200..299) {
+                val body = connection.inputStream.bufferedReader().use { it.readText() }
+                return@withContext parseWorkerTracksJson(body)
             }
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {
             connection?.disconnect()
         }
-
-        // فال‌بک ثانویه فقط در صورتی که سرور کلودفلر موقتاً در دسترس نباشد
-        if (results.isEmpty()) {
-            var fallbackConn: HttpURLConnection? = null
-            try {
-                val encodedQuery = URLEncoder.encode(cleanQuery, "UTF-8")
-                val fallbackUrl = URL("https://api.deezer.com/search?q=$encodedQuery&limit=35")
-                fallbackConn = (fallbackUrl.openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    connectTimeout = 8000
-                    readTimeout = 8000
-                    setRequestProperty("Accept", "application/json")
-                }
-                if (fallbackConn.responseCode == HttpURLConnection.HTTP_OK) {
-                    val responseText = fallbackConn.inputStream.bufferedReader().use { it.readText() }
-                    parseDeezerSearchJson(responseText, results)
-                }
-            } catch (_: Exception) {
-            } finally {
-                fallbackConn?.disconnect()
-            }
-        }
-
-        if (results.isNotEmpty()) {
-            catalogCache.put(cleanQuery.lowercase(), results)
-        }
-        results
+        WorkerTracksResponse(artists = lastKnownArtists)
     }
 
-    private fun parseDeezerSearchJson(responseText: String, results: MutableList<OnlineTrack>) {
-        val jsonArray = JSONObject(responseText).optJSONArray("data") ?: return
-        for (i in 0 until jsonArray.length()) {
-            val item = jsonArray.getJSONObject(i)
-            val artistObj = item.optJSONObject("artist")
-            val albumObj = item.optJSONObject("album")
+    private fun parseWorkerTracksJson(jsonString: String): WorkerTracksResponse {
+        return try {
+            val root = JSONObject(jsonString)
 
-            val id = item.optLong("id").toString()
-            val title = item.optString("title", "Unknown Track")
-            val artistName = artistObj?.optString("name", "Unknown Artist") ?: "Unknown Artist"
-            val artistId = artistObj?.optLong("id", 0L)?.takeIf { it > 0L }?.toString() ?: ""
-            val rawArtistPic = artistObj?.optString("picture_xl")?.takeIf { it.isNotBlank() }
-                ?: artistObj?.optString("picture_big")?.takeIf { it.isNotBlank() }
-                ?: artistObj?.optString("picture_medium")?.takeIf { it.isNotBlank() }
-                ?: artistObj?.optString("picture")?.takeIf { it.isNotBlank() }
-                ?: ""
-            val artistPic = normalizeWorkerImageUrl(rawArtistPic)
-
-            val albumTitle = albumObj?.optString("title", "Single") ?: "Single"
-            val rawCoverUrl = albumObj?.optString("cover_xl")?.takeIf { it.isNotBlank() }
-                ?: albumObj?.optString("cover_big")?.takeIf { it.isNotBlank() }
-                ?: albumObj?.optString("cover_medium")?.takeIf { it.isNotBlank() }
-                ?: albumObj?.optString("cover")?.takeIf { it.isNotBlank() }
-                ?: item.optString("cover_xl")?.takeIf { it.isNotBlank() }
-                ?: item.optString("cover_medium")?.takeIf { it.isNotBlank() }
-                ?: item.optString("cover")?.takeIf { it.isNotBlank() }
-                ?: ""
-            val coverUrl = normalizeWorkerImageUrl(rawCoverUrl)
-            val duration = item.optInt("duration", 180)
-            val preview = item.optString("preview", "")
-            val rank = item.optInt("rank", 500_000)
-
-            if (preview.isNotBlank()) {
-                registerPreviewUrl(id, preview)
-            }
-            if (artistPic.isNotBlank()) {
-                registerArtistPicture(artistName, artistPic)
-                val primaryArtist = artistName.substringBefore(" feat").substringBefore(" ft.").substringBefore("&").substringBefore(",").trim()
-                if (primaryArtist.isNotBlank()) {
-                    registerArtistPicture(primaryArtist, artistPic)
+            val artistsList = mutableListOf<ArchiveArtistItem>()
+            val artistsArray = root.optJSONArray("artists")
+            if (artistsArray != null) {
+                for (i in 0 until artistsArray.length()) {
+                    val obj = artistsArray.optJSONObject(i) ?: continue
+                    val name = obj.optString("name", "").trim()
+                    if (name.isBlank()) continue
+                    val trackCount = obj.optInt("trackCount", obj.optInt("count", 0))
+                    val rawCover = obj.optString("cover", "").ifBlank { obj.optString("cover_url", "") }
+                    val cover = normalizeWorkerImageUrl(rawCover)
+                    if (cover.isNotBlank()) {
+                        registerArtistPicture(name, cover)
+                    }
+                    artistsList.add(
+                        ArchiveArtistItem(
+                            name = name,
+                            trackCount = trackCount,
+                            cover = cover
+                        )
+                    )
                 }
             }
+            if (artistsList.isNotEmpty()) {
+                lastKnownArtists = artistsList
+            }
 
-            results.add(
-                OnlineTrack(
-                    id = id,
-                    title = title,
-                    artist = artistName,
-                    album = albumTitle,
-                    coverUrl = coverUrl,
-                    durationSec = duration,
-                    previewUrl = preview,
-                    artistId = artistId,
-                    artistPictureUrl = artistPic,
-                    rank = rank
-                )
-            )
-        }
-    }
-
-    /**
-     * دریافت محبوب‌ترین آهنگ‌های یک خواننده مرتب‌شده بر اساس بالاترین ریتینگ (Rank) به سبک اسپاتیفای
-     */
-    suspend fun fetchArtistTopRatedTracks(artistName: String): List<OnlineTrack> = withContext(Dispatchers.IO) {
-        val rawResults = searchCatalog(artistName)
-        val cleanTarget = artistName.trim().lowercase()
-        val matching = rawResults.filter {
-            it.artist.lowercase().contains(cleanTarget) || cleanTarget.contains(it.artist.lowercase())
-        }
-        val pool = if (matching.size >= 4) matching else rawResults
-        pool.distinctBy { it.title.lowercase().substringBefore(" (").trim() }
-            .sortedByDescending { it.rank }
-    }
-
-    /**
-     * پیدا کردن لینک فایل کامل صوتی (Full-Length 320kbps/160kbps Track) از ۰:۰۰ تا ثانیه آخر
-     * تا مشکل دانلود یا پخش ۳۰ ثانیه‌ای از وسط آهنگ به طور کامل برطرف شود.
-     */
-    suspend fun resolveFullLengthAudioUrl(artist: String, title: String): String? = withContext(Dispatchers.IO) {
-        val cacheKey = "${artist.lowercase().trim()}|${title.lowercase().trim()}"
-        fullStreamUrlCache[cacheKey]?.let { if (it.isNotBlank()) return@withContext it }
-
-        val cleanArtist = artist.substringBefore(" feat").substringBefore(" ft.").trim()
-        val cleanTitle = title.substringBefore(" (feat").substringBefore(" [").trim()
-        val encoded = URLEncoder.encode("$cleanArtist $cleanTitle", "UTF-8")
-
-        val apiEndpoints = listOf(
-            "https://saavn.dev/api/search/songs?query=$encoded&limit=5",
-            "https://saavn.sumit.co/api/search/songs?query=$encoded&limit=5",
-            "https://jiosaavn-api-privatecvc2.vercel.app/search/songs?query=$encoded&limit=5"
-        )
-
-        for (endpoint in apiEndpoints) {
-            var conn: HttpURLConnection? = null
-            try {
-                conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    connectTimeout = 9000
-                    readTimeout = 9000
-                    setRequestProperty("Accept", "application/json")
-                    setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14)")
-                }
-                if (conn.responseCode in 200..299) {
-                    val body = conn.inputStream.bufferedReader().use { it.readText() }
-                    val extractedUrl = extractBestStreamUrlFromSaavnJson(body, cleanArtist, cleanTitle)
-                    if (!extractedUrl.isNullOrBlank()) {
-                        fullStreamUrlCache[cacheKey] = extractedUrl
-                        return@withContext extractedUrl
+            val matchedList = mutableListOf<ArchiveArtistItem>()
+            val matchedArray = root.optJSONArray("matchedArtists")
+            if (matchedArray != null) {
+                for (i in 0 until matchedArray.length()) {
+                    val item = matchedArray.opt(i)
+                    when (item) {
+                        is JSONObject -> {
+                            val name = item.optString("name", "").trim()
+                            if (name.isNotBlank()) {
+                                val count = item.optInt("trackCount", item.optInt("count", 0))
+                                val rawCover = item.optString("cover", "").ifBlank { item.optString("cover_url", "") }
+                                val cover = normalizeWorkerImageUrl(rawCover).ifBlank {
+                                    getArtistPicture(name) ?: ""
+                                }
+                                matchedList.add(ArchiveArtistItem(name = name, trackCount = count, cover = cover))
+                            }
+                        }
+                        is String -> {
+                            val name = item.trim()
+                            if (name.isNotBlank()) {
+                                val fromAll = artistsList.firstOrNull { it.name.equals(name, ignoreCase = true) }
+                                matchedList.add(
+                                    fromAll ?: ArchiveArtistItem(
+                                        name = name,
+                                        trackCount = 0,
+                                        cover = getArtistPicture(name) ?: ""
+                                    )
+                                )
+                            }
+                        }
                     }
                 }
-            } catch (_: Exception) {
-            } finally {
-                conn?.disconnect()
             }
-        }
-        null
-    }
 
-    private fun extractBestStreamUrlFromSaavnJson(jsonStr: String, targetArtist: String, targetTitle: String): String? {
-        return try {
-            val root = JSONObject(jsonStr)
-            val resultsArray: JSONArray? = root.optJSONObject("data")?.optJSONArray("results")
-                ?: root.optJSONArray("results")
-                ?: root.optJSONArray("data")
-            if (resultsArray == null || resultsArray.length() == 0) return null
+            val tracksList = mutableListOf<OnlineTrack>()
+            val dataArray = root.optJSONArray("data") ?: root.optJSONArray("tracks")
+            if (dataArray != null) {
+                for (i in 0 until dataArray.length()) {
+                    val obj = dataArray.optJSONObject(i) ?: continue
+                    val id = obj.opt("id")?.toString()?.trim().orEmpty().ifBlank { "tg_$i" }
+                    val title = obj.optString("title", "").ifBlank { obj.optString("name", "Unknown Track") }.trim()
+                    val artistName = obj.optString("artist_name", "")
+                        .ifBlank { obj.optString("artist", "Unknown Artist") }
+                        .trim()
+                    val durationSec = parseDurationToSeconds(obj.opt("duration"))
+                    val rawStream = obj.optString("stream_url", "")
+                        .ifBlank { obj.optString("streamUrl", "") }
+                        .ifBlank { obj.optString("url", "") }
+                    val rawDownload = obj.optString("download_url", "")
+                        .ifBlank { obj.optString("downloadUrl", "") }
+                        .ifBlank { rawStream }
+                    val rawCover = obj.optString("cover_url", "")
+                        .ifBlank { obj.optString("coverUrl", "") }
+                        .ifBlank { obj.optString("cover", "") }
 
-            var bestItem: JSONObject? = null
-            val lowerTitle = targetTitle.lowercase()
-            val lowerArtist = targetArtist.lowercase()
+                    val streamUrl = resolveWorkerUrl(rawStream)
+                    val downloadUrl = resolveWorkerUrl(rawDownload)
+                    val coverUrl = normalizeWorkerImageUrl(rawCover).ifBlank {
+                        getArtistPicture(artistName) ?: ""
+                    }
 
-            for (i in 0 until resultsArray.length()) {
-                val item = resultsArray.optJSONObject(i) ?: continue
-                val name = item.optString("name", "").ifBlank { item.optString("title", "") }.lowercase()
-                val artistsText = (
-                    item.optString("primaryArtists", "") + " " +
-                        (item.optJSONObject("artists")?.optJSONArray("primary")?.optJSONObject(0)?.optString("name", "") ?: "")
-                    ).lowercase()
-                if (name.contains(lowerTitle.take(6)) && (artistsText.contains(lowerArtist.take(5)) || i == 0)) {
-                    bestItem = item
-                    break
+                    registerTrackUrls(
+                        trackId = id,
+                        streamUrl = streamUrl,
+                        downloadUrl = downloadUrl,
+                        coverUrl = coverUrl,
+                        artistName = artistName
+                    )
+
+                    tracksList.add(
+                        OnlineTrack(
+                            id = id,
+                            title = title,
+                            artist = artistName,
+                            album = obj.optString("album", "Telegram Archive"),
+                            coverUrl = coverUrl,
+                            durationSec = durationSec,
+                            streamUrl = streamUrl,
+                            downloadUrl = downloadUrl,
+                            previewUrl = streamUrl,
+                            artistPictureUrl = getArtistPicture(artistName) ?: coverUrl
+                        )
+                    )
                 }
             }
-            val chosen = bestItem ?: resultsArray.optJSONObject(0) ?: return null
-            val dlArray = chosen.optJSONArray("downloadUrl") ?: return null
-            // انتخاب بالاترین کیفیت صوتی (320kbps یا 160kbps)
-            for (idx in dlArray.length() - 1 downTo 0) {
-                val dlObj = dlArray.optJSONObject(idx) ?: continue
-                val link = dlObj.optString("url").ifBlank { dlObj.optString("link") }
-                if (link.startsWith("http")) {
-                    return link
-                }
-            }
-            null
-        } catch (_: Exception) {
-            null
+
+            WorkerTracksResponse(
+                artists = if (artistsList.isNotEmpty()) artistsList else lastKnownArtists,
+                matchedArtists = matchedList,
+                tracks = tracksList
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            WorkerTracksResponse(artists = lastKnownArtists)
         }
     }
 
-    fun normalizeWorkerImageUrl(rawUrl: String): String {
-        val trimmed = rawUrl.trim()
-        if (trimmed.isBlank()) return ""
-        return when {
-            trimmed.startsWith("/img?u=") -> "$BASE_URL$trimmed"
-            trimmed.startsWith("$BASE_URL//img?u=") -> trimmed.replace("$BASE_URL//img?u=", "$BASE_URL/img?u=")
-            trimmed.startsWith("$BASE_URL/img?u=") -> trimmed
-            trimmed.contains("dzcdn.net") -> "$BASE_URL/img?u=${URLEncoder.encode(trimmed, "UTF-8")}"
-            else -> trimmed
+    private fun parseDurationToSeconds(rawDuration: Any?): Int {
+        if (rawDuration == null) return 180
+        when (rawDuration) {
+            is Number -> {
+                val v = rawDuration.toInt()
+                return if (v > 3600) (v / 1000).coerceAtLeast(1) else v.coerceAtLeast(1)
+            }
+            is String -> {
+                val clean = rawDuration.trim()
+                if (clean.contains(":")) {
+                    val parts = clean.split(":").mapNotNull { it.trim().toIntOrNull() }
+                    if (parts.size == 2) return (parts[0] * 60 + parts[1]).coerceAtLeast(1)
+                    if (parts.size == 3) return (parts[0] * 3600 + parts[1] * 60 + parts[2]).coerceAtLeast(1)
+                }
+                val num = clean.toIntOrNull() ?: return 180
+                return if (num > 3600) (num / 1000).coerceAtLeast(1) else num.coerceAtLeast(1)
+            }
+            else -> return 180
         }
+    }
+
+    suspend fun searchCatalog(query: String): List<OnlineTrack> = withContext(Dispatchers.IO) {
+        val clean = query.trim()
+        val response = fetchFromWorker(query = clean, artist = "")
+        if (response.tracks.isNotEmpty() || clean.isBlank()) {
+            return@withContext response.tracks
+        }
+        fetchFromWorker(query = "", artist = "").tracks
+    }
+
+    suspend fun fetchArtistTopRatedTracks(artistName: String): List<OnlineTrack> = withContext(Dispatchers.IO) {
+        fetchFromWorker(query = "", artist = artistName.trim()).tracks
+    }
+
+    fun buildStreamUrl(track: OnlineTrack): String {
+        if (track.streamUrl.isNotBlank()) {
+            return resolveWorkerUrl(track.streamUrl)
+        }
+        val cached = getPreviewUrl(track.id)
+        if (!cached.isNullOrBlank()) return cached
+        val cleanId = track.id.removePrefix("online_")
+        return "$BASE_URL/stream?id=${URLEncoder.encode(cleanId, "UTF-8")}"
+    }
+
+    fun buildDownloadUrl(trackId: String, artist: String = "", title: String = ""): String {
+        getDownloadUrlForTrack(trackId)?.let { if (it.isNotBlank()) return it }
+        getPreviewUrl(trackId)?.let { if (it.isNotBlank()) return it }
+        val cleanId = trackId.removePrefix("online_")
+        return "$BASE_URL/download?id=${URLEncoder.encode(cleanId, "UTF-8")}"
+    }
+
+    fun getFallbackStreamUrl(track: Track): String? {
+        val rawId = track.id.removePrefix("online_")
+        val registered = getPreviewUrl(rawId) ?: getDownloadUrlForTrack(rawId)
+        if (!registered.isNullOrBlank() && registered != track.uri) {
+            return registered
+        }
+        return null
     }
 
     suspend fun loadCoverBitmap(url: String): Bitmap? = withContext(Dispatchers.IO) {
@@ -653,29 +605,60 @@ object OnlineMusicRepository {
         imageMemoryCache.get(resolvedUrl)?.let { return it }
         imageMemoryCache.get(url)?.let { return it }
 
-        fun downloadBitmapFromUrl(targetUrl: String): Bitmap? {
-            var connection: HttpURLConnection? = null
-            return try {
-                connection = (URL(targetUrl).openConnection() as HttpURLConnection).apply {
-                    instanceFollowRedirects = true
-                    connectTimeout = 10000
-                    readTimeout = 10000
-                    doInput = true
-                    setRequestProperty("User-Agent", "Mozilla/5.0")
-                }
-                connection.connect()
-                if (connection.responseCode in 200..299) {
-                    connection.inputStream.use { BitmapFactory.decodeStream(it) }
-                } else null
-            } catch (_: Exception) {
-                null
-            } finally {
-                connection?.disconnect()
+        // بررسی مسیر فایل محلی یا فایل صوتی دارای کاور جاسازی‌شده (ID3)
+        if (resolvedUrl.startsWith("/") || resolvedUrl.startsWith("file://")) {
+            val filePath = if (resolvedUrl.startsWith("file://")) {
+                Uri.parse(resolvedUrl).path ?: resolvedUrl.removePrefix("file://")
+            } else {
+                resolvedUrl
             }
+            val file = File(filePath)
+            if (file.exists() && file.length() > 256L) {
+                val bmp = try {
+                    if (file.name.endsWith(".mp3", ignoreCase = true) || file.name.endsWith(".m4a", ignoreCase = true)) {
+                        val mmr = MediaMetadataRetriever()
+                        val bytes = try {
+                            mmr.setDataSource(file.absolutePath)
+                            mmr.embeddedPicture
+                        } finally {
+                            try { mmr.release() } catch (_: Exception) {}
+                        }
+                        if (bytes != null && bytes.isNotEmpty()) {
+                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        } else null
+                    } else {
+                        BitmapFactory.decodeFile(file.absolutePath)
+                    }
+                } catch (_: Exception) {
+                    null
+                }
+                if (bmp != null) {
+                    imageMemoryCache.put(resolvedUrl, bmp)
+                    imageMemoryCache.put(url, bmp)
+                    return bmp
+                }
+            }
+            return null
         }
 
-        val bitmap = downloadBitmapFromUrl(resolvedUrl)
-            ?: if (resolvedUrl != url && url.startsWith("http")) downloadBitmapFromUrl(url) else null
+        var connection: HttpURLConnection? = null
+        val bitmap = try {
+            connection = (URL(resolvedUrl).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = true
+                connectTimeout = 12000
+                readTimeout = 12000
+                doInput = true
+                setRequestProperty("User-Agent", "Mozilla/5.0")
+            }
+            connection.connect()
+            if (connection.responseCode in 200..299) {
+                connection.inputStream.use { BitmapFactory.decodeStream(it) }
+            } else null
+        } catch (_: Exception) {
+            null
+        } finally {
+            connection?.disconnect()
+        }
 
         if (bitmap != null) {
             imageMemoryCache.put(resolvedUrl, bitmap)
@@ -683,30 +666,14 @@ object OnlineMusicRepository {
         }
         return bitmap
     }
-
-    fun buildStreamUrl(track: OnlineTrack): String {
-        return "$BASE_URL/?id=${track.id}&q=${URLEncoder.encode("${track.artist} - ${track.title}", "UTF-8")}"
-    }
-
-    fun buildStreamUrlForTitleArtist(artist: String, title: String, trackId: String = ""): String {
-        val cleanId = trackId.removePrefix("online_")
-        return "$BASE_URL/?id=$cleanId&q=${URLEncoder.encode("$artist - $title", "UTF-8")}"
-    }
-
-    fun buildDownloadUrl(trackId: String, artist: String, title: String): String {
-        val cleanId = trackId.removePrefix("online_")
-        val encodedQuery = URLEncoder.encode("$artist - $title", "UTF-8")
-        return "$BASE_URL/?id=$cleanId&q=$encodedQuery&dl=1"
-    }
 }
 
 /**
- * موتور هوشمند یادگیری سلیقه کاربر + ساخت پلی‌لیست‌های هوشمند بر اساس آهنگ‌ها و آرتیست‌های سرچ‌شده
+ * موتور هماهنگ‌سازی پیشنهادها و تاریخچه پخش آنلاین با صفحه خانه و آمار برنامه
  */
 object OnlineTasteEngine {
     private const val PREFS_NAME = "aura_online_taste_prefs"
     private const val KEY_ARTIST_SCORES = "artist_scores_json"
-    private const val KEY_STYLE_SCORES = "style_scores_json"
     private const val KEY_RECENT_ONLINE_TRACKS = "recent_online_tracks_json"
     private const val KEY_RECENT_SEARCH_QUERIES = "recent_search_queries_json"
 
@@ -725,51 +692,19 @@ object OnlineTasteEngine {
                 }
             }
             prefs.edit().putString(KEY_RECENT_SEARCH_QUERIES, updatedQueries.toString()).apply()
-
-            val topArtist = results.firstOrNull()?.artist
-                ?.substringBefore(" feat")
-                ?.substringBefore(" ft.")
-                ?.substringBefore(",")
-                ?.trim()
-            if (!topArtist.isNullOrBlank()) {
-                val scoresJson = JSONObject(prefs.getString(KEY_ARTIST_SCORES, "{}") ?: "{}")
-                scoresJson.put(topArtist, scoresJson.optInt(topArtist, 0) + 2)
-                prefs.edit().putString(KEY_ARTIST_SCORES, scoresJson.toString()).apply()
-            }
         } catch (_: Exception) {}
-    }
-
-    fun getRecentSearchedQueries(context: Context): List<String> {
-        val list = mutableListOf<String>()
-        try {
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val arr = JSONArray(prefs.getString(KEY_RECENT_SEARCH_QUERIES, "[]") ?: "[]")
-            for (i in 0 until arr.length()) {
-                val q = arr.optString(i).trim()
-                if (q.isNotBlank()) list.add(q)
-            }
-        } catch (_: Exception) {}
-        return list
     }
 
     fun recordTrackListen(context: Context, track: Track) {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val artist = track.artist.trim()
-            if (artist.isNotBlank() && !artist.equals("Unknown Artist", ignoreCase = true) && !artist.equals("Unknown", ignoreCase = true)) {
-                val primaryArtist = artist.substringBefore(" feat").substringBefore(" ft.").substringBefore("&").substringBefore(",").trim()
+            if (artist.isNotBlank() && !artist.equals("Unknown Artist", ignoreCase = true)) {
                 val scoresJson = JSONObject(prefs.getString(KEY_ARTIST_SCORES, "{}") ?: "{}")
-                val oldScore = scoresJson.optInt(primaryArtist, 0)
-                scoresJson.put(primaryArtist, oldScore + 3)
+                scoresJson.put(artist, scoresJson.optInt(artist, 0) + 3)
                 prefs.edit().putString(KEY_ARTIST_SCORES, scoresJson.toString()).apply()
             }
 
-            val styleTag = inferStyleFromTrack(track.artist, track.title, track.genre)
-            val styleJson = JSONObject(prefs.getString(KEY_STYLE_SCORES, "{}") ?: "{}")
-            styleJson.put(styleTag, styleJson.optInt(styleTag, 0) + 2)
-            prefs.edit().putString(KEY_STYLE_SCORES, styleJson.toString()).apply()
-
-            val previewUrl = OnlineMusicRepository.getPreviewUrl(track.id) ?: ""
             val recentArr = JSONArray(prefs.getString(KEY_RECENT_ONLINE_TRACKS, "[]") ?: "[]")
             val updatedArr = JSONArray()
             val newObj = JSONObject().apply {
@@ -781,12 +716,11 @@ object OnlineTasteEngine {
                 put("uri", track.uri)
                 put("artworkUri", track.artworkUri ?: "")
                 put("genre", track.genre)
-                put("previewUrl", previewUrl)
             }
             updatedArr.put(newObj)
             for (i in 0 until recentArr.length()) {
                 val obj = recentArr.optJSONObject(i) ?: continue
-                if (obj.optString("id") != track.id && updatedArr.length() < 18) {
+                if (obj.optString("id") != track.id && updatedArr.length() < 20) {
                     updatedArr.put(obj)
                 }
             }
@@ -802,10 +736,6 @@ object OnlineTasteEngine {
             for (i in 0 until arr.length()) {
                 val obj = arr.optJSONObject(i) ?: continue
                 val id = obj.optString("id")
-                val savedPreview = obj.optString("previewUrl", "")
-                if (savedPreview.isNotBlank()) {
-                    OnlineMusicRepository.registerPreviewUrl(id, savedPreview)
-                }
                 val cachedFile = OnlineCacheHolder.getCachedFileIfPresent(context, id)
                 val uri = cachedFile?.absolutePath ?: obj.optString("uri")
                 if (id.isNotBlank() && uri.isNotBlank()) {
@@ -845,13 +775,13 @@ object OnlineTasteEngine {
         } catch (_: Exception) {}
 
         localFavorites.forEach { t ->
-            val a = t.artist.substringBefore(" feat").substringBefore(",").trim()
+            val a = t.artist.trim()
             if (a.isNotBlank() && !a.equals("Unknown Artist", true)) {
                 map[a] = (map[a] ?: 0) + 4
             }
         }
         localRecent.forEach { t ->
-            val a = t.artist.substringBefore(" feat").substringBefore(",").trim()
+            val a = t.artist.trim()
             if (a.isNotBlank() && !a.equals("Unknown Artist", true)) {
                 map[a] = (map[a] ?: 0) + 2
             }
@@ -863,133 +793,29 @@ object OnlineTasteEngine {
             .take(6)
     }
 
-    /**
-     * ساخت پلی‌لیست‌های هوشمند (Smart Playlists) بر اساس سرچ‌ها، آرتیست‌های محبوب و آهنگ‌های در حال نمایش
-     */
     fun buildSmartPlaylists(
         context: Context,
         currentCatalogTracks: List<OnlineTrack> = emptyList()
     ): List<OnlineSmartPlaylist> {
-        val topArtists = getTopArtistsForUser(context)
-        val recentSearches = getRecentSearchedQueries(context)
         val recentTracks = getRecentOnlineTracks(context)
+        val covers = (currentCatalogTracks.mapNotNull { it.resolvedCoverUrl().takeIf { c -> c.isNotBlank() } } +
+            recentTracks.mapNotNull { it.artworkUri?.takeIf { c -> c.isNotBlank() } }).distinct()
+        val topArtists = getTopArtistsForUser(context)
+        val firstArtist = topArtists.firstOrNull() ?: ""
 
-        val defaultCovers = currentCatalogTracks.mapNotNull { it.coverUrl.takeIf { c -> c.isNotBlank() } }.distinct()
-        val recentCovers = recentTracks.mapNotNull { it.artworkUri?.takeIf { c -> c.isNotBlank() } }.distinct()
-
-        val primaryArtist = topArtists.getOrNull(0) ?: "Travis Scott"
-        val secondaryArtist = topArtists.getOrNull(1) ?: "The Weeknd"
-        val thirdArtist = topArtists.getOrNull(2) ?: "Playboi Carti"
-        val latestSearch = recentSearches.firstOrNull()
-
-        val playlists = mutableListOf<OnlineSmartPlaylist>()
-
-        // ۱. میکس هوشمند بر اساس آخرین جستجو و سلیقه کاربر
-        val mix1Query = if (!latestSearch.isNullOrBlank()) {
-            "$latestSearch $primaryArtist"
-        } else {
-            "$primaryArtist $secondaryArtist"
-        }
-        playlists.add(
+        return listOf(
             OnlineSmartPlaylist(
-                id = "smart_search_mix",
-                titleFa = if (!latestSearch.isNullOrBlank()) "میکس هوشمند: $latestSearch" else "میکس اختصاصی $primaryArtist",
-                titleEn = if (!latestSearch.isNullOrBlank()) "Smart Mix: $latestSearch" else "$primaryArtist Mix",
-                subtitleFa = "بر اساس جستجوها و آهنگ‌های مورد علاقه شما",
-                subtitleEn = "Based on your searches & listening taste",
-                query = mix1Query,
-                seedArtists = listOf(primaryArtist, secondaryArtist),
-                coverUrls = (recentCovers + defaultCovers).distinct().take(4),
+                id = "telegram_archive_all",
+                titleFa = "آرشیو کامل کانال",
+                titleEn = "Full Channel Archive",
+                subtitleFa = "پخش مستقیم از سرور کلادفلر",
+                subtitleEn = "Direct Cloudflare Worker Stream",
+                query = firstArtist,
+                seedArtists = topArtists,
+                coverUrls = covers.take(4),
                 accentColor = Color(0xFF1ED760)
             )
         )
-
-        // ۲. رادیو هنرمندان محبوب شما (بالاترین ریتینگ‌ها)
-        playlists.add(
-            OnlineSmartPlaylist(
-                id = "smart_top_artists_radio",
-                titleFa = "رادیو $primaryArtist و $secondaryArtist",
-                titleEn = "$primaryArtist & $secondaryArtist Radio",
-                subtitleFa = "گلچین بالاترین ریتینگ‌های آرتیست‌های شما",
-                subtitleEn = "Highest rated hits from your top artists",
-                query = "$primaryArtist $secondaryArtist $thirdArtist",
-                seedArtists = listOf(primaryArtist, secondaryArtist, thirdArtist),
-                coverUrls = (defaultCovers.drop(2) + recentCovers).distinct().take(4),
-                accentColor = Color(0xFF00E5FF)
-            )
-        )
-
-        // ۳. پلی‌لیست هوشمند وایب تیک‌تاک و رپرهای نسل زد
-        playlists.add(
-            OnlineSmartPlaylist(
-                id = "smart_genz_viral",
-                titleFa = "پلی‌لیست هوشمند ترند نسل زد",
-                titleEn = "Gen-Z Viral Smart Mix",
-                subtitleFa = "Playboi Carti, Yeat, Don Toliver, Travis Scott",
-                subtitleEn = "Playboi Carti, Yeat, Don Toliver, Travis Scott",
-                query = "Playboi Carti Yeat Don Toliver Travis Scott",
-                seedArtists = listOf("Playboi Carti", "Yeat", "Don Toliver"),
-                coverUrls = defaultCovers.reversed().take(4),
-                accentColor = Color(0xFFFF2A85)
-            )
-        )
-
-        // ۴. پلی‌لیست هوشمند شبانه و درایو (Late Night Drive)
-        playlists.add(
-            OnlineSmartPlaylist(
-                id = "smart_night_drive",
-                titleFa = "میکس شبانه و رانندگی",
-                titleEn = "Late Night Drive Mix",
-                subtitleFa = "The Weeknd, SZA, Billie Eilish, Future",
-                subtitleEn = "The Weeknd, SZA, Billie Eilish, Future",
-                query = "The Weeknd SZA Billie Eilish Don Toliver",
-                seedArtists = listOf("The Weeknd", "SZA", "Billie Eilish"),
-                coverUrls = (defaultCovers.drop(4) + defaultCovers.take(2)).distinct().take(4),
-                accentColor = Color(0xFF9B5DE5)
-            )
-        )
-
-        return playlists
-    }
-
-    private fun inferStyleFromTrack(artist: String, title: String, genre: String): String {
-        val combined = "$artist $title $genre".lowercase()
-        return when {
-            combined.contains("travis") || combined.contains("carti") || combined.contains("yeat") ||
-                combined.contains("drake") || combined.contains("future") || combined.contains("metro") ||
-                combined.contains("21 savage") || combined.contains("kendrick") || combined.contains("central cee") ||
-                combined.contains("gunna") || combined.contains("lil ") || combined.contains("rap") -> "RAPPERS"
-            combined.contains("billie") || combined.contains("sabrina") || combined.contains("tate") ||
-                combined.contains("pinkpantheress") || combined.contains("ice spice") || combined.contains("tiktok") -> "TIKTOK_INSTA"
-            combined.contains("weeknd") || combined.contains("sza") || combined.contains("don toliver") ||
-                combined.contains("partynextdoor") || combined.contains("phonk") || combined.contains("kordhell") -> "PHONK_NIGHT"
-            combined.contains("حصین") || combined.contains("پیشرو") || combined.contains("شاپور") ||
-                combined.contains("هیدن") || combined.contains("چرسی") || combined.contains("پوری") ||
-                combined.contains("دورچی") || combined.contains("هیپهاپولوژیست") ||
-                combined.contains("farsi") || combined.contains("persian") || Regex("[\u0600-\u06FF]").containsMatchIn(combined) -> "PERSIAN"
-            else -> "FOR_YOU"
-        }
-    }
-
-    fun getDominantStyle(context: Context): String {
-        return try {
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val styleJson = JSONObject(prefs.getString(KEY_STYLE_SCORES, "{}") ?: "{}")
-            var bestStyle = "FOR_YOU"
-            var bestScore = -1
-            val keys = styleJson.keys()
-            while (keys.hasNext()) {
-                val k = keys.next()
-                val s = styleJson.optInt(k, 0)
-                if (s > bestScore) {
-                    bestScore = s
-                    bestStyle = k
-                }
-            }
-            bestStyle
-        } catch (_: Exception) {
-            "FOR_YOU"
-        }
     }
 
     suspend fun fetchOnlineTimeSlotTracks(
@@ -997,34 +823,13 @@ object OnlineTasteEngine {
         hourOfDay: Int,
         topArtists: List<String>
     ): List<Track> = withContext(Dispatchers.IO) {
-        val topArtist = topArtists.firstOrNull()
-        val timeQuery = when (hourOfDay) {
-            in 5..11 -> if (topArtist != null) "$topArtist Chill" else "Billie Eilish The Weeknd SZA"
-            in 12..16 -> if (topArtist != null) "$topArtist Hits" else "Travis Scott Playboi Carti Drake"
-            in 17..21 -> if (topArtist != null) "$topArtist Vibe" else "Don Toliver The Weeknd Future"
-            else -> if (topArtist != null) "$topArtist Night" else "Travis Scott Drake Yeat Late Night"
+        val response = OnlineMusicRepository.fetchFromWorker(query = "", artist = topArtists.firstOrNull() ?: "")
+        val list = if (response.tracks.isNotEmpty()) response.tracks else OnlineMusicRepository.fetchFromWorker().tracks
+        list.take(16).map { online ->
+            val cached = OnlineCacheHolder.getCachedFileIfPresent(context, online.id)
+            val streamUrl = cached?.absolutePath ?: online.resolvedStreamUrl()
+            online.toAppTrack(streamUrl)
         }
-
-        val fallbackQuery = when (hourOfDay) {
-            in 5..11 -> "Post Malone Billie Eilish"
-            in 12..16 -> "Kendrick Lamar Future Metro Boomin"
-            in 17..21 -> "Central Cee Don Toliver SZA"
-            else -> "Playboi Carti The Weeknd"
-        }
-
-        val primaryResults = OnlineMusicRepository.searchCatalog(timeQuery)
-        val secondaryResults = if (primaryResults.size < 10) {
-            OnlineMusicRepository.searchCatalog(fallbackQuery)
-        } else emptyList()
-
-        (primaryResults + secondaryResults)
-            .distinctBy { it.id }
-            .take(14)
-            .map { online ->
-                val cached = OnlineCacheHolder.getCachedFileIfPresent(context, online.id)
-                val streamUrl = cached?.absolutePath ?: OnlineMusicRepository.buildStreamUrl(online)
-                online.toAppTrack(streamUrl)
-            }
     }
 
     suspend fun fetchTrendingAndTasteFeed(
@@ -1032,89 +837,31 @@ object OnlineTasteEngine {
         mode: String,
         topArtists: List<String>
     ): List<Track> = withContext(Dispatchers.IO) {
-        val queries = when (mode) {
-            "FOR_YOU" -> {
-                if (topArtists.isNotEmpty()) {
-                    topArtists.take(2).map { it } + listOf("Travis Scott Playboi Carti Drake", "Billie Eilish The Weeknd Don Toliver")
-                } else {
-                    when (getDominantStyle(context)) {
-                        "RAPPERS" -> listOf("Travis Scott Playboi Carti Future", "Drake Kendrick Lamar Yeat")
-                        "TIKTOK_INSTA" -> listOf("Playboi Carti Yeat Don Toliver", "Billie Eilish Sabrina Carpenter Central Cee")
-                        "PERSIAN" -> listOf("Hiphopologist Chvrsi Poori", "Shapoor Ho3ein Hidden")
-                        "PHONK_NIGHT" -> listOf("Kordhell Interworld Phonk", "The Weeknd Don Toliver SZA")
-                        else -> listOf("Travis Scott Playboi Carti Drake", "Billie Eilish Kendrick Lamar The Weeknd")
-                    }
-                }
-            }
-            "TIKTOK_INSTA" -> listOf(
-                "Playboi Carti Yeat Don Toliver",
-                "Billie Eilish Sabrina Carpenter Tate McRae",
-                "Central Cee PinkPantheress Tommy Richman"
-            )
-            "YOUTUBE" -> listOf(
-                "Kendrick Lamar Travis Scott Drake",
-                "The Weeknd Post Malone Future",
-                "Metro Boomin 21 Savage Billie Eilish"
-            )
-            "RAPPERS" -> listOf(
-                "Travis Scott Playboi Carti Future",
-                "Drake Kendrick Lamar 21 Savage",
-                "Central Cee Yeat Gunna Lil Baby"
-            )
-            "PERSIAN" -> listOf(
-                "Hiphopologist Chvrsi Poori",
-                "Shapoor Ho3ein Shayea Hidden",
-                "Dorcci Koorosh Behzad Leito"
-            )
-            "PHONK_NIGHT" -> listOf(
-                "Kordhell Interworld Phonk",
-                "The Weeknd Don Toliver SZA"
-            )
-            else -> listOf("Travis Scott Playboi Carti Drake")
+        val response = OnlineMusicRepository.fetchFromWorker(query = "", artist = "")
+        response.tracks.take(20).map { online ->
+            val cached = OnlineCacheHolder.getCachedFileIfPresent(context, online.id)
+            val streamUrl = cached?.absolutePath ?: online.resolvedStreamUrl()
+            online.toAppTrack(streamUrl)
         }
-
-        val combined = mutableListOf<OnlineTrack>()
-        for (q in queries) {
-            val res = OnlineMusicRepository.searchCatalog(q)
-            combined.addAll(res)
-            if (combined.size >= 18) break
-        }
-
-        combined
-            .distinctBy { "${it.title.lowercase().trim()}|${it.artist.lowercase().trim()}" }
-            .take(16)
-            .map { online ->
-                val cached = OnlineCacheHolder.getCachedFileIfPresent(context, online.id)
-                val streamUrl = cached?.absolutePath ?: OnlineMusicRepository.buildStreamUrl(online)
-                online.toAppTrack(streamUrl)
-            }
     }
 }
 
 /**
- * مدیریت دانلود کامل آهنگ‌ها (از ثانیه ۰:۰۰ تا انتهای آهنگ با قابلیت Resume خودکار در صورت قطع شبکه)
- * + بافر موقت استریم برای جلوگیری از پرش یا قطع شدن وسط پخش آنلاین
+ * مدیریت دانلود مستقیم فایل‌ها از `download_url` به پوشه Music گوشی (بدون SimpleCache)
  */
 object OnlineCacheHolder {
     private const val MIN_VALID_AUDIO_BYTES = 16_384L
-    // حداقل حجم برای تشخیص فایل کامل صوتی (بیشتر از پیش‌نمایش ۳۰ ثانیه‌ای ۴۸۰ کیلوبایتی)
-    private const val MIN_FULL_SONG_BYTES = 850_000L
 
-    /**
-     * کارخانه مستقیم DefaultHttpDataSource بدون SimpleCache یا CacheDataSource
-     * برای استریم مستقیم، سریع و بدون قفل شدن روی لینک‌های داینامیک کلادفلر
-     */
     fun createDirectHttpDataSourceFactory(): DefaultHttpDataSource.Factory {
         return DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(25000)
-            .setReadTimeoutMs(25000)
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(15000)
             .setUserAgent("Mozilla/5.0")
     }
 
-    private val cacheScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val downloadScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val activeDownloads = HashSet<String>()
-    private val activeStreamBuffers = HashSet<String>()
 
     private val _downloadingTrackIds = MutableStateFlow<Set<String>>(emptySet())
     val downloadingTrackIds: StateFlow<Set<String>> = _downloadingTrackIds.asStateFlow()
@@ -1139,37 +886,15 @@ object OnlineCacheHolder {
         _downloadProgressMap.value = next
     }
 
-    /**
-     * پوشه اصلی ذخیره دائمی آهنگ‌های دانلودشده در فضای خارجی اختصاصی موزیک گوشی:
-     * context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
-     */
-    fun getCacheDir(context: Context): File {
-        val extMusicDir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC)
+    fun getMusicDownloadDir(context: Context): File {
+        val extMusicDir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
         if (extMusicDir != null) {
             if (!extMusicDir.exists()) extMusicDir.mkdirs()
             return extMusicDir
         }
-        val fallbackDir = File(context.filesDir, "aura_downloaded_music")
+        val fallbackDir = File(context.filesDir, "Music")
         if (!fallbackDir.exists()) fallbackDir.mkdirs()
         return fallbackDir
-    }
-
-    private fun getInternalDownloadedDir(context: Context): File {
-        val dir = File(context.filesDir, "aura_downloaded_music")
-        if (!dir.exists()) dir.mkdirs()
-        return dir
-    }
-
-    private fun getStreamBufferDir(context: Context): File {
-        val dir = File(context.cacheDir, "aura_stream_full_buffer")
-        if (!dir.exists()) dir.mkdirs()
-        return dir
-    }
-
-    private fun getLegacyCacheDir(context: Context): File {
-        val dir = File(context.cacheDir, "aura_online_audio_cache")
-        if (!dir.exists()) dir.mkdirs()
-        return dir
     }
 
     fun normalizeKey(trackId: String): String {
@@ -1179,18 +904,12 @@ object OnlineCacheHolder {
 
     fun refreshDownloadedSet(context: Context) {
         val ids = mutableSetOf<String>()
-        listOf(getCacheDir(context), getInternalDownloadedDir(context), getLegacyCacheDir(context)).forEach { dir ->
-            dir.listFiles()?.forEach { f ->
-                if (f.isFile && f.name.endsWith(".mp3")) {
-                    if (f.length() >= MIN_FULL_SONG_BYTES) {
-                        val rawId = f.name.removePrefix("aura_track_").removeSuffix(".mp3")
-                        ids.add(rawId)
-                        ids.add("online_$rawId")
-                    } else if (f.length() < MIN_FULL_SONG_BYTES && f.name.startsWith("aura_track_")) {
-                        // پاکسازی کلیپ‌های ناقص یا ۳۰ ثانیه‌ای گذشته تا حافظه گوشی اشغال نشود
-                        try { f.delete() } catch (_: Exception) {}
-                    }
-                }
+        val dir = getMusicDownloadDir(context)
+        dir.listFiles()?.forEach { f ->
+            if (f.isFile && f.name.endsWith(".mp3") && f.length() > MIN_VALID_AUDIO_BYTES) {
+                val rawId = f.name.removePrefix("aura_track_").removeSuffix(".mp3")
+                ids.add(rawId)
+                ids.add("online_$rawId")
             }
         }
         _downloadedTrackIds.value = ids
@@ -1202,128 +921,68 @@ object OnlineCacheHolder {
 
     fun getCachedFileIfPresent(context: Context, trackId: String): File? {
         val key = normalizeKey(trackId)
-        val primary = File(getCacheDir(context), key)
-        if (primary.exists()) {
-            if (primary.length() >= MIN_FULL_SONG_BYTES) {
-                primary.setLastModified(System.currentTimeMillis())
-                return primary
-            } else {
-                try { primary.delete() } catch (_: Exception) {}
-            }
-        }
-        val internal = File(getInternalDownloadedDir(context), key)
-        if (internal.exists()) {
-            if (internal.length() >= MIN_FULL_SONG_BYTES) {
-                internal.setLastModified(System.currentTimeMillis())
-                return internal
-            } else {
-                try { internal.delete() } catch (_: Exception) {}
-            }
-        }
-        val legacy = File(getLegacyCacheDir(context), key)
-        if (legacy.exists()) {
-            if (legacy.length() >= MIN_FULL_SONG_BYTES) {
-                legacy.setLastModified(System.currentTimeMillis())
-                return legacy
-            } else {
-                try { legacy.delete() } catch (_: Exception) {}
-            }
-        }
-        return null
+        val file = File(getMusicDownloadDir(context), key)
+        return if (file.exists() && file.length() > MIN_VALID_AUDIO_BYTES) file else null
     }
 
     fun getStreamBufferFileIfPresent(context: Context, trackId: String): File? {
-        val key = normalizeKey(trackId)
-        val buffered = File(getStreamBufferDir(context), key)
-        return if (buffered.exists() && buffered.length() >= MIN_FULL_SONG_BYTES) {
-            buffered.setLastModified(System.currentTimeMillis())
-            buffered
-        } else null
+        return getCachedFileIfPresent(context, trackId)
     }
 
-    fun getCurrentCacheSizeBytes(context: Context): Long {
-        val s1 = getCacheDir(context).listFiles()?.sumOf { it.length() } ?: 0L
-        val s2 = getInternalDownloadedDir(context).listFiles()?.sumOf { it.length() } ?: 0L
-        val s3 = getLegacyCacheDir(context).listFiles()?.sumOf { it.length() } ?: 0L
-        return s1 + s2 + s3
+    fun warmStreamBufferInBackground(
+        context: Context,
+        track: Track,
+        onBuffered: ((File?) -> Unit)? = null
+    ) {
+        // استریم مستقیم بدون کش میانی (طبق درخواست کاربر)
+        onBuffered?.invoke(getCachedFileIfPresent(context, track.id))
     }
 
-    fun getCachedTracksCount(context: Context): Int {
-        val c1 = getCacheDir(context).listFiles()?.count { it.isFile && it.length() > MIN_VALID_AUDIO_BYTES } ?: 0
-        val c2 = getInternalDownloadedDir(context).listFiles()?.count { it.isFile && it.length() > MIN_VALID_AUDIO_BYTES } ?: 0
-        val c3 = getLegacyCacheDir(context).listFiles()?.count { it.isFile && it.length() > MIN_VALID_AUDIO_BYTES } ?: 0
-        return c1 + c2 + c3
-    }
-
-    /**
-     * دانلود کامل و واقعی فایل صوتی (Full File Download) با HttpURLConnection در Dispatchers.IO
-     * همراه با گزارش لحظه‌ای درصد پیشرفت (0 تا 100 درصد) و پشتیبانی از Cross-Protocol Redirects و HTTP Range Resume
-     */
-    private fun downloadUrlToTempFile(
-        urlStr: String,
-        tempFile: File,
-        depth: Int = 0,
+    private fun downloadFromUrlToFile(
+        targetUrl: String,
+        destFile: File,
         onProgress: ((Int) -> Unit)? = null
     ): Boolean {
-        if (depth > 5 || urlStr.isBlank()) return false
-        var currentUrl = urlStr
+        if (targetUrl.isBlank()) return false
+        var currentUrl = targetUrl
         var redirects = 0
-        val connectTimeoutMs = 20000
-        val readTimeoutMs = 20000
-
         while (redirects < 6) {
             var conn: HttpURLConnection? = null
             try {
                 conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
                     instanceFollowRedirects = false
-                    connectTimeout = connectTimeoutMs
-                    readTimeout = readTimeoutMs.coerceAtLeast(20000)
+                    connectTimeout = 15000
+                    readTimeout = 20000
                     requestMethod = "GET"
                     setRequestProperty("User-Agent", "Mozilla/5.0")
                     setRequestProperty("Accept", "*/*")
-                    setRequestProperty("Accept-Encoding", "identity")
-                    setRequestProperty("Connection", "keep-alive")
                 }
-
                 val code = conn.responseCode
                 if (code in listOf(301, 302, 303, 307, 308)) {
-                    val location = conn.getHeaderField("Location")
+                    val loc = conn.getHeaderField("Location")
                     conn.disconnect()
-                    if (location.isNullOrBlank()) return false
-                    currentUrl = URL(URL(currentUrl), location).toString()
+                    if (loc.isNullOrBlank()) return false
+                    currentUrl = URL(URL(currentUrl), loc).toString()
                     redirects++
                     continue
                 }
-
                 if (code in 200..299) {
-                    val contentType = (conn.contentType ?: "").lowercase()
-                    if (contentType.contains("text/html")) {
-                        conn.disconnect()
-                        return false
-                    }
-
-                    val expectedTotalBytes = conn.contentLengthLong
-                    val estimatedBytesForProgress = if (expectedTotalBytes > MIN_VALID_AUDIO_BYTES) {
-                        expectedTotalBytes
-                    } else {
-                        3_800_000L
-                    }
-                    if (tempFile.exists()) tempFile.delete()
+                    val totalBytes = conn.contentLengthLong
+                    val estTotal = if (totalBytes > MIN_VALID_AUDIO_BYTES) totalBytes else 4_000_000L
+                    if (destFile.exists()) destFile.delete()
                     onProgress?.invoke(1)
-
-                    var totalBytesRead = 0L
-                    var lastReportedPct = 1
-
+                    var downloaded = 0L
+                    var lastPct = 1
                     conn.inputStream.use { input ->
-                        FileOutputStream(tempFile).use { output ->
-                            val buf = ByteArray(32 * 1024)
+                        FileOutputStream(destFile).use { output ->
+                            val buffer = ByteArray(32 * 1024)
                             var read: Int
-                            while (input.read(buf).also { read = it } != -1) {
-                                output.write(buf, 0, read)
-                                totalBytesRead += read
-                                val pct = ((totalBytesRead * 98L) / estimatedBytesForProgress).toInt().coerceIn(1, 98)
-                                if (pct > lastReportedPct) {
-                                    lastReportedPct = pct
+                            while (input.read(buffer).also { read = it } != -1) {
+                                output.write(buffer, 0, read)
+                                downloaded += read
+                                val pct = ((downloaded * 99L) / estTotal).toInt().coerceIn(1, 99)
+                                if (pct > lastPct) {
+                                    lastPct = pct
                                     onProgress?.invoke(pct)
                                 }
                             }
@@ -1331,277 +990,83 @@ object OnlineCacheHolder {
                         }
                     }
                     conn.disconnect()
-
-                    // اگر سرور یک JSON حاوی لینک دانلود (مانند download_url) برگردانده باشد، لینک داخل JSON را دانلود کن
-                    if (tempFile.exists() && (contentType.contains("json") || tempFile.length() in 10L..65535L)) {
-                        val text = try { tempFile.readText().trim() } catch (_: Exception) { "" }
-                        if (text.startsWith("{")) {
-                            tempFile.delete()
-                            val json = JSONObject(text)
-                            val innerUrl = json.optString("download_url")
-                                .ifBlank { json.optString("downloadUrl") }
-                                .ifBlank { json.optString("url") }
-                                .ifBlank { json.optString("streamUrl") }
-                                .ifBlank { json.optString("stream_url") }
-                                .ifBlank { json.optString("audioUrl") }
-                                .ifBlank { json.optString("audio_url") }
-                                .ifBlank { json.optString("stream") }
-                                .ifBlank { json.optString("link") }
-                                .ifBlank { json.optJSONObject("data")?.optString("download_url") ?: "" }
-                                .ifBlank { json.optJSONObject("data")?.optString("url") ?: "" }
-                            if (innerUrl.isNotBlank()) {
-                                val fullTargetUrl = if (innerUrl.startsWith("http")) {
-                                    innerUrl
-                                } else {
-                                    "${OnlineMusicRepository.BASE_URL}/${innerUrl.trimStart('/')}"
-                                }
-                                return downloadUrlToTempFile(fullTargetUrl, tempFile, depth + 1, onProgress)
-                            }
-                            return false
-                        } else if (text.startsWith("http://") || text.startsWith("https://")) {
-                            tempFile.delete()
-                            return downloadUrlToTempFile(text.lines().first().trim(), tempFile, depth + 1, onProgress)
-                        }
-                    }
-
-                    // اگر ارتباط شبکه قبل از دریافت ۱۰۰٪ بایت‌های فایل قطع شد، با HTTP Range ادامه فایل را تا بایت آخر دانلود کن
-                    var resumeAttempt = 0
-                    while (expectedTotalBytes > MIN_VALID_AUDIO_BYTES &&
-                        tempFile.exists() &&
-                        tempFile.length() in 1 until expectedTotalBytes &&
-                        resumeAttempt < 4
-                    ) {
-                        resumeAttempt++
-                        val downloadedSoFar = tempFile.length()
-                        var rangeConn: HttpURLConnection? = null
-                        try {
-                            rangeConn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
-                                instanceFollowRedirects = true
-                                connectTimeout = connectTimeoutMs
-                                readTimeout = readTimeoutMs.coerceAtLeast(25000)
-                                requestMethod = "GET"
-                                setRequestProperty("Range", "bytes=$downloadedSoFar-")
-                                setRequestProperty("Accept-Encoding", "identity")
-                                setRequestProperty("Connection", "keep-alive")
-                            }
-                            if (rangeConn.responseCode == HttpURLConnection.HTTP_PARTIAL) {
-                                rangeConn.inputStream.use { input ->
-                                    FileOutputStream(tempFile, true).use { output ->
-                                        val buf = ByteArray(32 * 1024)
-                                        var read: Int
-                                        var currentLen = downloadedSoFar
-                                        while (input.read(buf).also { read = it } != -1) {
-                                            output.write(buf, 0, read)
-                                            currentLen += read
-                                            val pct = ((currentLen * 99L) / expectedTotalBytes).toInt().coerceIn(lastReportedPct, 99)
-                                            if (pct > lastReportedPct) {
-                                                lastReportedPct = pct
-                                                onProgress?.invoke(pct)
-                                            }
-                                        }
-                                        output.flush()
-                                    }
-                                }
-                            } else {
-                                break
-                            }
-                        } catch (_: Exception) {
-                            break
-                        } finally {
-                            try { rangeConn?.disconnect() } catch (_: Exception) {}
-                        }
-                    }
-
-                    if (tempFile.exists() && tempFile.length() > MIN_VALID_AUDIO_BYTES) {
-                        if (expectedTotalBytes > 0 && tempFile.length() < (expectedTotalBytes * 0.92f).toLong()) {
-                            tempFile.delete()
-                            return false
-                        }
+                    if (destFile.exists() && destFile.length() > MIN_VALID_AUDIO_BYTES) {
                         onProgress?.invoke(100)
                         return true
                     }
-                    tempFile.delete()
+                    destFile.delete()
                     return false
                 } else {
                     conn.disconnect()
                     return false
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                e.printStackTrace()
                 try { conn?.disconnect() } catch (_: Exception) {}
-                if (tempFile.exists()) tempFile.delete()
+                if (destFile.exists()) destFile.delete()
                 return false
             }
         }
         return false
     }
 
-    /**
-     * دانلود کامل و واقعی فایل صوتی (Full Track Download):
-     * ۱. تلاش برای دانلود از سرور کلودفلر با پارامتر dl=1
-     * ۲. دریافت استریم کامل آهنگ از منابع جهانی (JioSaavn / Audius)
-     * ۳. اعتبارسنجی حجم فایل صوتی تا پیش‌نمایش ۳۰ ثانیه‌ای هرگز به جای فایل کامل ذخیره نشود
-     */
-    private suspend fun fetchCompleteTrackFile(
-        track: Track,
-        tempFile: File,
-        onProgress: ((Int) -> Unit)? = null
-    ): Boolean = withContext(Dispatchers.IO) {
-        val rawId = track.id.removePrefix("online_")
-        val cleanArtist = track.artist.substringBefore(" feat").substringBefore(" ft.").trim()
-        val cleanTitle = track.title.substringBefore(" (feat").substringBefore(" [").trim()
-        val encodedQuery = URLEncoder.encode("$cleanArtist - $cleanTitle", "UTF-8")
-        val workerDownloadUrl = "${OnlineMusicRepository.BASE_URL}/?id=$rawId&q=$encodedQuery&dl=1"
-
-        // ۱. گام اول: تلاش برای دانلود مستقیم فایل کامل از سرور کلودفلر
-        val downloadedFromWorker = downloadUrlToTempFile(workerDownloadUrl, tempFile, onProgress = onProgress)
-        if (downloadedFromWorker && tempFile.exists() && tempFile.length() >= MIN_FULL_SONG_BYTES) {
-            return@withContext true
-        }
-
-        // ۲. گام دوم: دریافت مستقیم لینک صوتی کامل (Full Length 320/160kbps) از منابع جهانی
-        try {
-            val fullLengthUrl = OnlineMusicRepository.resolveFullLengthAudioUrl(cleanArtist, cleanTitle)
-            if (!fullLengthUrl.isNullOrBlank()) {
-                val fullDl = downloadUrlToTempFile(fullLengthUrl, tempFile, onProgress = onProgress)
-                if (fullDl && tempFile.exists() && tempFile.length() >= MIN_FULL_SONG_BYTES) {
-                    return@withContext true
-                }
-            }
-        } catch (_: Exception) {}
-
-        // ۳. گام سوم: جستجوی نسخه کامل از Audius از طریق پروکسی کلادفلر
-        try {
-            val audiusSearchUrl = OnlineMusicRepository.buildWorkerProxyUrl(
-                "https://discoveryprovider.audius.co/v1/tracks/search?query=${URLEncoder.encode("$cleanArtist $cleanTitle", "UTF-8")}&app_name=AuraMusic"
-            )
-            var audiusConn: HttpURLConnection? = null
-            try {
-                audiusConn = (URL(audiusSearchUrl).openConnection() as HttpURLConnection).apply {
-                    instanceFollowRedirects = true
-                    connectTimeout = 8000
-                    readTimeout = 8000
-                    setRequestProperty("User-Agent", "Mozilla/5.0")
-                }
-                if (audiusConn.responseCode in 200..299) {
-                    val body = audiusConn.inputStream.bufferedReader().use { it.readText() }
-                    val dataArr = JSONObject(body).optJSONArray("data")
-                    if (dataArr != null && dataArr.length() > 0) {
-                        for (i in 0 until minOf(dataArr.length(), 4)) {
-                            val item = dataArr.optJSONObject(i) ?: continue
-                            val itemId = item.optString("id")
-                            val dur = item.optInt("duration", 0)
-                            if (itemId.isNotBlank() && dur >= 60) {
-                                val streamTarget = "https://discoveryprovider.audius.co/v1/tracks/$itemId/stream?app_name=AuraMusic"
-                                val proxiedStream = OnlineMusicRepository.buildWorkerProxyUrl(streamTarget)
-                                val audiusDownloaded = downloadUrlToTempFile(proxiedStream, tempFile, onProgress = onProgress)
-                                if (audiusDownloaded && tempFile.exists() && tempFile.length() >= MIN_FULL_SONG_BYTES) {
-                                    return@withContext true
-                                }
-                            }
-                        }
-                    }
-                }
-            } finally {
-                audiusConn?.disconnect()
-            }
-        } catch (_: Exception) {}
-
-        // ۴. گام چهارم: اگر track.uri لینک مستقیم متفاوتی بود (غیر از لینک‌های پیش‌نمایش dzcdn)
-        if (track.uri.startsWith("http") && !track.uri.contains("dzcdn.net") && track.uri != workerDownloadUrl) {
-            val fromTrackUri = downloadUrlToTempFile(track.uri, tempFile, onProgress = onProgress)
-            if (fromTrackUri && tempFile.exists() && tempFile.length() >= MIN_FULL_SONG_BYTES) {
-                return@withContext true
-            }
-        }
-
-        // اگر هیچ نسخه کاملی دریافت نشد، هر فایل ناقص زیر ۸۵۰ کیلوبایت حذف می‌شود تا آهنگ نصفه ذخیره نشود
-        if (tempFile.exists() && tempFile.length() < MIN_FULL_SONG_BYTES) {
-            tempFile.delete()
-            return@withContext false
-        }
-
-        tempFile.exists() && tempFile.length() >= MIN_FULL_SONG_BYTES
+    fun getCoverFileForTrack(context: Context, trackId: String): File {
+        val clean = trackId.removePrefix("online_").replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        return File(getMusicDownloadDir(context), "aura_cover_$clean.jpg")
     }
 
-    /**
-     * بافر کردن نسخه کامل آهنگ در حافظه موقت هنگام پخش آنلاین تا وسط آهنگ نپرد یا قطع نشود
-     */
-    fun warmStreamBufferInBackground(
-        context: Context,
-        track: Track,
-        onBuffered: ((File?) -> Unit)? = null
-    ) {
-        val rawId = track.id.removePrefix("online_")
-        val key = normalizeKey(rawId)
-        getCachedFileIfPresent(context, rawId)?.let {
-            onBuffered?.invoke(it)
-            return
-        }
-        getStreamBufferFileIfPresent(context, rawId)?.let {
-            onBuffered?.invoke(it)
-            return
-        }
-
-        synchronized(activeStreamBuffers) {
-            if (activeStreamBuffers.contains(key)) return
-            activeStreamBuffers.add(key)
-        }
-
-        val appCtx = context.applicationContext
-        cacheScope.launch(Dispatchers.IO) {
-            val bufferDir = getStreamBufferDir(appCtx)
-            val tempFile = File(bufferDir, "$key.stream.tmp")
-            val finalBufferFile = File(bufferDir, key)
-            var result: File? = null
-            try {
-                val existingBuffers = bufferDir.listFiles()?.filter { it.isFile && it.name.endsWith(".mp3") }?.sortedBy { it.lastModified() } ?: emptyList()
-                if (existingBuffers.size > 8) {
-                    existingBuffers.take(existingBuffers.size - 8).forEach { try { it.delete() } catch (_: Exception) {} }
-                }
-
-                val ok = fetchCompleteTrackFile(track, tempFile)
-                if (ok && tempFile.exists() && tempFile.length() > MIN_VALID_AUDIO_BYTES) {
-                    if (finalBufferFile.exists()) finalBufferFile.delete()
-                    val moved = tempFile.renameTo(finalBufferFile)
-                    if (!moved) {
-                        tempFile.copyTo(finalBufferFile, overwrite = true)
-                        tempFile.delete()
-                    }
-                    if (finalBufferFile.exists()) {
-                        result = finalBufferFile
-                    }
-                }
-            } catch (_: Exception) {
-                if (tempFile.exists()) tempFile.delete()
-            } finally {
-                synchronized(activeStreamBuffers) {
-                    activeStreamBuffers.remove(key)
-                }
-                withContext(Dispatchers.Main) {
-                    onBuffered?.invoke(result)
-                }
-            }
-        }
-    }
-
-    /**
-     * ثبت خودکار فایل دانلودشده در دیتابیس محلی (MusicRepository / MusicDao)
-     * تا بلافاصله در تب کتابخانه آفلاین (LibraryScreen) در دسترس باشد.
-     */
     private suspend fun registerDownloadedFileInLocalDatabase(track: Track, downloadedFile: File) = withContext(Dispatchers.IO) {
         try {
+            val appCtx = AuraApplication.instance.applicationContext
+            var embeddedCoverBytes: ByteArray? = null
             val realDurMs = try {
-                val mmr = android.media.MediaMetadataRetriever()
-                mmr.setDataSource(downloadedFile.absolutePath)
-                val d = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
-                mmr.release()
-                if (d != null && d > 5_000L) d else track.durationMs
+                val mmr = MediaMetadataRetriever()
+                try {
+                    mmr.setDataSource(downloadedFile.absolutePath)
+                    val d = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                    embeddedCoverBytes = mmr.embeddedPicture
+                    if (d != null && d > 1000L) d else track.durationMs
+                } finally {
+                    try { mmr.release() } catch (_: Exception) {}
+                }
             } catch (_: Exception) {
                 track.durationMs
             }
+
+            val coverFile = getCoverFileForTrack(appCtx, track.id)
+            var finalArtworkUri = track.artworkUri?.takeIf { it.isNotBlank() }
+                ?: OnlineMusicRepository.getCoverUrlForTrack(track.id, track.artist).takeIf { it.isNotBlank() }
+
+            try {
+                if (embeddedCoverBytes != null && embeddedCoverBytes!!.isNotEmpty()) {
+                    FileOutputStream(coverFile).use { it.write(embeddedCoverBytes!!) }
+                    BitmapFactory.decodeByteArray(embeddedCoverBytes, 0, embeddedCoverBytes!!.size)?.let { bmp ->
+                        OnlineMusicRepository.cacheCoverBitmap(coverFile.absolutePath, bmp)
+                        if (!finalArtworkUri.isNullOrBlank()) {
+                            OnlineMusicRepository.cacheCoverBitmap(finalArtworkUri!!, bmp)
+                        }
+                    }
+                    finalArtworkUri = coverFile.absolutePath
+                    OnlineMusicRepository.registerCoverUrlForTrack(track.id, coverFile.absolutePath)
+                } else if (!finalArtworkUri.isNullOrBlank() && (finalArtworkUri!!.startsWith("http") || finalArtworkUri!!.startsWith("/img"))) {
+                    val bmp = OnlineMusicRepository.loadCoverBitmapBlocking(finalArtworkUri!!)
+                    if (bmp != null) {
+                        FileOutputStream(coverFile).use { out ->
+                            bmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                        }
+                        if (coverFile.exists() && coverFile.length() > 512L) {
+                            OnlineMusicRepository.cacheCoverBitmap(coverFile.absolutePath, bmp)
+                            finalArtworkUri = coverFile.absolutePath
+                            OnlineMusicRepository.registerCoverUrlForTrack(track.id, coverFile.absolutePath)
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+
             val savedTrack = track.copy(
                 id = if (track.id.startsWith("online_")) track.id else "online_${track.id}",
                 uri = downloadedFile.absolutePath,
+                artworkUri = finalArtworkUri,
                 durationMs = realDurMs,
                 dateAdded = System.currentTimeMillis(),
                 isDemo = false
@@ -1610,28 +1075,32 @@ object OnlineCacheHolder {
         } catch (_: Exception) {}
     }
 
-    /**
-     * دانلود کامل آهنگ (Full File Download) با HttpURLConnection در Dispatchers.IO:
-     * ۱. کل فایل صوتی را تا بایت آخر از "$WORKER_URL/?id=${track.id}&q=$encodedQuery&dl=1" در پوشه getExternalFilesDir(Environment.DIRECTORY_MUSIC) ذخیره می‌کند.
-     * ۲. وضعیت درصد دانلود (0 تا 100 درصد) را لحظه‌به‌لحظه منتشر می‌کند.
-     * ۳. پس از اتمام دانلود، فایل را در دیتابیس محلی (MusicRepository / MusicDao) ثبت می‌کند تا در LibraryScreen در دسترس باشد.
-     */
+    fun downloadOnlineTrack(
+        context: Context,
+        onlineTrack: OnlineTrack,
+        onComplete: ((File?) -> Unit)? = null
+    ) {
+        val dlUrl = onlineTrack.resolvedDownloadUrl()
+        val appTrack = onlineTrack.toAppTrack(onlineTrack.resolvedStreamUrl())
+        downloadTrackExplicitly(context, appTrack, explicitDownloadUrl = dlUrl, onComplete = onComplete)
+    }
+
     fun downloadTrackExplicitly(
         context: Context,
         track: Track,
+        explicitDownloadUrl: String? = null,
         onComplete: ((File?) -> Unit)? = null
     ) {
         val rawId = track.id.removePrefix("online_")
         val key = normalizeKey(rawId)
-        val existing = getCachedFileIfPresent(context, rawId)
-        if (existing != null && existing.length() >= MIN_FULL_SONG_BYTES) {
-            updateTrackDownloadProgress(rawId, 100)
+        getCachedFileIfPresent(context, rawId)?.let { existing ->
             refreshDownloadedSet(context)
-            cacheScope.launch(Dispatchers.IO) {
+            downloadScope.launch {
                 registerDownloadedFileInLocalDatabase(track, existing)
-                updateTrackDownloadProgress(rawId, null)
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke(existing)
+                }
             }
-            onComplete?.invoke(existing)
             return
         }
 
@@ -1639,48 +1108,42 @@ object OnlineCacheHolder {
             if (activeDownloads.contains(key)) return
             activeDownloads.add(key)
         }
+
         _downloadingTrackIds.value = _downloadingTrackIds.value + setOf(rawId, "online_$rawId")
-        updateTrackDownloadProgress(rawId, 0)
+        updateTrackDownloadProgress(rawId, 1)
 
         val appCtx = context.applicationContext
-        cacheScope.launch(Dispatchers.IO) {
-            val musicDir = getCacheDir(appCtx)
+        downloadScope.launch {
+            val musicDir = getMusicDownloadDir(appCtx)
             val tempFile = File(musicDir, "$key.tmp")
             val finalFile = File(musicDir, key)
             var resultFile: File? = null
-
             try {
-                val alreadyBuffered = getStreamBufferFileIfPresent(appCtx, rawId)
-                if (alreadyBuffered != null && alreadyBuffered.length() >= MIN_FULL_SONG_BYTES) {
-                    updateTrackDownloadProgress(rawId, 60)
-                    alreadyBuffered.copyTo(finalFile, overwrite = true)
-                    updateTrackDownloadProgress(rawId, 100)
-                    resultFile = finalFile
-                } else {
-                    val downloaded = fetchCompleteTrackFile(track, tempFile) { pct ->
-                        updateTrackDownloadProgress(rawId, pct)
-                    }
-                    if (downloaded && tempFile.exists() && tempFile.length() >= MIN_FULL_SONG_BYTES) {
-                        if (finalFile.exists()) finalFile.delete()
-                        val moved = tempFile.renameTo(finalFile)
-                        if (!moved) {
-                            tempFile.copyTo(finalFile, overwrite = true)
-                            tempFile.delete()
-                        }
-                        if (finalFile.exists() && finalFile.length() >= MIN_FULL_SONG_BYTES) {
-                            updateTrackDownloadProgress(rawId, 100)
-                            resultFile = finalFile
-                        }
-                    } else {
-                        if (tempFile.exists()) tempFile.delete()
-                    }
-                }
+                val targetUrl = explicitDownloadUrl?.takeIf { it.isNotBlank() }
+                    ?: OnlineMusicRepository.getDownloadUrlForTrack(rawId)
+                    ?: track.uri.takeIf { it.startsWith("http") }
+                    ?: OnlineMusicRepository.buildDownloadUrl(rawId, track.artist, track.title)
 
-                // ثبت خودکار فایل دانلودشده در دیتابیس محلی (MusicRepository / MusicDao) برای نمایش در تب LibraryScreen
-                if (resultFile != null) {
-                    registerDownloadedFileInLocalDatabase(track, resultFile!!)
+                val ok = downloadFromUrlToFile(targetUrl, tempFile) { pct ->
+                    updateTrackDownloadProgress(rawId, pct)
                 }
-            } catch (_: Exception) {
+                if (ok && tempFile.exists() && tempFile.length() > MIN_VALID_AUDIO_BYTES) {
+                    if (finalFile.exists()) finalFile.delete()
+                    val moved = tempFile.renameTo(finalFile)
+                    if (!moved) {
+                        tempFile.copyTo(finalFile, overwrite = true)
+                        tempFile.delete()
+                    }
+                    if (finalFile.exists()) {
+                        updateTrackDownloadProgress(rawId, 100)
+                        resultFile = finalFile
+                        registerDownloadedFileInLocalDatabase(track, finalFile)
+                    }
+                } else {
+                    if (tempFile.exists()) tempFile.delete()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
                 if (tempFile.exists()) tempFile.delete()
             } finally {
                 synchronized(activeDownloads) {
@@ -1697,6 +1160,10 @@ object OnlineCacheHolder {
     }
 }
 
+/**
+ * صفحه استریم و آرشیو آنلاین متصل به Cloudflare Worker و کانال تلگرام
+ * با طراحی Spotify + Liquid Glass
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OnlineMusicScreen(
@@ -1714,151 +1181,41 @@ fun OnlineMusicScreen(
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val isFa = lang == AppLanguage.PERSIAN
+    val spotifyGreen = Color(0xFF1ED760)
 
     var searchQuery by remember { mutableStateOf("") }
-    var selectedCategoryTag by remember { mutableStateOf("Travis Scott Playboi Carti Drake") }
+    var selectedArtist by remember { mutableStateOf<ArchiveArtistItem?>(null) }
+
+    var allArtists by remember { mutableStateOf<List<ArchiveArtistItem>>(emptyList()) }
+    var matchedArtists by remember { mutableStateOf<List<ArchiveArtistItem>>(emptyList()) }
     var tracks by remember { mutableStateOf<List<OnlineTrack>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    // وضعیت پخش در ExoPlayer مستقیم
+    var currentQueue by remember { mutableStateOf<List<OnlineTrack>>(emptyList()) }
+    var currentQueueIndex by remember { mutableStateOf(-1) }
     var currentTrack by remember { mutableStateOf<OnlineTrack?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(false) }
-    var progress by remember { mutableFloatStateOf(0f) }
-    var searchJob by remember { mutableStateOf<Job?>(null) }
-    var hasRetriedCurrentTrack by remember { mutableStateOf(false) }
+    var currentPositionMs by remember { mutableLongStateOf(0L) }
+    var totalDurationMs by remember { mutableLongStateOf(0L) }
 
-    // کش عکس خواننده‌های معروف دنیا برای نمایش در ردیف اسپاتیفای
-    val artistPhotoMap = remember { mutableStateMapOf<String, String>() }
-
-    // وضعیت پروفایل خواننده (Spotify Artist Profile Sheet)
-    var selectedArtistProfile by remember { mutableStateOf<OnlineArtistProfile?>(null) }
-    var artistTopTracks by remember { mutableStateOf<List<OnlineTrack>>(emptyList()) }
-    var isLoadingArtistTracks by remember { mutableStateOf(false) }
-
-    // وضعیت پلی‌لیست هوشمند (Smart Playlist Sheet)
-    var selectedSmartPlaylist by remember { mutableStateOf<OnlineSmartPlaylist?>(null) }
-    var smartPlaylistTracks by remember { mutableStateOf<List<OnlineTrack>>(emptyList()) }
-    var isLoadingSmartPlaylist by remember { mutableStateOf(false) }
-
-    var activeLyricsTrack by remember { mutableStateOf<OnlineTrack?>(null) }
-    var activeLyricsLines by remember { mutableStateOf<List<LyricLine>>(emptyList()) }
-    var isFetchingLyrics by remember { mutableStateOf(false) }
+    var fetchJob by remember { mutableStateOf<Job?>(null) }
 
     val downloadingIds by OnlineCacheHolder.downloadingTrackIds.collectAsState()
     val downloadProgressMap by OnlineCacheHolder.downloadProgressMap.collectAsState()
     val downloadedIds by OnlineCacheHolder.downloadedTrackIds.collectAsState()
 
-    val genZCategories = remember(isFa) {
-        listOf(
-            "Travis Scott Playboi Carti Drake" to (if (isFa) "🔥 ترند نسل زد" else "🔥 Gen-Z Viral"),
-            "Playboi Carti Yeat Don Toliver Billie Eilish" to (if (isFa) "📸 اینستا و تیک‌تاک" else "📸 Reels & TikTok"),
-            "Kendrick Lamar The Weeknd Post Malone" to (if (isFa) "▶️ ترند یوتیوب" else "▶️ YouTube Hits"),
-            "Travis Scott Future Metro Boomin 21 Savage" to (if (isFa) "🎤 رپرهای معروف" else "🎤 Top Rappers"),
-            "Playboi Carti Yeat" to "🧛 Carti & Yeat",
-            "Drake Central Cee" to "🦉 Drake & Cench",
-            "Hiphopologist Chvrsi Poori Shapoor" to (if (isFa) "💎 رپ فارسی" else "💎 Rap Farsi"),
-            "Kordhell Interworld Phonk" to (if (isFa) "⚡ فونک" else "⚡ Phonk")
-        )
-    }
-
-    val smartPlaylists = remember(tracks, searchQuery) {
-        OnlineTasteEngine.buildSmartPlaylists(context, tracks)
-    }
-
-    // استخراج خواننده‌های مرتبط با جستجوی فعلی کاربر
-    val searchedArtistsFromResults = remember(tracks, searchQuery) {
-        if (searchQuery.trim().length < 2) {
-            emptyList()
-        } else {
-            tracks
-                .groupBy { it.artist.substringBefore(" feat").substringBefore(" ft.").substringBefore(",").trim() }
-                .entries
-                .map { (artistName, artistTracks) ->
-                    val pic = artistTracks.firstNotNullOfOrNull { it.artistPictureUrl.takeIf { p -> p.isNotBlank() } }
-                        ?: OnlineMusicRepository.getArtistPicture(artistName)
-                        ?: artistTracks.firstOrNull()?.coverUrl
-                        ?: ""
-                    OnlineArtistProfile(
-                        name = artistName,
-                        roleLabelFa = "${artistTracks.size} آهنگ محبوب • ریتینگ بالا",
-                        roleLabelEn = "${artistTracks.size} Popular Tracks • Top Rated",
-                        defaultQuery = artistName,
-                        pictureUrl = pic
-                    )
-                }
-                .take(5)
-        }
-    }
-
-    // ساخت ExoPlayer مستقیم با DefaultHttpDataSource.Factory بدون هیچ SimpleCache یا CacheDataSource
-    // به همراه محافظ ضد 404 در لایه DataSource که در صورت 404 بودن /?id=...&q=... بلافاصله استریم را از مسیر /img?u= کلادفلر باز می‌کند
+    // پلیر ExoPlayer مستقیم با DefaultHttpDataSource.Factory و بدون هیچگونه SimpleCache
     val exoPlayer = remember(context) {
-        val baseHttpFactory = DefaultHttpDataSource.Factory()
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(25000)
-            .setReadTimeoutMs(25000)
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(15000)
             .setUserAgent("Mozilla/5.0")
 
-        val resolvedUrlByOriginalUri = ConcurrentHashMap<String, String>()
-
-        val resilientHttpFactory = DataSource.Factory {
-            val delegate = baseHttpFactory.createDataSource()
-            object : DataSource {
-                override fun addTransferListener(transferListener: TransferListener) {
-                    delegate.addTransferListener(transferListener)
-                }
-
-                override fun open(dataSpec: DataSpec): Long {
-                    val originalUri = dataSpec.uri
-                    val originalUrlStr = originalUri.toString()
-
-                    val alreadyResolved = resolvedUrlByOriginalUri[originalUrlStr]
-                    val initialSpec = if (!alreadyResolved.isNullOrBlank()) {
-                        dataSpec.buildUpon().setUri(Uri.parse(alreadyResolved)).build()
-                    } else {
-                        dataSpec
-                    }
-
-                    return try {
-                        delegate.open(initialSpec)
-                    } catch (e: Exception) {
-                        try {
-                            delegate.close()
-                        } catch (_: Exception) {}
-
-                        val trackIdParam = originalUri.getQueryParameter("id") ?: ""
-                        val queryParam = originalUri.getQueryParameter("q") ?: ""
-                        val fallbackStreamUrl = if (originalUrlStr.startsWith(WORKER_URL) || originalUrlStr.startsWith(OnlineMusicRepository.BASE_URL)) {
-                            OnlineMusicRepository.resolveGuaranteedWorkerStreamUrlBlocking(trackIdParam, queryParam)
-                        } else null
-
-                        if (!fallbackStreamUrl.isNullOrBlank() && fallbackStreamUrl != originalUrlStr) {
-                            resolvedUrlByOriginalUri[originalUrlStr] = fallbackStreamUrl
-                            val fallbackSpec = dataSpec.buildUpon()
-                                .setUri(Uri.parse(fallbackStreamUrl))
-                                .build()
-                            delegate.open(fallbackSpec)
-                        } else {
-                            throw e
-                        }
-                    }
-                }
-
-                override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-                    return delegate.read(buffer, offset, length)
-                }
-
-                override fun getUri(): Uri? = delegate.uri
-
-                override fun getResponseHeaders(): Map<String, List<String>> = delegate.responseHeaders
-
-                override fun close() {
-                    delegate.close()
-                }
-            }
-        }
-
         val mediaSourceFactory = DefaultMediaSourceFactory(
-            DefaultDataSource.Factory(context, resilientHttpFactory)
+            DefaultDataSource.Factory(context, httpDataSourceFactory)
         )
 
         ExoPlayer.Builder(context)
@@ -1866,15 +1223,151 @@ fun OnlineMusicScreen(
             .build()
     }
 
+    // هندل کردن دکمه بازگشت گوشی وقتی در صفحه اختصاصی خواننده (Artist View) هستیم
+    BackHandler(enabled = selectedArtist != null) {
+        selectedArtist = null
+    }
+
+    fun loadTracksFromServer(queryText: String, artistFilter: String) {
+        fetchJob?.cancel()
+        fetchJob = scope.launch {
+            isLoading = true
+            val response = OnlineMusicRepository.fetchFromWorker(
+                query = queryText,
+                artist = artistFilter
+            )
+            if (response.artists.isNotEmpty()) {
+                allArtists = response.artists
+            }
+            matchedArtists = response.matchedArtists
+            tracks = response.tracks
+            if (queryText.isNotBlank()) {
+                OnlineTasteEngine.recordSearchActivity(context, queryText, response.tracks)
+            }
+            isLoading = false
+        }
+    }
+
+    fun playTrackAtIndex(index: Int, queueList: List<OnlineTrack>) {
+        if (index !in queueList.indices) return
+        val target = queueList[index]
+        currentQueue = queueList
+        currentQueueIndex = index
+        currentTrack = target
+
+        val cachedFile = OnlineCacheHolder.getCachedFileIfPresent(context, target.id)
+        val playUri = if (cachedFile != null && cachedFile.exists()) {
+            cachedFile.absolutePath
+        } else {
+            target.resolvedStreamUrl()
+        }
+
+        // اگر پلیر اصلی برنامه (NowPlayingScreen) متصل است، مستقیماً آهنگ و صف پخش را به پلیر اصلی بفرست تا صفحه اصلی پلیر همراه با کاور ۳بعدی و اسلایدر باز شود
+        if (onExternalPlay != null) {
+            try {
+                exoPlayer.stop()
+                exoPlayer.clearMediaItems()
+            } catch (_: Exception) {}
+            isPlaying = false
+            isBuffering = false
+            onExternalPlay.invoke(target, playUri, queueList)
+            return
+        }
+
+        // متوقف کردن پلیر آفلاین در صورت فعال بودن
+        onPauseOfflinePlayer?.invoke()
+
+        isBuffering = true
+        currentPositionMs = 0L
+        totalDurationMs = (target.durationSec.coerceAtLeast(1) * 1000L)
+
+        try {
+            val mediaUri = if (playUri.startsWith("/")) Uri.fromFile(File(playUri)).toString() else playUri
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
+            exoPlayer.setMediaItem(MediaItem.fromUri(mediaUri))
+            exoPlayer.seekTo(0L)
+            exoPlayer.prepare()
+            exoPlayer.play()
+            if (exoPlayer.audioSessionId > 0) {
+                AuraDspController.bindToAudioSession(exoPlayer.audioSessionId)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            isBuffering = false
+            isPlaying = false
+        }
+
+        scope.launch(Dispatchers.IO) {
+            OnlineTasteEngine.recordTrackListen(context, target.toAppTrack(playUri))
+        }
+    }
+
+    fun playNextTrack() {
+        if (currentQueue.isEmpty()) return
+        val nextIndex = if (currentQueueIndex + 1 < currentQueue.size) currentQueueIndex + 1 else 0
+        playTrackAtIndex(nextIndex, currentQueue)
+    }
+
+    fun playPreviousTrack() {
+        if (currentQueue.isEmpty()) return
+        if (exoPlayer.currentPosition > 4000L) {
+            exoPlayer.seekTo(0L)
+            return
+        }
+        val prevIndex = if (currentQueueIndex - 1 >= 0) currentQueueIndex - 1 else currentQueue.lastIndex
+        playTrackAtIndex(prevIndex, currentQueue)
+    }
+
+    fun openArtistView(artistItem: ArchiveArtistItem) {
+        focusManager.clearFocus()
+        selectedArtist = artistItem
+        loadTracksFromServer(queryText = "", artistFilter = artistItem.name)
+    }
+
+    fun openArtistByName(artistName: String) {
+        val cleanName = artistName.trim()
+        if (cleanName.isBlank()) return
+        val existing = allArtists.firstOrNull { it.name.equals(cleanName, ignoreCase = true) }
+            ?: matchedArtists.firstOrNull { it.name.equals(cleanName, ignoreCase = true) }
+            ?: ArchiveArtistItem(
+                name = cleanName,
+                trackCount = tracks.count { it.artist.equals(cleanName, ignoreCase = true) },
+                cover = OnlineMusicRepository.getArtistPicture(cleanName) ?: ""
+            )
+        openArtistView(existing)
+    }
+
+    fun triggerTrackDownload(track: OnlineTrack) {
+        Toast.makeText(
+            context,
+            if (isFa) "در حال دانلود «${track.title}» در پوشه Music..." else "Downloading ${track.title}...",
+            Toast.LENGTH_SHORT
+        ).show()
+
+        OnlineCacheHolder.downloadOnlineTrack(context, track) { file ->
+            if (file != null && file.exists()) {
+                Toast.makeText(
+                    context,
+                    if (isFa) "«${track.title}» دانلود شد و به آهنگ‌های شما اضافه گردید ✓" else "${track.title} saved to your library ✓",
+                    Toast.LENGTH_SHORT
+                ).show()
+            } else {
+                Toast.makeText(
+                    context,
+                    if (isFa) "خطا در دانلود فایل صوتی" else "Download failed",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    // اتصال Player.Listener به ExoPlayer و اتصال مستقیم audioSessionId به اکولایزر (AuraDspController)
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
                 if (audioSessionId > 0) {
-                    try {
-                        AuraDspController.bindToAudioSession(audioSessionId)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
+                    AuraDspController.bindToAudioSession(audioSessionId)
                 }
             }
 
@@ -1884,17 +1377,19 @@ fun OnlineMusicScreen(
                     Player.STATE_READY -> {
                         isBuffering = false
                         isPlaying = exoPlayer.isPlaying
+                        val dur = exoPlayer.duration
+                        if (dur > 0) totalDurationMs = dur
                         if (exoPlayer.audioSessionId > 0) {
-                            try {
-                                AuraDspController.bindToAudioSession(exoPlayer.audioSessionId)
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
+                            AuraDspController.bindToAudioSession(exoPlayer.audioSessionId)
                         }
                     }
                     Player.STATE_ENDED -> {
-                        isPlaying = false
-                        progress = 0f
+                        if (currentQueue.isNotEmpty() && currentQueueIndex + 1 < currentQueue.size) {
+                            playNextTrack()
+                        } else {
+                            isPlaying = false
+                            currentPositionMs = 0L
+                        }
                     }
                 }
             }
@@ -1903,20 +1398,18 @@ fun OnlineMusicScreen(
                 isPlaying = playing
                 if (playing) {
                     isBuffering = false
+                    if (exoPlayer.audioSessionId > 0) {
+                        AuraDspController.bindToAudioSession(exoPlayer.audioSessionId)
+                    }
                 }
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                if (!hasRetriedCurrentTrack) {
-                    hasRetriedCurrentTrack = true
-                    exoPlayer.prepare()
-                    exoPlayer.play()
-                } else {
-                    isBuffering = false
-                    isPlaying = false
-                }
+                isBuffering = false
+                isPlaying = false
             }
         }
+
         exoPlayer.addListener(listener)
         onDispose {
             try {
@@ -1927,195 +1420,29 @@ fun OnlineMusicScreen(
         }
     }
 
+    // به‌روزرسانی زنده اسلایدر زمان پخش
     LaunchedEffect(isPlaying, exoPlayer) {
         while (isActive && isPlaying) {
-            try {
-                val duration = exoPlayer.duration.coerceAtLeast(1L)
-                val position = exoPlayer.currentPosition.coerceAtLeast(0L)
-                progress = (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-            } catch (_: Exception) {}
-            delay(400)
+            currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+            val dur = exoPlayer.duration
+            if (dur > 0) totalDurationMs = dur
+            delay(250L)
         }
     }
 
-    LaunchedEffect(isGlobalPlayerPlaying) {
-        if (isGlobalPlayerPlaying && exoPlayer.isPlaying) {
-            exoPlayer.pause()
-            isPlaying = false
-        }
-    }
-
+    // بارگذاری اولیه آرشیو و جستجوی هوشمند با Debounce
     LaunchedEffect(Unit) {
         OnlineCacheHolder.refreshDownloadedSet(context)
-        isLoading = true
-        val initial = OnlineMusicRepository.searchCatalog(selectedCategoryTag)
-        tracks = initial
-        initial.forEach { t ->
-            if (t.artistPictureUrl.isNotBlank()) {
-                val primary = t.artist.substringBefore(" feat").substringBefore(",").trim()
-                artistPhotoMap[primary] = t.artistPictureUrl
-            }
-        }
-        isLoading = false
-
-        // بارگذاری تدریجی عکس خواننده‌های معروف در پس‌زمینه از طریق پروکسی کلودفلر
-        for (artist in OnlineMusicRepository.famousGlobalArtists.take(10)) {
-            val cachedPic = OnlineMusicRepository.getArtistPicture(artist.name)
-            if (!cachedPic.isNullOrBlank()) {
-                artistPhotoMap[artist.name] = cachedPic
-            } else {
-                val res = OnlineMusicRepository.searchCatalog(artist.name)
-                val foundPic = res.firstNotNullOfOrNull { it.artistPictureUrl.takeIf { p -> p.isNotBlank() } }
-                    ?: res.firstOrNull()?.coverUrl
-                if (!foundPic.isNullOrBlank()) {
-                    artistPhotoMap[artist.name] = foundPic
-                }
-            }
-        }
+        loadTracksFromServer(queryText = "", artistFilter = "")
     }
 
-    /**
-     * پخش مستقل در OnlineMusicScreen با ExoPlayer:
-     * بدون ارسال به AudioEngine یا TrackAnalyzer (فقط قبلش پلیر آفلاین در MusicPlayerViewModel را pause می‌کند)
-     */
-    fun triggerPlay(track: OnlineTrack, customQueue: List<OnlineTrack>? = null) {
-        val cachedFile = OnlineCacheHolder.getCachedFileIfPresent(context, track.id)
-        val streamUrl = if (cachedFile != null && cachedFile.exists()) {
-            Uri.fromFile(cachedFile).toString()
-        } else {
-            OnlineMusicRepository.buildStreamUrl(track)
+    LaunchedEffect(searchQuery, selectedArtist) {
+        val activeArtistName = selectedArtist?.name ?: ""
+        if (searchQuery.isBlank() && activeArtistName.isBlank() && tracks.isNotEmpty()) {
+            return@LaunchedEffect
         }
-
-        if (onExternalPlay != null) {
-            try {
-                exoPlayer.stop()
-                exoPlayer.clearMediaItems()
-            } catch (_: Exception) {}
-            isPlaying = false
-            val q = customQueue ?: tracks
-            onExternalPlay.invoke(track, streamUrl, q)
-            currentTrack = track
-            return
-        }
-
-        // ۱. اگر پلیر آفلاین در MusicPlayerViewModel در حال پخش است، آن را pause() کن
-        onPauseOfflinePlayer?.invoke()
-
-        currentTrack = track
-        hasRetriedCurrentTrack = false
-        isBuffering = true
-        isPlaying = false
-        progress = 0f
-
-        try {
-            exoPlayer.stop()
-            exoPlayer.clearMediaItems()
-            exoPlayer.setMediaItem(MediaItem.fromUri(streamUrl))
-            exoPlayer.seekTo(0L)
-            exoPlayer.prepare()
-            exoPlayer.play()
-            if (exoPlayer.audioSessionId > 0) {
-                try {
-                    AuraDspController.bindToAudioSession(exoPlayer.audioSessionId)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            isBuffering = false
-            isPlaying = false
-        }
-
-        // ثبت در تاریخچه سلیقه کاربر بدون درگیر کردن AudioEngine یا TrackAnalyzer
-        scope.launch(Dispatchers.IO) {
-            OnlineTasteEngine.recordTrackListen(context, track.toAppTrack(streamUrl))
-        }
-    }
-
-    fun triggerExplicitDownload(track: OnlineTrack) {
-        if (track.previewUrl.isNotBlank()) {
-            OnlineMusicRepository.registerPreviewUrl(track.id, track.previewUrl)
-        }
-        val rawUrl = OnlineMusicRepository.buildStreamUrl(track)
-        val appTrack = track.toAppTrack(rawUrl)
-        if (onDownloadToDeviceLibrary != null) {
-            onDownloadToDeviceLibrary(appTrack)
-        } else {
-            OnlineCacheHolder.downloadTrackExplicitly(context, appTrack) { file ->
-                val msg = if (file != null) {
-                    if (isFa) "«${track.title}» به طور کامل دانلود شد ✓" else "\"${track.title}\" downloaded ✓"
-                } else {
-                    if (isFa) "خطا در دانلود آهنگ" else "Download failed"
-                }
-                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    fun openArtistProfile(artist: OnlineArtistProfile) {
-        selectedArtistProfile = artist
-        isLoadingArtistTracks = true
-        artistTopTracks = emptyList()
-        scope.launch {
-            val fetched = OnlineMusicRepository.fetchArtistTopRatedTracks(artist.defaultQuery)
-            artistTopTracks = fetched
-            val bestPic = fetched.firstNotNullOfOrNull { it.artistPictureUrl.takeIf { p -> p.isNotBlank() } }
-                ?: fetched.firstOrNull()?.coverUrl
-            if (!bestPic.isNullOrBlank()) {
-                artistPhotoMap[artist.name] = bestPic
-                selectedArtistProfile = artist.copy(pictureUrl = bestPic)
-            }
-            isLoadingArtistTracks = false
-        }
-    }
-
-    fun openSmartPlaylist(playlist: OnlineSmartPlaylist) {
-        selectedSmartPlaylist = playlist
-        isLoadingSmartPlaylist = true
-        smartPlaylistTracks = emptyList()
-        scope.launch {
-            val fetched = OnlineMusicRepository.searchCatalog(playlist.query)
-                .distinctBy { "${it.title.lowercase().trim()}|${it.artist.lowercase().trim()}" }
-                .sortedByDescending { it.rank }
-                .take(18)
-            smartPlaylistTracks = fetched
-            isLoadingSmartPlaylist = false
-        }
-    }
-
-    fun openTrackLyrics(track: OnlineTrack) {
-        activeLyricsTrack = track
-        isFetchingLyrics = true
-        activeLyricsLines = emptyList()
-        scope.launch {
-            activeLyricsLines = LyricsRepository.fetchLyrics(
-                artist = track.artist,
-                trackName = track.title,
-                durationSec = track.durationSec
-            )
-            isFetchingLyrics = false
-        }
-    }
-
-    fun executeSearch(queryText: String) {
-        if (queryText.isBlank()) return
-        searchJob?.cancel()
-        searchJob = scope.launch {
-            isLoading = true
-            val res = OnlineMusicRepository.searchCatalog(queryText)
-            tracks = res
-            res.forEach { t ->
-                if (t.artistPictureUrl.isNotBlank()) {
-                    val primary = t.artist.substringBefore(" feat").substringBefore(",").trim()
-                    artistPhotoMap[primary] = t.artistPictureUrl
-                }
-            }
-            if (searchQuery.isNotBlank()) {
-                OnlineTasteEngine.recordSearchActivity(context, searchQuery, res)
-            }
-            isLoading = false
-        }
+        delay(300L)
+        loadTracksFromServer(queryText = searchQuery, artistFilter = activeArtistName)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -2123,69 +1450,50 @@ fun OnlineMusicScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(top = 6.dp, bottom = bottomPadding + 32.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentPadding = PaddingValues(
+                top = 8.dp,
+                bottom = if (onExternalPlay == null && currentTrack != null) bottomPadding + 132.dp else bottomPadding + 32.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // ۱. کادر جستجوی شیشه‌ای و مینیمال (متصل به پروکسی Cloudflare بدون نیاز به فیلترشکن)
+            // ۱. نوار جستجوی هوشمند (Spotify Liquid Glass Search Bar)
             item {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .liquidGlass(
-                            shape = RoundedCornerShape(20.dp),
+                            shape = RoundedCornerShape(22.dp),
                             thickness = GlassThickness.REGULAR,
-                            tintColor = palette.primary,
-                            tintAlpha = 0.16f,
-                            borderWidth = 1.dp,
-                            secondaryAccent = Color(0xFF1ED760)
+                            tintColor = spotifyGreen,
+                            tintAlpha = 0.14f,
+                            borderWidth = 1.dp
                         )
-                        .padding(horizontal = 12.dp, vertical = 1.dp)
+                        .padding(horizontal = 14.dp, vertical = 2.dp)
                 ) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Search,
                             contentDescription = "Search",
-                            tint = Color(0xFF1ED760),
-                            modifier = Modifier.size(20.dp)
+                            tint = spotifyGreen,
+                            modifier = Modifier.size(22.dp)
                         )
-
-                        Spacer(modifier = Modifier.width(6.dp))
-
+                        Spacer(modifier = Modifier.width(8.dp))
                         TextField(
                             value = searchQuery,
                             onValueChange = { newValue ->
                                 searchQuery = newValue
-                                searchJob?.cancel()
-                                searchJob = scope.launch {
-                                    delay(380)
-                                    if (newValue.trim().length >= 2) {
-                                        isLoading = true
-                                        val res = OnlineMusicRepository.searchCatalog(newValue)
-                                        tracks = res
-                                        res.forEach { t ->
-                                            if (t.artistPictureUrl.isNotBlank()) {
-                                                val primary = t.artist.substringBefore(" feat").substringBefore(",").trim()
-                                                artistPhotoMap[primary] = t.artistPictureUrl
-                                            }
-                                        }
-                                        OnlineTasteEngine.recordSearchActivity(context, newValue, res)
-                                        isLoading = false
-                                    } else if (newValue.isBlank()) {
-                                        isLoading = true
-                                        tracks = OnlineMusicRepository.searchCatalog(selectedCategoryTag)
-                                        isLoading = false
-                                    }
+                                if (newValue.isNotBlank() && selectedArtist != null) {
+                                    selectedArtist = null
                                 }
                             },
-                            modifier = Modifier.weight(1f),
                             placeholder = {
                                 Text(
-                                    text = if (isFa) "جستجوی آهنگ، خواننده یا پلی‌لیست..." else "Search songs, artists, mixes...",
-                                    color = Color(0xFF9EA6BD),
-                                    fontSize = 13.5.sp
+                                    text = if (isFa) "جستجوی خواننده یا نام آهنگ (مثلاً Kanye West)..." else "Search artist or song (e.g. Kanye West)...",
+                                    color = Color(0xFF96A0B8),
+                                    fontSize = 13.sp
                                 )
                             },
                             singleLine = true,
@@ -2193,7 +1501,7 @@ fun OnlineMusicScreen(
                             keyboardActions = KeyboardActions(
                                 onSearch = {
                                     focusManager.clearFocus()
-                                    executeSearch(searchQuery)
+                                    loadTracksFromServer(queryText = searchQuery, artistFilter = selectedArtist?.name ?: "")
                                 }
                             ),
                             colors = TextFieldDefaults.colors(
@@ -2204,15 +1512,18 @@ fun OnlineMusicScreen(
                                 unfocusedIndicatorColor = Color.Transparent,
                                 focusedTextColor = Color.White,
                                 unfocusedTextColor = Color.White,
-                                cursorColor = Color(0xFF1ED760)
-                            )
+                                cursorColor = spotifyGreen
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("online_search_input")
                         )
-
-                        if (searchQuery.isNotEmpty()) {
+                        if (searchQuery.isNotBlank()) {
                             IconButton(
                                 onClick = {
                                     searchQuery = ""
-                                    executeSearch(selectedCategoryTag)
+                                    focusManager.clearFocus()
+                                    loadTracksFromServer(queryText = "", artistFilter = selectedArtist?.name ?: "")
                                 }
                             ) {
                                 Icon(
@@ -2221,281 +1532,107 @@ fun OnlineMusicScreen(
                                     tint = Color.White.copy(alpha = 0.75f)
                                 )
                             }
-                        }
-                    }
-                }
-            }
-
-            // ۲. دسته‌بندی‌های مینیمال نسل زد
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    genZCategories.forEach { (queryKey, displayLabel) ->
-                        val isSelected = (searchQuery.isBlank() && selectedCategoryTag == queryKey)
-
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(18.dp))
-                                .background(
-                                    if (isSelected) Color(0xFF1ED760) else Color(0x1FFFFFFF)
-                                )
-                                .border(
-                                    width = 1.dp,
-                                    color = if (isSelected) Color.Transparent else Color.White.copy(alpha = 0.12f),
-                                    shape = RoundedCornerShape(18.dp)
-                                )
-                                .clickable {
-                                    selectedCategoryTag = queryKey
-                                    searchQuery = ""
-                                    executeSearch(queryKey)
+                        } else {
+                            IconButton(
+                                onClick = {
+                                    loadTracksFromServer(queryText = searchQuery, artistFilter = selectedArtist?.name ?: "")
                                 }
-                                .padding(horizontal = 14.dp, vertical = 7.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = displayLabel,
-                                color = if (isSelected) Color(0xFF060A08) else Color.White.copy(alpha = 0.9f),
-                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ۳. وقتی کاربر اسم یک آرتیست یا آهنگ را سرچ کرده باشد: نمایش کارت پروفایل آرتیست به سبک اسپاتیفای
-            if (searchedArtistsFromResults.isNotEmpty()) {
-                item {
-                    val primaryMatchedArtist = searchedArtistsFromResults.first()
-                    val avatarUrl = primaryMatchedArtist.pictureUrl.ifBlank { artistPhotoMap[primaryMatchedArtist.name] ?: "" }
-
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = if (isFa) "خواننده مرتبط با جستجو" else "Top Matched Artist",
-                            style = MaterialTheme.typography.titleSmall.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White
-                            )
-                        )
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .liquidGlass(
-                                    shape = RoundedCornerShape(20.dp),
-                                    thickness = GlassThickness.REGULAR,
-                                    tintColor = Color(0xFF1ED760),
-                                    tintAlpha = 0.16f,
-                                    borderWidth = 1.dp,
-                                    secondaryAccent = palette.primary
-                                )
-                                .clickable { openArtistProfile(primaryMatchedArtist) }
-                                .padding(14.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    ArtistAvatarCircle(
-                                        imageUrl = avatarUrl,
-                                        artistName = primaryMatchedArtist.name,
-                                        size = 58.dp
-                                    )
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Text(
-                                                text = primaryMatchedArtist.name,
-                                                color = Color.White,
-                                                fontWeight = FontWeight.Black,
-                                                fontSize = 16.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Icon(
-                                                imageVector = Icons.Default.Verified,
-                                                contentDescription = null,
-                                                tint = Color(0xFF1ED760),
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = if (isFa) "مشاهده محبوب‌ترین آهنگ‌ها (بالاترین ریتینگ)" else "View Top-Rated Songs & Discography",
-                                            color = Color(0xFF1ED760),
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                }
-
-                                Surface(
-                                    color = Color(0xFF1ED760),
-                                    shape = RoundedCornerShape(14.dp)
-                                ) {
-                                    Text(
-                                        text = if (isFa) "پروفایل" else "Profile",
-                                        color = Color(0xFF050806),
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 11.5.sp,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ۴. بخش خواننده‌های معروف جهان با عکس واقعی خود خواننده‌ها (به سبک اسپاتیفای)
-            if (searchQuery.isBlank()) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = if (isFa) "خواننده‌های معروف جهان 🌍" else "Popular Global Artists 🌍",
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = Color.White
-                                )
-                            )
-                            Text(
-                                text = if (isFa) "انتخاب برای مشاهده برترین‌ها" else "Tap for Top Hits",
-                                color = Color(0xFF1ED760),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            items(OnlineMusicRepository.famousGlobalArtists, key = { it.name }) { artist ->
-                                val photoUrl = artistPhotoMap[artist.name]
-                                    ?: OnlineMusicRepository.getArtistPicture(artist.name)
-                                    ?: artist.pictureUrl
-
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier
-                                        .width(86.dp)
-                                        .clickable { openArtistProfile(artist.copy(pictureUrl = photoUrl)) }
-                                ) {
-                                    ArtistAvatarCircle(
-                                        imageUrl = photoUrl,
-                                        artistName = artist.name,
-                                        size = 74.dp
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = artist.name,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Text(
-                                        text = if (isFa) artist.roleLabelFa else artist.roleLabelEn,
-                                        color = Color(0xFF9AA3B8),
-                                        fontSize = 10.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ۵. بخش پلی‌لیست‌های هوشمند بر اساس سرچ‌ها و آرتیست‌های مورد علاقه کاربر
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = null,
-                                    tint = Color(0xFF1ED760),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    text = if (isFa) "پلی‌لیست‌های هوشمند شما" else "Your Smart Mixes",
-                                    style = MaterialTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = Color.White
-                                    )
+                                    imageVector = Icons.Rounded.Refresh,
+                                    contentDescription = "Refresh",
+                                    tint = Color.White.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
-                            Text(
-                                text = if (isFa) "پخش و دانلود یکجا" else "Stream & Download",
-                                color = Color(0xFF9AA3B8),
-                                fontSize = 11.sp
-                            )
                         }
+                    }
+                }
+            }
 
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(smartPlaylists, key = { it.id }) { smartMix ->
-                                Box(
-                                    modifier = Modifier
-                                        .width(172.dp)
-                                        .liquidGlass(
-                                            shape = RoundedCornerShape(18.dp),
-                                            thickness = GlassThickness.THIN,
-                                            tintColor = smartMix.accentColor,
-                                            tintAlpha = 0.14f,
-                                            borderWidth = 0.9.dp
-                                        )
-                                        .clickable { openSmartPlaylist(smartMix) }
-                                        .padding(11.dp)
-                                ) {
-                                    Column {
-                                        SmartPlaylistCollageCover(
-                                            coverUrls = smartMix.coverUrls,
-                                            accentColor = smartMix.accentColor,
-                                            size = 150.dp
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = if (isFa) smartMix.titleFa else smartMix.titleEn,
-                                            color = Color.White,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 13.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = if (isFa) smartMix.subtitleFa else smartMix.subtitleEn,
-                                            color = Color(0xFFA0A8BE),
-                                            fontSize = 10.5.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
+            // ۲. نمای اختصاصی خواننده (Spotify Artist View) در صورت انتخاب شدن یک خواننده
+            if (selectedArtist != null) {
+                val activeArtist = selectedArtist!!
+                val displayCover = activeArtist.cover.ifBlank {
+                    tracks.firstOrNull()?.resolvedCoverUrl() ?: ""
+                }
+                val displayTrackCount = if (activeArtist.trackCount > 0) activeArtist.trackCount else tracks.size
+
+                item {
+                    SpotifyArtistHeroView(
+                        artistName = activeArtist.name,
+                        trackCount = displayTrackCount,
+                        coverUrl = displayCover,
+                        isFa = isFa,
+                        hasTracks = tracks.isNotEmpty(),
+                        onBackToArchive = {
+                            selectedArtist = null
+                            loadTracksFromServer(queryText = searchQuery, artistFilter = "")
+                        },
+                        onPlayAll = {
+                            if (tracks.isNotEmpty()) {
+                                playTrackAtIndex(0, tracks)
+                            }
+                        }
+                    )
+                }
+            } else {
+                // ۳. الف) اگر کاربر سرچ کرده و matchedArtists خالی نیست -> کارت بزرگ پروفایل خواننده (Spotify Artist Card)
+                if (searchQuery.isNotBlank() && matchedArtists.isNotEmpty()) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                text = if (isFa) "خواننده مرتبط با جستجو" else "Top Matched Artist",
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    color = spotifyGreen,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            )
+                            matchedArtists.forEach { matched ->
+                                SpotifyMatchedArtistCard(
+                                    artist = matched,
+                                    isFa = isFa,
+                                    onClick = { openArtistView(matched) }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ۳. ب) لیست افقی خواننده‌های موجود در آرشیو (Artists Row) در بالای صفحه اصلی آنلاین
+                if (allArtists.isNotEmpty()) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (isFa) "خواننده‌های آرشیو" else "Archive Artists",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        color = Color.White,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                )
+                                Text(
+                                    text = if (isFa) "${allArtists.size} هنرمند" else "${allArtists.size} Artists",
+                                    color = Color(0xFF96A0B8),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                contentPadding = PaddingValues(horizontal = 2.dp)
+                            ) {
+                                items(allArtists, key = { "artist_circle_${it.name}" }) { artistItem ->
+                                    ArchiveArtistCircleCard(
+                                        artist = artistItem,
+                                        isFa = isFa,
+                                        onClick = { openArtistView(artistItem) }
+                                    )
                                 }
                             }
                         }
@@ -2503,942 +1640,602 @@ fun OnlineMusicScreen(
                 }
             }
 
-            // ۶. هدر لیست آهنگ‌ها
+            // ۴. هدر لیست آهنگ‌ها + دکمه پخش همه
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = if (searchQuery.isNotBlank()) {
-                            if (isFa) "نتایج جستجو" else "Search Results"
-                        } else {
-                            if (isFa) "برترین آهنگ‌های روز" else "Top Trending Tracks"
-                        },
-                        style = MaterialTheme.typography.titleSmall.copy(
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White
+                    Column {
+                        Text(
+                            text = when {
+                                selectedArtist != null -> if (isFa) "تمام آهنگ‌های ${selectedArtist!!.name}" else "All Tracks by ${selectedArtist!!.name}"
+                                searchQuery.isNotBlank() -> if (isFa) "نتایج جستجو برای «$searchQuery»" else "Search Results for \"$searchQuery\""
+                                else -> if (isFa) "آهنگ‌های آرشیو کانال" else "Channel Archive Tracks"
+                            },
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                color = Color.White,
+                                fontWeight = FontWeight.ExtraBold
+                            )
                         )
-                    )
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            color = Color(0xFF1ED760),
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(18.dp)
+                        Text(
+                            text = if (isFa) "${tracks.size} قطعه آماده پخش" else "${tracks.size} tracks available",
+                            color = Color(0xFF96A0B8),
+                            fontSize = 11.5.sp
                         )
                     }
-                }
-            }
 
-            // ۷. لیست مینیمال و تمیز آهنگ‌ها
-            items(tracks, key = { it.id }) { track ->
-                val isSelected = currentTrack?.id == track.id
-                val isCachedOffline = downloadedIds.contains(track.id) ||
-                    downloadedIds.contains("online_${track.id}") ||
-                    OnlineCacheHolder.isTrackCached(context, track.id)
-                val isDownloadingThis = downloadingIds.contains(track.id) ||
-                    downloadingIds.contains("online_${track.id}")
-                val downloadPercent = downloadProgressMap[track.id] ?: downloadProgressMap["online_${track.id}"]
-
-                OnlineTrackGlassRow(
-                    track = track,
-                    isSelected = isSelected,
-                    isPlaying = isSelected && isPlaying,
-                    isCachedOffline = isCachedOffline,
-                    isDownloading = isDownloadingThis,
-                    downloadProgressPercent = downloadPercent,
-                    palette = palette,
-                    onClick = { triggerPlay(track) },
-                    onArtistClick = {
-                        val primaryName = track.artist.substringBefore(" feat").substringBefore(",").trim()
-                        openArtistProfile(
-                            OnlineArtistProfile(
-                                name = primaryName,
-                                roleLabelFa = "هنرمند برگزیده",
-                                roleLabelEn = "Featured Artist",
-                                defaultQuery = primaryName,
-                                pictureUrl = track.artistPictureUrl.ifBlank { track.coverUrl }
+                    if (tracks.isNotEmpty() && selectedArtist == null) {
+                        Button(
+                            onClick = { playTrackAtIndex(0, tracks) },
+                            colors = ButtonDefaults.buttonColors(containerColor = spotifyGreen),
+                            shape = RoundedCornerShape(18.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.PlayArrow,
+                                contentDescription = null,
+                                tint = Color(0xFF050A07),
+                                modifier = Modifier.size(18.dp)
                             )
-                        )
-                    },
-                    onDownloadClick = { triggerExplicitDownload(track) },
-                    onLyricsClick = { openTrackLyrics(track) }
-                )
-            }
-        }
-
-        // =========================================================================
-        // شیت پروفایل خواننده به سبک اسپاتیفای (Spotify Artist Profile & Top Rated Songs)
-        // =========================================================================
-        selectedArtistProfile?.let { artist ->
-            ModalBottomSheet(
-                onDismissRequest = { selectedArtistProfile = null },
-                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                containerColor = Color(0xF8080B14),
-                contentColor = Color.White
-            ) {
-                val heroPhoto = artist.pictureUrl
-                    .ifBlank { artistPhotoMap[artist.name] ?: "" }
-                    .ifBlank { artistTopTracks.firstOrNull()?.artistPictureUrl ?: "" }
-                    .ifBlank { artistTopTracks.firstOrNull()?.coverUrl ?: "" }
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 8.dp)
-                ) {
-                    // هدر پروفایل خواننده
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        ArtistAvatarCircle(
-                            imageUrl = heroPhoto,
-                            artistName = artist.name,
-                            size = 84.dp
-                        )
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Verified,
-                                    contentDescription = null,
-                                    tint = Color(0xFF1ED760),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = if (isFa) "هنرمند تاییدشده جهانی" else "VERIFIED GLOBAL ARTIST",
-                                    color = Color(0xFF1ED760),
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(3.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = artist.name,
-                                color = Color.White,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 23.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = if (isFa) "مرتب‌شده بر اساس بالاترین ریتینگ جهانی ⭐" else "Sorted by Highest Global Rating ⭐",
-                                color = Color(0xFFA0A8C0),
+                                text = if (isFa) "پخش همه" else "Play All",
+                                color = Color(0xFF050A07),
+                                fontWeight = FontWeight.ExtraBold,
                                 fontSize = 12.sp
                             )
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // دکمه‌های پخش همه و دانلود گلچین خواننده
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                val first = artistTopTracks.firstOrNull()
-                                if (first != null) {
-                                    triggerPlay(first, artistTopTracks)
-                                    selectedArtistProfile = null
-                                }
-                            },
-                            enabled = artistTopTracks.isNotEmpty(),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1ED760)),
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.PlayArrow,
-                                contentDescription = null,
-                                tint = Color(0xFF060A08),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isFa) "پخش محبوب‌ترین‌ها" else "Play Top Hits",
-                                color = Color(0xFF060A08),
-                                fontWeight = FontWeight.Black,
-                                fontSize = 13.sp
-                            )
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                artistTopTracks.take(5).forEach { t ->
-                                    triggerExplicitDownload(t)
-                                }
-                                Toast.makeText(
-                                    context,
-                                    if (isFa) "دانلود ۵ آهنگ برتر ${artist.name} آغاز شد" else "Downloading top 5 songs...",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            },
-                            enabled = artistTopTracks.isNotEmpty(),
-                            shape = RoundedCornerShape(16.dp),
-                            border = BorderStroke(1.dp, Color(0xFF1ED760).copy(alpha = 0.6f))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = null,
-                                tint = Color(0xFF1ED760),
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isFa) "دانلود ۵ برتر" else "Download Top 5",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.5.sp
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    if (isLoadingArtistTracks) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(220.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = Color(0xFF1ED760))
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 220.dp, max = 430.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            contentPadding = PaddingValues(bottom = 20.dp)
-                        ) {
-                            itemsIndexed(artistTopTracks, key = { _, t -> "artist_top_${t.id}" }) { index, track ->
-                                val isSelected = currentTrack?.id == track.id
-                                val isCachedOffline = downloadedIds.contains(track.id) ||
-                                    downloadedIds.contains("online_${track.id}") ||
-                                    OnlineCacheHolder.isTrackCached(context, track.id)
-                                val isDownloadingThis = downloadingIds.contains(track.id) ||
-                                    downloadingIds.contains("online_${track.id}")
-                                val downloadPercent = downloadProgressMap[track.id] ?: downloadProgressMap["online_${track.id}"]
-
-                                OnlineTrackGlassRow(
-                                    track = track,
-                                    rankBadgeNumber = index + 1,
-                                    showRatingBadge = true,
-                                    isSelected = isSelected,
-                                    isPlaying = isSelected && isPlaying,
-                                    isCachedOffline = isCachedOffline,
-                                    isDownloading = isDownloadingThis,
-                                    downloadProgressPercent = downloadPercent,
-                                    palette = palette,
-                                    onClick = {
-                                        triggerPlay(track, artistTopTracks)
-                                    },
-                                    onDownloadClick = { triggerExplicitDownload(track) },
-                                    onLyricsClick = { openTrackLyrics(track) }
-                                )
-                            }
-                        }
-                    }
                 }
             }
-        }
 
-        // =========================================================================
-        // شیت پلی‌لیست هوشمند (Smart Playlist Modal Sheet)
-        // =========================================================================
-        selectedSmartPlaylist?.let { playlist ->
-            ModalBottomSheet(
-                onDismissRequest = { selectedSmartPlaylist = null },
-                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                containerColor = Color(0xF8080B14),
-                contentColor = Color.White
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+            // ۵. وضعیت لودینگ یا لیست آهنگ‌ها
+            if (isLoading) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(220.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        SmartPlaylistCollageCover(
-                            coverUrls = playlist.coverUrls.ifEmpty { smartPlaylistTracks.map { it.coverUrl }.take(4) },
-                            accentColor = playlist.accentColor,
-                            size = 82.dp
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.QueueMusic,
-                                    contentDescription = null,
-                                    tint = playlist.accentColor,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = if (isFa) "پلی‌لیست هوشمند اختصاصی" else "SMART AUTO-PLAYLIST",
-                                    color = playlist.accentColor,
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(3.dp))
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(color = spotifyGreen)
+                            Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = if (isFa) playlist.titleFa else playlist.titleEn,
-                                color = Color.White,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 20.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = if (isFa) playlist.subtitleFa else playlist.subtitleEn,
+                                text = if (isFa) "در حال دریافت آرشیو از سرور کلادفلر..." else "Loading archive from Cloudflare Worker...",
                                 color = Color(0xFFA0A8C0),
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                val first = smartPlaylistTracks.firstOrNull()
-                                if (first != null) {
-                                    triggerPlay(first, smartPlaylistTracks)
-                                    selectedSmartPlaylist = null
-                                }
-                            },
-                            enabled = smartPlaylistTracks.isNotEmpty(),
-                            colors = ButtonDefaults.buttonColors(containerColor = playlist.accentColor),
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.PlayArrow,
-                                contentDescription = null,
-                                tint = Color(0xFF060A08),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isFa) "پخش کامل پلی‌لیست" else "Play All",
-                                color = Color(0xFF060A08),
-                                fontWeight = FontWeight.Black,
-                                fontSize = 13.sp
-                            )
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                smartPlaylistTracks.take(8).forEach { t ->
-                                    triggerExplicitDownload(t)
-                                }
-                                Toast.makeText(
-                                    context,
-                                    if (isFa) "دانلود آهنگ‌های پلی‌لیست آغاز شد" else "Downloading playlist tracks...",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            },
-                            enabled = smartPlaylistTracks.isNotEmpty(),
-                            shape = RoundedCornerShape(16.dp),
-                            border = BorderStroke(1.dp, playlist.accentColor.copy(alpha = 0.65f))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = null,
-                                tint = playlist.accentColor,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isFa) "دانلود همه" else "Download All",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
                                 fontSize = 12.5.sp
                             )
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    if (isLoadingSmartPlaylist) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(220.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = playlist.accentColor)
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 220.dp, max = 430.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            contentPadding = PaddingValues(bottom = 20.dp)
-                        ) {
-                            itemsIndexed(smartPlaylistTracks, key = { _, t -> "smart_pl_${t.id}" }) { index, track ->
-                                val isSelected = currentTrack?.id == track.id
-                                val isCachedOffline = downloadedIds.contains(track.id) ||
-                                    downloadedIds.contains("online_${track.id}") ||
-                                    OnlineCacheHolder.isTrackCached(context, track.id)
-                                val isDownloadingThis = downloadingIds.contains(track.id) ||
-                                    downloadingIds.contains("online_${track.id}")
-                                val downloadPercent = downloadProgressMap[track.id] ?: downloadProgressMap["online_${track.id}"]
-
-                                OnlineTrackGlassRow(
-                                    track = track,
-                                    rankBadgeNumber = index + 1,
-                                    showRatingBadge = true,
-                                    isSelected = isSelected,
-                                    isPlaying = isSelected && isPlaying,
-                                    isCachedOffline = isCachedOffline,
-                                    isDownloading = isDownloadingThis,
-                                    downloadProgressPercent = downloadPercent,
-                                    palette = palette,
-                                    onClick = {
-                                        triggerPlay(track, smartPlaylistTracks)
-                                    },
-                                    onDownloadClick = { triggerExplicitDownload(track) },
-                                    onLyricsClick = { openTrackLyrics(track) }
-                                )
-                            }
-                        }
-                    }
                 }
-            }
-        }
-
-        // شیت متن آهنگ (LRCLIB Synced Lyrics)
-        activeLyricsTrack?.let { lyricTrack ->
-            ModalBottomSheet(
-                onDismissRequest = { activeLyricsTrack = null },
-                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                containerColor = Color(0xF50B0E1A),
-                contentColor = Color.White
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+            } else if (tracks.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .liquidGlass(
+                                shape = RoundedCornerShape(22.dp),
+                                thickness = GlassThickness.THIN,
+                                tintColor = palette.primary,
+                                tintAlpha = 0.12f
+                            )
+                            .padding(28.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        CoverArtBox(
-                            coverUrl = lyricTrack.coverUrl,
-                            modifier = Modifier
-                                .size(50.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.MusicNote,
+                                contentDescription = null,
+                                tint = spotifyGreen,
+                                modifier = Modifier.size(40.dp)
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = lyricTrack.title,
+                                text = if (isFa) "آهنگی با این مشخصات در آرشیو پیدا نشد" else "No matching tracks found in archive",
                                 color = Color.White,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 15.5.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = lyricTrack.artist,
-                                color = Color(0xFF1ED760),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
+                }
+            } else {
+                itemsIndexed(tracks, key = { idx, t -> "tg_track_${t.id}_$idx" }) { index, track ->
+                    val isThisTrackActive = activePlayingTrackId == "online_${track.id}" ||
+                        activePlayingTrackId == track.id ||
+                        (onExternalPlay == null && currentTrack?.id == track.id)
+                    val isThisTrackPlaying = ((activePlayingTrackId == "online_${track.id}" || activePlayingTrackId == track.id) && isGlobalPlayerPlaying) ||
+                        (onExternalPlay == null && currentTrack?.id == track.id && isPlaying)
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    val isDownloaded = downloadedIds.contains(track.id) ||
+                        downloadedIds.contains("online_${track.id}") ||
+                        OnlineCacheHolder.isTrackCached(context, track.id)
+                    val isDownloading = downloadingIds.contains(track.id) ||
+                        downloadingIds.contains("online_${track.id}")
+                    val progressPct = downloadProgressMap[track.id] ?: downloadProgressMap["online_${track.id}"]
 
-                    if (isFetchingLyrics) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(200.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = Color(0xFF1ED760))
+                    SpotifyArchiveTrackRow(
+                        track = track,
+                        indexNumber = index + 1,
+                        isSelected = isThisTrackActive,
+                        isPlaying = isThisTrackPlaying,
+                        isDownloaded = isDownloaded,
+                        isDownloading = isDownloading,
+                        downloadPercent = progressPct,
+                        onTrackClick = {
+                            playTrackAtIndex(index, tracks)
+                        },
+                        onArtistClick = {
+                            openArtistByName(track.artist)
+                        },
+                        onDownloadClick = {
+                            triggerTrackDownload(track)
                         }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 180.dp, max = 440.dp),
-                            contentPadding = PaddingValues(vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(activeLyricsLines) { line ->
-                                val timeTag = if (line.timeMs > 0L) {
-                                    val m = (line.timeMs / 60000L)
-                                    val s = (line.timeMs % 60000L) / 1000L
-                                    "%d:%02d".format(m, s)
-                                } else null
-
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0x14FFFFFF))
-                                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    if (timeTag != null) {
-                                        Text(
-                                            text = timeTag,
-                                            color = Color(0xFF1ED760),
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp,
-                                            modifier = Modifier.width(40.dp)
-                                        )
-                                    }
-                                    Text(
-                                        text = line.text,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = 14.sp,
-                                        textAlign = if (timeTag == null) TextAlign.Center else TextAlign.Start,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(18.dp))
+                    )
                 }
             }
         }
 
+        // ۶. پلیر شناور پایین صفحه (فقط زمانی که پلیر اصلی برنامه متصل نباشد)
         AnimatedVisibility(
             visible = onExternalPlay == null && currentTrack != null,
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = bottomPadding)
+                .padding(horizontal = 12.dp)
+                .padding(bottom = bottomPadding + 8.dp)
         ) {
-            currentTrack?.let { activeTrack ->
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    tonalElevation = 8.dp,
-                    shadowElevation = 12.dp,
-                    color = Color(0xF00B0E18)
-                ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        if (isBuffering) {
-                            LinearProgressIndicator(
-                                modifier = Modifier.fillMaxWidth(),
-                                color = Color(0xFF1ED760)
-                            )
+            currentTrack?.let { active ->
+                SpotifyFloatingPlayerBar(
+                    track = active,
+                    isPlaying = isPlaying,
+                    isBuffering = isBuffering,
+                    currentPositionMs = currentPositionMs,
+                    totalDurationMs = totalDurationMs,
+                    onTogglePlayPause = {
+                        if (exoPlayer.isPlaying) {
+                            exoPlayer.pause()
                         } else {
-                            LinearProgressIndicator(
-                                progress = { progress },
-                                modifier = Modifier.fillMaxWidth(),
-                                color = Color(0xFF1ED760)
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CoverArtBox(
-                                coverUrl = activeTrack.coverUrl,
-                                modifier = Modifier
-                                    .size(46.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                            )
-
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(horizontal = 12.dp)
-                            ) {
-                                Text(
-                                    text = activeTrack.title,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = activeTrack.artist,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFFA5ABC0),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                            onPauseOfflinePlayer?.invoke()
+                            if (exoPlayer.playbackState == Player.STATE_IDLE || exoPlayer.playbackState == Player.STATE_ENDED) {
+                                exoPlayer.seekTo(0L)
+                                exoPlayer.prepare()
                             }
-
-                            IconButton(
-                                onClick = {
-                                    if (exoPlayer.isPlaying) {
-                                        exoPlayer.pause()
-                                        isPlaying = false
-                                    } else {
-                                        onPauseOfflinePlayer?.invoke()
-                                        if (exoPlayer.playbackState == Player.STATE_IDLE || exoPlayer.playbackState == Player.STATE_ENDED) {
-                                            exoPlayer.seekTo(0L)
-                                            exoPlayer.prepare()
-                                        }
-                                        exoPlayer.play()
-                                        isPlaying = true
-                                    }
-                                },
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .background(Color(0xFF1ED760), CircleShape)
-                            ) {
-                                if (isPlaying) {
-                                    PauseGlyph(tint = Color(0xFF060A08))
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Rounded.PlayArrow,
-                                        contentDescription = "Play",
-                                        tint = Color(0xFF060A08)
-                                    )
-                                }
-                            }
+                            exoPlayer.play()
                         }
+                    },
+                    onPrevious = { playPreviousTrack() },
+                    onNext = { playNextTrack() },
+                    onSeekTo = { targetMs ->
+                        currentPositionMs = targetMs
+                        exoPlayer.seekTo(targetMs)
+                    },
+                    onArtistClick = { openArtistByName(active.artist) }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * کارت بزرگ پروفایل خواننده در بالای نتایج سرچ (Spotify Artist Card)
+ */
+@Composable
+private fun SpotifyMatchedArtistCard(
+    artist: ArchiveArtistItem,
+    isFa: Boolean,
+    onClick: () -> Unit
+) {
+    val spotifyGreen = Color(0xFF1ED760)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .liquidGlass(
+                shape = RoundedCornerShape(24.dp),
+                thickness = GlassThickness.THICK,
+                tintColor = spotifyGreen,
+                tintAlpha = 0.22f,
+                borderWidth = 1.3.dp
+            )
+            .clickable { onClick() }
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                ArtistAvatarImage(
+                    imageUrl = artist.cover,
+                    artistName = artist.name,
+                    size = 68.dp
+                )
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Verified,
+                            contentDescription = null,
+                            tint = spotifyGreen,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = if (isFa) "پروفایل خواننده در آرشیو" else "ARCHIVE ARTIST PROFILE",
+                            color = spotifyGreen,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = artist.name,
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 20.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (artist.trackCount > 0) {
+                        Text(
+                            text = if (isFa) "${artist.trackCount} آهنگ در آرشیو • مشاهده همه" else "${artist.trackCount} tracks in archive • View all",
+                            color = Color(0xFFB8C2D8),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 }
             }
-        }
-    }
-}
 
-@Composable
-private fun ArtistAvatarCircle(
-    imageUrl: String,
-    artistName: String,
-    size: Dp
-) {
-    val resolvedUrl = remember(imageUrl) { OnlineMusicRepository.normalizeWorkerImageUrl(imageUrl) }
-    var loadedBitmap by remember(resolvedUrl) {
-        mutableStateOf(OnlineMusicRepository.getCachedCoverBitmap(resolvedUrl))
-    }
-
-    LaunchedEffect(resolvedUrl) {
-        if (resolvedUrl.isNotBlank() && loadedBitmap == null) {
-            loadedBitmap = OnlineMusicRepository.loadCoverBitmap(resolvedUrl)
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .size(size)
-            .shadow(8.dp, CircleShape, spotColor = Color(0xFF1ED760))
-            .clip(CircleShape)
-            .background(
-                Brush.linearGradient(
-                    listOf(Color(0xFF1E293B), Color(0xFF0F172A))
-                )
-            )
-            .border(1.5.dp, Color(0xFF1ED760).copy(alpha = 0.65f), CircleShape),
-        contentAlignment = Alignment.Center
-    ) {
-        val bmp = loadedBitmap
-        if (bmp != null) {
-            Image(
-                bitmap = bmp.asImageBitmap(),
-                contentDescription = artistName,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else if (resolvedUrl.isNotBlank()) {
-            AsyncImage(
-                model = resolvedUrl,
-                contentDescription = artistName,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = artistName,
-                tint = Color(0xFF1ED760),
-                modifier = Modifier.size(size * 0.45f)
-            )
-        }
-    }
-}
-
-@Composable
-private fun SmartPlaylistCollageCover(
-    coverUrls: List<String>,
-    accentColor: Color,
-    size: Dp
-) {
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(RoundedCornerShape(14.dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(accentColor.copy(alpha = 0.35f), Color(0xFF0B0F1A))
-                )
-            )
-            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(14.dp))
-    ) {
-        if (coverUrls.size >= 4) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    CoverArtBox(coverUrl = coverUrls[0], modifier = Modifier.weight(1f).fillMaxHeight())
-                    CoverArtBox(coverUrl = coverUrls[1], modifier = Modifier.weight(1f).fillMaxHeight())
-                }
-                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    CoverArtBox(coverUrl = coverUrls[2], modifier = Modifier.weight(1f).fillMaxHeight())
-                    CoverArtBox(coverUrl = coverUrls[3], modifier = Modifier.weight(1f).fillMaxHeight())
-                }
-            }
-        } else if (coverUrls.isNotEmpty()) {
-            CoverArtBox(coverUrl = coverUrls.first(), modifier = Modifier.fillMaxSize())
-        } else {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(spotifyGreen),
+                contentAlignment = Alignment.Center
+            ) {
                 Icon(
-                    imageVector = Icons.Default.QueueMusic,
-                    contentDescription = null,
-                    tint = accentColor,
-                    modifier = Modifier.size(size * 0.4f)
+                    imageVector = Icons.Rounded.PlayArrow,
+                    contentDescription = "Open Artist",
+                    tint = Color(0xFF050A07),
+                    modifier = Modifier.size(26.dp)
                 )
             }
         }
+    }
+}
 
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(8.dp)
-                .size(30.dp)
-                .clip(CircleShape)
-                .background(accentColor),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.PlayArrow,
-                contentDescription = "Play Mix",
-                tint = Color(0xFF050806),
-                modifier = Modifier.size(18.dp)
+/**
+ * کارت دایره‌ای خواننده‌ها در ردیف افقی بالای صفحه (Artists Row)
+ */
+@Composable
+private fun ArchiveArtistCircleCard(
+    artist: ArchiveArtistItem,
+    isFa: Boolean,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .width(92.dp)
+            .clickable { onClick() }
+    ) {
+        ArtistAvatarImage(
+            imageUrl = artist.cover,
+            artistName = artist.name,
+            size = 78.dp
+        )
+        Spacer(modifier = Modifier.height(7.dp))
+        Text(
+            text = artist.name,
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
+        if (artist.trackCount > 0) {
+            Text(
+                text = if (isFa) "${artist.trackCount} آهنگ" else "${artist.trackCount} tracks",
+                color = Color(0xFF96A0B8),
+                fontSize = 10.5.sp,
+                maxLines = 1
             )
         }
     }
 }
 
+/**
+ * هدر صفحه اختصاصی خواننده (Spotify Artist View) با دکمه بازگشت به کل آرشیو و دکمه پخش همه
+ */
 @Composable
-private fun OnlineTrackGlassRow(
+private fun SpotifyArtistHeroView(
+    artistName: String,
+    trackCount: Int,
+    coverUrl: String,
+    isFa: Boolean,
+    hasTracks: Boolean,
+    onBackToArchive: () -> Unit,
+    onPlayAll: () -> Unit
+) {
+    val spotifyGreen = Color(0xFF1ED760)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .liquidGlass(
+                shape = RoundedCornerShape(26.dp),
+                thickness = GlassThickness.THICK,
+                tintColor = spotifyGreen,
+                tintAlpha = 0.2f,
+                borderWidth = 1.2.dp
+            )
+            .padding(18.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(
+                    onClick = onBackToArchive,
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isFa) "بازگشت به کل آرشیو" else "Back to Archive",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Surface(
+                    color = spotifyGreen.copy(alpha = 0.18f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Verified,
+                            contentDescription = null,
+                            tint = spotifyGreen,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = if (isFa) "آرشیو خواننده" else "VERIFIED ARTIST",
+                            color = spotifyGreen,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                ArtistAvatarImage(
+                    imageUrl = coverUrl,
+                    artistName = artistName,
+                    size = 86.dp
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = artistName,
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 24.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (isFa) "$trackCount آهنگ در آرشیو کانال" else "$trackCount tracks in channel archive",
+                        color = Color(0xFFB8C2D8),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            Button(
+                onClick = onPlayAll,
+                enabled = hasTracks,
+                colors = ButtonDefaults.buttonColors(containerColor = spotifyGreen),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.PlayArrow,
+                    contentDescription = null,
+                    tint = Color(0xFF050A07),
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (isFa) "پخش همه آهنگ‌های $artistName (Play All)" else "Play All ($artistName)",
+                    color = Color(0xFF050A07),
+                    fontWeight = FontWeight.Black,
+                    fontSize = 13.5.sp
+                )
+            }
+        }
+    }
+}
+
+/**
+ * ردیف نمایش هر آهنگ به سبک Spotify با امکان کلیک روی نام خواننده و دانلود مستقیم از `download_url`
+ */
+@Composable
+private fun SpotifyArchiveTrackRow(
     track: OnlineTrack,
-    rankBadgeNumber: Int? = null,
-    showRatingBadge: Boolean = false,
+    indexNumber: Int,
     isSelected: Boolean,
     isPlaying: Boolean,
-    isCachedOffline: Boolean,
+    isDownloaded: Boolean,
     isDownloading: Boolean,
-    downloadProgressPercent: Int? = null,
-    palette: AmbientPalette,
-    onClick: () -> Unit,
-    onArtistClick: (() -> Unit)? = null,
-    onDownloadClick: () -> Unit,
-    onLyricsClick: () -> Unit
+    downloadPercent: Int?,
+    onTrackClick: () -> Unit,
+    onArtistClick: () -> Unit,
+    onDownloadClick: () -> Unit
 ) {
-    val mins = track.durationSec / 60
-    val secs = track.durationSec % 60
-    val durationFormatted = "%d:%02d".format(mins, secs)
+    val spotifyGreen = Color(0xFF1ED760)
+    val durationFormatted = remember(track.durationSec) {
+        val m = track.durationSec / 60
+        val s = track.durationSec % 60
+        String.format(Locale.US, "%d:%02d", m, s)
+    }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .liquidGlass(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(18.dp),
                 thickness = if (isSelected) GlassThickness.REGULAR else GlassThickness.THIN,
-                tintColor = if (isSelected) Color(0xFF1ED760) else palette.primary,
-                tintAlpha = if (isSelected) 0.22f else 0.08f,
-                borderWidth = if (isSelected) 1.2.dp else 0.6.dp,
-                secondaryAccent = Color(0xFF1ED760)
+                tintColor = if (isSelected) spotifyGreen else Color.White,
+                tintAlpha = if (isSelected) 0.22f else 0.06f,
+                borderWidth = if (isSelected) 1.3.dp else 0.8.dp
             )
-            .clickable { onClick() }
-            .padding(horizontal = 10.dp, vertical = 9.dp)
+            .clickable { onTrackClick() }
+            .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (rankBadgeNumber != null) {
-                Text(
-                    text = "#$rankBadgeNumber",
-                    color = if (rankBadgeNumber <= 3) Color(0xFF1ED760) else Color(0xFF94A3B8),
-                    fontWeight = FontWeight.Black,
-                    fontSize = 12.5.sp,
-                    modifier = Modifier.width(26.dp)
-                )
-            }
-
-            Box(contentAlignment = Alignment.Center) {
-                CoverArtBox(
-                    coverUrl = track.coverUrl,
-                    modifier = Modifier
-                        .size(50.dp)
-                        .shadow(4.dp, RoundedCornerShape(12.dp))
-                        .clip(RoundedCornerShape(12.dp))
-                )
-                if (isSelected) {
-                    Box(
-                        modifier = Modifier
-                            .size(50.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.Black.copy(alpha = 0.45f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        MiniPlayingEqualizerBars(isPlaying = isPlaying)
-                    }
+            // شماره ردیف یا آیکون اکولایزر در حال پخش
+            Box(
+                modifier = Modifier.width(26.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isPlaying) {
+                    Icon(
+                        imageVector = Icons.Default.GraphicEq,
+                        contentDescription = "Playing",
+                        tint = spotifyGreen,
+                        modifier = Modifier.size(18.dp)
+                    )
+                } else {
+                    Text(
+                        text = indexNumber.toString(),
+                        color = if (isSelected) spotifyGreen else Color(0xFF8A94AC),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            CoverArtBox(
+                coverUrl = track.resolvedCoverUrl(),
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(12.dp))
+            )
 
             Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = track.title,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = 14.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isSelected) Color(0xFF1ED760) else Color.White
-                    ),
+                    color = if (isSelected) spotifyGreen else Color.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 14.5.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-
                 Spacer(modifier = Modifier.height(3.dp))
-
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // با کلیک روی نام خواننده زیر هر آهنگ، صفحه اختصاصی آن خواننده باز می‌شود
                     Text(
-                        text = "${track.artist} • $durationFormatted",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            color = Color(0xFFA6B0C6),
-                            fontSize = 12.sp
-                        ),
+                        text = track.artist,
+                        color = Color(0xFFB4BED4),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = if (onArtistClick != null) {
-                            Modifier.clickable { onArtistClick() }
-                        } else {
-                            Modifier
-                        }
+                        modifier = Modifier.clickable { onArtistClick() }
                     )
-
-                    if (showRatingBadge) {
-                        Surface(
-                            color = Color(0x26FBBF24),
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Star,
-                                    contentDescription = null,
-                                    tint = Color(0xFFFBBF24),
-                                    modifier = Modifier.size(10.dp)
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Text(
-                                    text = track.ratingScoreText,
-                                    color = Color(0xFFFBBF24),
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-                        }
-                    }
+                    Text(
+                        text = "• $durationFormatted",
+                        color = Color(0xFF7D869C),
+                        fontSize = 11.sp
+                    )
                 }
             }
 
-            // دکمه لیریک
-            IconButton(
-                onClick = onLyricsClick,
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Lyrics,
-                    contentDescription = "Lyrics",
-                    tint = Color.White.copy(alpha = 0.65f),
-                    modifier = Modifier.size(18.dp)
-                )
-            }
+            Spacer(modifier = Modifier.width(8.dp))
 
-            // دکمه دانلود کامل به فضای گوشی (همراه با نمایش درصد ۰ تا ۱۰۰٪)
+            // دکمه دانلود مستقیم از download_url به پوشه Music گوشی
             IconButton(
                 onClick = onDownloadClick,
-                modifier = Modifier.size(42.dp)
+                enabled = !isDownloading,
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.08f))
             ) {
                 when {
                     isDownloading -> {
-                        val pct = (downloadProgressPercent ?: 0).coerceIn(0, 100)
                         Box(contentAlignment = Alignment.Center) {
-                            if (pct > 0) {
-                                CircularProgressIndicator(
-                                    progress = { pct / 100f },
-                                    color = Color(0xFF1ED760),
-                                    trackColor = Color.White.copy(alpha = 0.16f),
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                            } else {
-                                CircularProgressIndicator(
-                                    color = Color(0xFF1ED760),
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier.size(26.dp)
+                            CircularProgressIndicator(
+                                color = spotifyGreen,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            if (downloadPercent != null) {
+                                Text(
+                                    text = "$downloadPercent",
+                                    color = Color.White,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
-                            Text(
-                                text = "$pct%",
-                                color = Color(0xFF1ED760),
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
                         }
                     }
-                    isCachedOffline -> {
+                    isDownloaded -> {
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = "Downloaded",
-                            tint = Color(0xFF1ED760),
-                            modifier = Modifier.size(19.dp)
+                            tint = spotifyGreen,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                     else -> {
                         Icon(
                             imageVector = Icons.Default.Download,
                             contentDescription = "Download",
-                            tint = Color.White.copy(alpha = 0.75f),
+                            tint = Color.White.copy(alpha = 0.9f),
                             modifier = Modifier.size(19.dp)
                         )
                     }
@@ -3448,42 +2245,229 @@ private fun OnlineTrackGlassRow(
     }
 }
 
+/**
+ * نوار پخش شناور پایین صفحه با کنترل‌های کامل (قبلی، پخش/توقف، بعدی و اسلایدر جلو/عقب)
+ */
 @Composable
-private fun MiniPlayingEqualizerBars(isPlaying: Boolean) {
-    val transition = rememberInfiniteTransition(label = "OnlineEq")
-    val b1 by transition.animateFloat(
-        initialValue = 0.25f,
-        targetValue = 0.95f,
-        animationSpec = infiniteRepeatable(tween(240, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "b1"
-    )
-    val b2 by transition.animateFloat(
-        initialValue = 0.40f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(tween(180, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "b2"
-    )
-    val b3 by transition.animateFloat(
-        initialValue = 0.20f,
-        targetValue = 0.90f,
-        animationSpec = infiniteRepeatable(tween(290, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "b3"
-    )
-    val heights = if (isPlaying) listOf(b1, b2, b3) else listOf(0.3f, 0.3f, 0.3f)
+private fun SpotifyFloatingPlayerBar(
+    track: OnlineTrack,
+    isPlaying: Boolean,
+    isBuffering: Boolean,
+    currentPositionMs: Long,
+    totalDurationMs: Long,
+    onTogglePlayPause: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onSeekTo: (Long) -> Unit,
+    onArtistClick: () -> Unit
+) {
+    val spotifyGreen = Color(0xFF1ED760)
+    val safeDuration = totalDurationMs.coerceAtLeast(1000L)
+    val sliderFraction = (currentPositionMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
 
-    Row(
-        modifier = Modifier.height(18.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        heights.forEach { ratio ->
-            Box(
-                modifier = Modifier
-                    .width(3.2.dp)
-                    .fillMaxHeight(ratio)
-                    .clip(CircleShape)
-                    .background(Color(0xFF1ED760))
+    fun formatMs(ms: Long): String {
+        val totalSec = (ms / 1000L).coerceAtLeast(0L)
+        val m = totalSec / 60L
+        val s = totalSec % 60L
+        return String.format(Locale.US, "%d:%02d", m, s)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .liquidGlass(
+                shape = RoundedCornerShape(24.dp),
+                thickness = GlassThickness.THICK,
+                tintColor = spotifyGreen,
+                tintAlpha = 0.2f,
+                borderWidth = 1.2.dp
             )
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            if (isBuffering) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.5.dp)
+                        .clip(CircleShape),
+                    color = spotifyGreen,
+                    trackColor = Color.White.copy(alpha = 0.15f)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CoverArtBox(
+                    coverUrl = track.resolvedCoverUrl(),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                )
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 6.dp)
+                ) {
+                    Text(
+                        text = track.title,
+                        color = Color.White,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = track.artist,
+                        color = spotifyGreen,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable { onArtistClick() }
+                    )
+                }
+
+                IconButton(
+                    onClick = onPrevious,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.SkipPrevious,
+                        contentDescription = "Previous",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onTogglePlayPause,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(spotifyGreen)
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = "Play/Pause",
+                        tint = Color(0xFF050A07),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onNext,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.SkipNext,
+                        contentDescription = "Next",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+
+            // اسلایدر جلو و عقب بردن آهنگ به همراه تایمر
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = formatMs(currentPositionMs),
+                    color = Color(0xFFA8B2C8),
+                    fontSize = 10.5.sp
+                )
+                Slider(
+                    value = sliderFraction,
+                    onValueChange = { frac ->
+                        onSeekTo((frac * safeDuration).toLong())
+                    },
+                    colors = SliderDefaults.colors(
+                        thumbColor = spotifyGreen,
+                        activeTrackColor = spotifyGreen,
+                        inactiveTrackColor = Color.White.copy(alpha = 0.2f)
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(22.dp)
+                )
+                Text(
+                    text = formatMs(safeDuration),
+                    color = Color(0xFFA8B2C8),
+                    fontSize = 10.5.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArtistAvatarImage(
+    imageUrl: String,
+    artistName: String,
+    size: Dp
+) {
+    val spotifyGreen = Color(0xFF1ED760)
+    val resolvedUrl = remember(imageUrl, artistName) {
+        OnlineMusicRepository.normalizeWorkerImageUrl(imageUrl).ifBlank {
+            OnlineMusicRepository.getArtistPicture(artistName) ?: ""
+        }
+    }
+    var bitmap by remember(resolvedUrl) {
+        mutableStateOf(OnlineMusicRepository.getCachedCoverBitmap(resolvedUrl))
+    }
+
+    LaunchedEffect(resolvedUrl) {
+        if (bitmap == null && resolvedUrl.isNotBlank()) {
+            bitmap = OnlineMusicRepository.loadCoverBitmap(resolvedUrl)
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(
+                Brush.linearGradient(
+                    listOf(spotifyGreen.copy(alpha = 0.3f), Color(0xFF101524))
+                )
+            )
+            .border(1.5.dp, spotifyGreen.copy(alpha = 0.55f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        when {
+            bitmap != null -> {
+                Image(
+                    bitmap = bitmap!!.asImageBitmap(),
+                    contentDescription = artistName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            resolvedUrl.isNotBlank() -> {
+                AsyncImage(
+                    model = resolvedUrl,
+                    contentDescription = artistName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            else -> {
+                Text(
+                    text = artistName.trim().take(1).uppercase(),
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = (size.value * 0.34f).sp
+                )
+            }
         }
     }
 }
@@ -3493,13 +2477,15 @@ private fun CoverArtBox(
     coverUrl: String,
     modifier: Modifier = Modifier
 ) {
-    val resolvedUrl = remember(coverUrl) { OnlineMusicRepository.normalizeWorkerImageUrl(coverUrl) }
+    val resolvedUrl = remember(coverUrl) {
+        OnlineMusicRepository.normalizeWorkerImageUrl(coverUrl)
+    }
     var loadedBitmap by remember(resolvedUrl) {
         mutableStateOf(OnlineMusicRepository.getCachedCoverBitmap(resolvedUrl))
     }
 
     LaunchedEffect(resolvedUrl) {
-        if (resolvedUrl.isNotBlank() && loadedBitmap == null) {
+        if (loadedBitmap == null && resolvedUrl.isNotBlank()) {
             loadedBitmap = OnlineMusicRepository.loadCoverBitmap(resolvedUrl)
         }
     }
@@ -3507,54 +2493,36 @@ private fun CoverArtBox(
     Box(
         modifier = modifier.background(
             Brush.linearGradient(
-                listOf(Color(0xFF1A2234), Color(0xFF0B0F1A))
+                listOf(Color(0xFF1E2638), Color(0xFF0D111C))
             )
         ),
         contentAlignment = Alignment.Center
     ) {
-        val bmp = loadedBitmap
-        if (bmp != null) {
-            Image(
-                bitmap = bmp.asImageBitmap(),
-                contentDescription = "Album Cover",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else if (resolvedUrl.isNotBlank()) {
-            AsyncImage(
-                model = resolvedUrl,
-                contentDescription = "Album Cover",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Default.MusicNote,
-                contentDescription = null,
-                tint = Color(0xFF1ED760),
-                modifier = Modifier.size(22.dp)
-            )
+        when {
+            loadedBitmap != null -> {
+                Image(
+                    bitmap = loadedBitmap!!.asImageBitmap(),
+                    contentDescription = "Cover Art",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            resolvedUrl.isNotBlank() -> {
+                AsyncImage(
+                    model = resolvedUrl,
+                    contentDescription = "Cover Art",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            else -> {
+                Icon(
+                    imageVector = Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = Color(0xFF1ED760),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
-    }
-}
-
-@Composable
-private fun PauseGlyph(tint: Color) {
-    Canvas(modifier = Modifier.size(18.dp)) {
-        val barWidth = size.width * 0.28f
-        val barHeight = size.height * 0.75f
-        val topOffset = (size.height - barHeight) / 2f
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset(size.width * 0.15f, topOffset),
-            size = Size(barWidth, barHeight),
-            cornerRadius = CornerRadius(4f, 4f)
-        )
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset(size.width * 0.57f, topOffset),
-            size = Size(barWidth, barHeight),
-            cornerRadius = CornerRadius(4f, 4f)
-        )
     }
 }

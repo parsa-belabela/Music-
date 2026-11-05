@@ -1,6 +1,7 @@
 package com.example.audio
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
@@ -14,6 +15,17 @@ import android.media.audiofx.Virtualizer
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.DefaultExtractorsFactory
+import com.example.OnlineCacheHolder
+import com.example.OnlineMusicRepository
 import com.example.data.model.PlayerStatus
 import com.example.data.model.RepeatMode
 import com.example.data.model.Track
@@ -22,6 +34,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
+import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.pow
 import kotlin.math.roundToInt
@@ -37,14 +50,17 @@ data class ConnectedAudioDevice(
  * Premium Liquid Glass Audio Engine:
  * - Single Source of Truth for playback intent via [isPlayWhenReady]
  * - Atomic transition guard via [transitionId] preventing race conditions on rapid Next/Prev
- * - Soft, artifact-free audio transitions (gentle curve crossfade, no clicks/pops)
- * - Safe lifecycle management for MediaPlayer & audio effects
+ * - Direct ExoPlayer streaming & CBR seeking for Cloudflare Worker / online tracks
+ * - Safe lifecycle management for MediaPlayer, ExoPlayer & audio effects
  * - Accurate progress tracking decoupled from UI recomposition
  */
 class AudioEngine(private val context: Context) {
     private val tag = "AudioEngine"
 
     private var mediaPlayer: MediaPlayer? = null
+    private var exoPlayer: ExoPlayer? = null
+    @Volatile private var usingExoPlayer: Boolean = false
+
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
@@ -66,6 +82,9 @@ class AudioEngine(private val context: Context) {
 
     private val _audioSessionId = MutableStateFlow(0)
     val audioSessionId: StateFlow<Int> = _audioSessionId.asStateFlow()
+
+    private val _extractedArtworkUri = MutableStateFlow<Pair<String, String>?>(null)
+    val extractedArtworkUri: StateFlow<Pair<String, String>?> = _extractedArtworkUri.asStateFlow()
 
     private val _connectedDevice = MutableStateFlow<ConnectedAudioDevice?>(null)
     val connectedDevice: StateFlow<ConnectedAudioDevice?> = _connectedDevice.asStateFlow()
@@ -260,16 +279,177 @@ class AudioEngine(private val context: Context) {
     var repeatMode: RepeatMode = RepeatMode.OFF
         private set
 
+    private fun shouldUseExoPlayer(track: Track): Boolean {
+        return track.id.startsWith("online_") ||
+            track.uri.startsWith("http://") ||
+            track.uri.startsWith("https://") ||
+            track.uri.contains("aura_track_")
+    }
+
+    private fun getOrCreateExoPlayer(): ExoPlayer {
+        exoPlayer?.let { return it }
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(15000)
+            .setUserAgent("Mozilla/5.0")
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+        val extractorsFactory = DefaultExtractorsFactory()
+            .setConstantBitrateSeekingEnabled(true)
+            .setConstantBitrateSeekingAlwaysEnabled(true)
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
+
+        val player = ExoPlayer.Builder(context)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .setAudioAttributes(
+                androidx.media3.common.AudioAttributes.Builder()
+                    .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                    .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .build(),
+                false
+            )
+            .setHandleAudioBecomingNoisy(true)
+            .build()
+
+        player.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (!usingExoPlayer) return
+                when (playbackState) {
+                    Player.STATE_BUFFERING -> {
+                        if (_isPlayWhenReady.value) {
+                            _status.value = PlayerStatus.BUFFERING
+                        }
+                    }
+                    Player.STATE_READY -> {
+                        isPlayerPrepared = true
+                        val d = player.duration
+                        if (d > 1000L && d != androidx.media3.common.C.TIME_UNSET) {
+                            _duration.value = d
+                        }
+                        val sid = player.audioSessionId
+                        if (sid > 0 && sid != _audioSessionId.value) {
+                            _audioSessionId.value = sid
+                            initAudioEffects(sid, startSilentForFade = false)
+                        }
+                        applyVolume()
+                        if (_isPlayWhenReady.value) {
+                            if (!player.isPlaying) {
+                                player.play()
+                            }
+                            _status.value = PlayerStatus.PLAYING
+                            startProgressTracker()
+                        } else {
+                            _status.value = PlayerStatus.PAUSED
+                            stopProgressTracker()
+                        }
+                    }
+                    Player.STATE_ENDED -> {
+                        if (repeatMode == RepeatMode.ONE) {
+                            player.seekTo(0L)
+                            player.play()
+                            _status.value = PlayerStatus.PLAYING
+                            _isPlayWhenReady.value = true
+                            startProgressTracker()
+                        } else {
+                            _status.value = PlayerStatus.PAUSED
+                            _isPlayWhenReady.value = false
+                            stopProgressTracker()
+                            onTrackCompleted?.invoke()
+                        }
+                    }
+                    Player.STATE_IDLE -> {}
+                }
+            }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (!usingExoPlayer) return
+                val d = player.duration
+                if (d > 1000L && d != androidx.media3.common.C.TIME_UNSET) {
+                    _duration.value = d
+                }
+                if (isPlaying) {
+                    isPlayerPrepared = true
+                    _status.value = PlayerStatus.PLAYING
+                    startProgressTracker()
+                } else if (player.playbackState == Player.STATE_READY && !_isPlayWhenReady.value) {
+                    _status.value = PlayerStatus.PAUSED
+                    stopProgressTracker()
+                }
+            }
+
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                if (!usingExoPlayer) return
+                if (audioSessionId > 0 && audioSessionId != _audioSessionId.value) {
+                    _audioSessionId.value = audioSessionId
+                    initAudioEffects(audioSessionId, startSilentForFade = false)
+                }
+            }
+
+            override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+                if (!usingExoPlayer) return
+                val active = currentActiveTrack ?: return
+                val artworkBytes = mediaMetadata.artworkData
+                if (artworkBytes != null && artworkBytes.isNotEmpty()) {
+                    engineScope.launch(Dispatchers.IO) {
+                        try {
+                            val bmp = BitmapFactory.decodeByteArray(artworkBytes, 0, artworkBytes.size)
+                            if (bmp != null) {
+                                OnlineMusicRepository.cacheCoverBitmap(active.id, bmp)
+                                val cleanId = active.id.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+                                val coverFile = File(context.cacheDir, "aura_cover_$cleanId.jpg")
+                                FileOutputStream(coverFile).use { out ->
+                                    bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+                                }
+                                if (coverFile.exists() && coverFile.length() > 100L) {
+                                    _extractedArtworkUri.value = active.id to coverFile.absolutePath
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w(tag, "Failed decoding embedded ExoPlayer artwork: ${e.message}")
+                        }
+                    }
+                }
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                if (!usingExoPlayer) return
+                val active = currentActiveTrack
+                Log.e(tag, "ExoPlayer error for ${active?.title}: ${error.message}", error)
+                if (active != null) {
+                    val fallbackUrl = OnlineMusicRepository.getFallbackStreamUrl(active)
+                    if (fallbackUrl != null && fallbackUrl != active.uri) {
+                        Log.d(tag, "Switching ExoPlayer to fallback stream URL: $fallbackUrl")
+                        playTrack(active.copy(uri = fallbackUrl), _currentPosition.value, autoPlay = _isPlayWhenReady.value)
+                        return
+                    }
+                }
+                _status.value = PlayerStatus.ERROR
+                _isPlayWhenReady.value = false
+                stopProgressTracker()
+                onError?.invoke("خطا در پخش آنلاین: ${error.localizedMessage ?: "اتصال برقرار نشد"}")
+            }
+        })
+
+        exoPlayer = player
+        return player
+    }
+
     fun setRepeatMode(mode: RepeatMode) {
         repeatMode = mode
         try {
             mediaPlayer?.isLooping = (mode == RepeatMode.ONE)
+        } catch (_: Exception) {}
+        try {
+            exoPlayer?.repeatMode = if (mode == RepeatMode.ONE) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
         } catch (_: Exception) {}
     }
 
     fun setPlaybackSpeed(speed: Float) {
         val safeSpeed = speed.coerceIn(0.5f, 2.0f)
         currentPlaybackSpeed = safeSpeed
+        try {
+            exoPlayer?.setPlaybackSpeed(safeSpeed)
+        } catch (_: Exception) {}
         try {
             mediaPlayer?.let { mp ->
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && isPlayerPrepared) {
@@ -357,7 +537,7 @@ class AudioEngine(private val context: Context) {
         private set
 
     val isPlayerReady: Boolean
-        get() = mediaPlayer != null && isPlayerPrepared
+        get() = if (usingExoPlayer) (exoPlayer != null && isPlayerPrepared) else (mediaPlayer != null && isPlayerPrepared)
 
     val currentTrackId: String?
         get() = currentActiveTrack?.id
@@ -379,7 +559,7 @@ class AudioEngine(private val context: Context) {
         }
         releaseEffects()
 
-        // Safely release previous player
+        // Safely release previous MediaPlayer
         val oldPlayer = mediaPlayer
         mediaPlayer = null
         if (oldPlayer != null) {
@@ -404,6 +584,78 @@ class AudioEngine(private val context: Context) {
         pendingSeekPos = null
         seekWatchdogJob?.cancel()
         seekWatchdogJob = null
+
+        if (shouldUseExoPlayer(track)) {
+            usingExoPlayer = true
+            try {
+                val exo = getOrCreateExoPlayer()
+                exo.stop()
+                exo.clearMediaItems()
+
+                val cachedOnlineFile = OnlineCacheHolder.getCachedFileIfPresent(context, track.id)
+                val targetUri: Uri = when {
+                    cachedOnlineFile != null && cachedOnlineFile.exists() && cachedOnlineFile.length() > 16_384L -> {
+                        Uri.fromFile(cachedOnlineFile)
+                    }
+                    track.uri.startsWith("/") -> {
+                        val f = File(track.uri)
+                        if (f.exists() && f.length() > 16_384L) {
+                            Uri.fromFile(f)
+                        } else {
+                            val fallback = OnlineMusicRepository.getFallbackStreamUrl(track)
+                            Uri.parse(fallback ?: track.uri)
+                        }
+                    }
+                    else -> Uri.parse(track.uri)
+                }
+
+                exo.repeatMode = if (repeatMode == RepeatMode.ONE) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                exo.setPlaybackSpeed(currentPlaybackSpeed)
+                exo.volume = getEffectiveTargetVolume()
+                exo.setMediaItem(MediaItem.fromUri(targetUri))
+                exo.seekTo(startPositionMs.coerceAtLeast(0L))
+                exo.playWhenReady = autoPlay
+                exo.prepare()
+                if (autoPlay) {
+                    exo.play()
+                }
+
+                // Proactively fetch and cache cover bitmap in background so NowPlayingScreen & MiniPlayer display it immediately
+                engineScope.launch(Dispatchers.IO) {
+                    try {
+                        val coverToLoad = track.artworkUri?.takeIf { it.isNotBlank() }
+                            ?: OnlineMusicRepository.getCoverUrlForTrack(track.id, track.artist)
+                        val bmp = if (!coverToLoad.isNullOrBlank()) {
+                            OnlineMusicRepository.loadCoverBitmapBlocking(coverToLoad)
+                        } else null
+
+                        if (bmp != null) {
+                            OnlineMusicRepository.cacheCoverBitmap(track.id, bmp)
+                            if (track.artworkUri.isNullOrBlank()) {
+                                val cleanId = track.id.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+                                val coverFile = File(context.cacheDir, "aura_cover_$cleanId.jpg")
+                                FileOutputStream(coverFile).use { out ->
+                                    bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+                                }
+                                if (coverFile.exists() && coverFile.length() > 100L) {
+                                    _extractedArtworkUri.value = track.id to coverFile.absolutePath
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+                return
+            } catch (e: Exception) {
+                Log.e(tag, "ExoPlayer init failed for ${track.title}, falling back to MediaPlayer: ${e.message}", e)
+                usingExoPlayer = false
+            }
+        } else {
+            usingExoPlayer = false
+            try {
+                exoPlayer?.stop()
+                exoPlayer?.clearMediaItems()
+            } catch (_: Exception) {}
+        }
 
         // Check if track was preloaded
         val preloaded = preloadedPlayer
@@ -681,7 +933,7 @@ class AudioEngine(private val context: Context) {
     }
 
     fun preloadTrack(track: Track) {
-        if (track.uri.startsWith("http://") || track.uri.startsWith("https://")) return
+        if (shouldUseExoPlayer(track)) return
         if (preloadedTrackId == track.id && preloadedPlayer != null) return
         try {
             preloadedPlayer?.release()
@@ -767,6 +1019,24 @@ class AudioEngine(private val context: Context) {
     fun play() {
         _isPlayWhenReady.value = true
         requestAudioFocus()
+        if (usingExoPlayer) {
+            val exo = exoPlayer
+            if (exo != null) {
+                try {
+                    applyVolume()
+                    exo.playWhenReady = true
+                    if (exo.playbackState == Player.STATE_IDLE) {
+                        exo.prepare()
+                    }
+                    exo.play()
+                    _status.value = if (exo.playbackState == Player.STATE_BUFFERING) PlayerStatus.BUFFERING else PlayerStatus.PLAYING
+                    startProgressTracker()
+                } catch (e: Exception) {
+                    Log.e(tag, "Error in ExoPlayer play()", e)
+                }
+                return
+            }
+        }
         val mp = mediaPlayer
         if (mp != null && isPlayerPrepared) {
             try {
@@ -791,6 +1061,17 @@ class AudioEngine(private val context: Context) {
         _isPlayWhenReady.value = false
         fadeJob?.cancel()
         fadeJob = null
+        if (usingExoPlayer) {
+            try {
+                exoPlayer?.playWhenReady = false
+                exoPlayer?.pause()
+            } catch (e: Exception) {
+                Log.e(tag, "Error in ExoPlayer pause()", e)
+            }
+            _status.value = PlayerStatus.PAUSED
+            stopProgressTracker()
+            return
+        }
         val mp = mediaPlayer
         if (mp != null && isPlayerPrepared) {
             try {
@@ -814,6 +1095,31 @@ class AudioEngine(private val context: Context) {
     }
 
     fun seekTo(positionMs: Long) {
+        if (usingExoPlayer) {
+            val exo = exoPlayer
+            val exoDur = exo?.duration?.takeIf { it > 1000L && it != androidx.media3.common.C.TIME_UNSET } ?: _duration.value
+            val maxDur = exoDur.coerceAtLeast(1L)
+            val safeClampMax = if (maxDur > 1500L) maxDur - 500L else maxDur
+            val safePos = positionMs.coerceIn(0L, safeClampMax)
+            _currentPosition.value = safePos
+            isSeekingInProgress = true
+            lastSeekTimestamp = System.currentTimeMillis()
+            seekWatchdogJob?.cancel()
+            try {
+                exo?.seekTo(safePos)
+            } catch (e: Exception) {
+                Log.e(tag, "ExoPlayer seek error: ${e.message}")
+            }
+            seekWatchdogJob = engineScope.launch {
+                delay(350L)
+                isSeekingInProgress = false
+            }
+            if (_isPlayWhenReady.value) {
+                startProgressTracker()
+            }
+            return
+        }
+
         val maxDur = _duration.value.coerceAtLeast(1L)
         // جلوگیری از ارسال نقطه ۱۰۰٪ انتهایی در حین کشیدن نوار که باعث پریدن به آهنگ بعدی می‌شود
         val safeClampMax = if (maxDur > 1500L) maxDur - 800L else maxDur
@@ -883,10 +1189,37 @@ class AudioEngine(private val context: Context) {
         try {
             mediaPlayer?.setVolume(actual, actual)
         } catch (_: Exception) {}
+        try {
+            exoPlayer?.volume = actual
+        } catch (_: Exception) {}
     }
 
     fun performFadeOut(durationSeconds: Int = 2, onComplete: () -> Unit) {
         fadeJob?.cancel()
+        if (usingExoPlayer) {
+            val currentExo = exoPlayer ?: run {
+                onComplete()
+                return
+            }
+            fadeJob = engineScope.launch {
+                val steps = 24
+                val delayMs = (durationSeconds * 1000L) / steps
+                val startVol = getEffectiveTargetVolume()
+                for (i in steps downTo 0) {
+                    val t = i.toFloat() / steps
+                    val equalPowerFactor = kotlin.math.sin((Math.PI / 2.0) * t).toFloat()
+                    val vol = (equalPowerFactor * startVol).coerceIn(0f, 1f)
+                    try {
+                        currentExo.volume = vol
+                    } catch (_: Exception) {}
+                    delay(delayMs)
+                }
+                pause()
+                applyVolume()
+                onComplete()
+            }
+            return
+        }
         val currentMp = mediaPlayer ?: run {
             onComplete()
             return
@@ -1103,6 +1436,38 @@ class AudioEngine(private val context: Context) {
         stopProgressTracker()
         progressJob = engineScope.launch {
             while (isActive) {
+                if (usingExoPlayer) {
+                    val exo = exoPlayer
+                    if (exo != null && _isPlayWhenReady.value) {
+                        try {
+                            val nowMs = System.currentTimeMillis()
+                            val inSeekWindow = isSeekingInProgress && (nowMs - lastSeekTimestamp < 380L)
+                            if (!inSeekWindow) {
+                                if (isSeekingInProgress && (nowMs - lastSeekTimestamp >= 380L)) {
+                                    isSeekingInProgress = false
+                                }
+                                val d = exo.duration
+                                if (d > 1000L && d != androidx.media3.common.C.TIME_UNSET && d != _duration.value) {
+                                    _duration.value = d
+                                }
+                                val realPos = exo.currentPosition
+                                if (realPos >= 0L) {
+                                    val safeMax = _duration.value.coerceAtLeast(realPos)
+                                    _currentPosition.value = realPos.coerceIn(0L, safeMax)
+
+                                    val loopA = _loopStartMs.value
+                                    val loopB = _loopEndMs.value
+                                    if (loopA != null && loopB != null && loopB > loopA + 350L && realPos >= loopB) {
+                                        seekTo(loopA)
+                                    }
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    delay(40L)
+                    continue
+                }
+
                 val currentMp = mediaPlayer
                 if (currentMp != null && isPlayerPrepared && _isPlayWhenReady.value) {
                     try {
@@ -1162,6 +1527,13 @@ class AudioEngine(private val context: Context) {
         fadeJob?.cancel()
         fadeJob = null
         releaseEffects()
+        try {
+            exoPlayer?.release()
+        } catch (e: Exception) {
+            Log.e(tag, "Error releasing ExoPlayer", e)
+        }
+        exoPlayer = null
+        usingExoPlayer = false
         try {
             mediaPlayer?.release()
         } catch (e: Exception) {

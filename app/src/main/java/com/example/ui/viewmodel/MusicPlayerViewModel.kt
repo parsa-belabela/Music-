@@ -200,7 +200,38 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         // Maintain duration and status
         viewModelScope.launch {
             audioEngine.duration.collect { dur ->
-                _playbackState.update { it.copy(durationMs = dur) }
+                _playbackState.update { state ->
+                    val updatedTrack = if (dur > 1000L && state.currentTrack != null && state.currentTrack.durationMs != dur) {
+                        state.currentTrack.copy(durationMs = dur)
+                    } else {
+                        state.currentTrack
+                    }
+                    state.copy(durationMs = dur, currentTrack = updatedTrack)
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            audioEngine.extractedArtworkUri.collect { pair ->
+                val (trackId, artPath) = pair ?: return@collect
+                val current = _playbackState.value.currentTrack
+                if (current != null && current.id == trackId && current.artworkUri != artPath) {
+                    val updatedTrack = current.copy(artworkUri = artPath)
+                    _playbackState.update { state ->
+                        state.copy(
+                            currentTrack = updatedTrack,
+                            queue = state.queue.map { if (it.id == trackId && it.artworkUri.isNullOrBlank()) it.copy(artworkUri = artPath) else it }
+                        )
+                    }
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+                        val extractedPalette = ArtworkPaletteExtractor.extract(
+                            track = updatedTrack,
+                            appSettings = _appSettings.value,
+                            context = app
+                        )
+                        _activePalette.value = extractedPalette
+                    }
+                }
             }
         }
 
