@@ -35,6 +35,8 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -60,6 +62,7 @@ object ArtistAvatarDiskCache {
     private val memoryCache = object : LruCache<String, Bitmap>(180) {}
     private val failedUrls = ConcurrentHashMap.newKeySet<String>()
     private val inFlightLocks = ConcurrentHashMap<String, Any>()
+    private val ioSemaphore = Semaphore(4)
     private val cleanedLegacyCache = AtomicBoolean(false)
 
     /**
@@ -252,95 +255,98 @@ object ArtistAvatarDiskCache {
         val key = normalizeArtistKey(artistName)
         memoryCache.get(key)?.let { return@withContext it }
 
-        // ۱. بررسی فایل ذخیره‌شده در حافظه خصوصی داخلی برنامه (بدون نیاز به اینترنت و بدون دیده‌شدن در گالری)
-        val localFile = getPrivateAvatarFile(context, artistName)
-        if (localFile.exists() && localFile.length() > 512L) {
-            val diskBitmap = decodeDownsampledFile(localFile)
-            if (diskBitmap != null) {
-                memoryCache.put(key, diskBitmap)
-                return@withContext diskBitmap
-            }
-        }
+        ioSemaphore.withPermit {
+            memoryCache.get(key)?.let { return@withPermit it }
 
-        // ۲. تعیین لینک کلادفلر خواننده (بدون نیاز به فیلترشکن)
-        val effectiveUrl = resolveCloudflareArtistUrl(artistName, remoteUrl)
-        if (effectiveUrl.isBlank() || failedUrls.contains(effectiveUrl)) {
-            return@withContext null
-        }
-
-        val lock = inFlightLocks.getOrPut(key) { Any() }
-        synchronized(lock) {
-            memoryCache.get(key)?.let { return@withContext it }
+            // ۱. بررسی فایل ذخیره‌شده در حافظه خصوصی داخلی برنامه (بدون نیاز به اینترنت و بدون دیده‌شدن در گالری)
+            val localFile = getPrivateAvatarFile(context, artistName)
             if (localFile.exists() && localFile.length() > 512L) {
-                decodeDownsampledFile(localFile)?.let { bmp ->
-                    memoryCache.put(key, bmp)
-                    return@withContext bmp
+                val diskBitmap = decodeDownsampledFile(localFile)
+                if (diskBitmap != null) {
+                    memoryCache.put(key, diskBitmap)
+                    return@withPermit diskBitmap
                 }
             }
 
-            if (effectiveUrl.startsWith("/") || effectiveUrl.startsWith("file://")) {
-                val path = effectiveUrl.removePrefix("file://")
-                val f = File(path)
-                if (f.exists() && f.length() > 512L) {
-                    val bmp = decodeDownsampledFile(f)
-                    if (bmp != null) {
+            // ۲. تعیین لینک کلادفلر خواننده (بدون نیاز به فیلترشکن)
+            val effectiveUrl = resolveCloudflareArtistUrl(artistName, remoteUrl)
+            if (effectiveUrl.isBlank() || failedUrls.contains(effectiveUrl)) {
+                return@withPermit null
+            }
+
+            val lock = inFlightLocks.getOrPut(key) { Any() }
+            synchronized(lock) {
+                memoryCache.get(key)?.let { return@withPermit it }
+                if (localFile.exists() && localFile.length() > 512L) {
+                    decodeDownsampledFile(localFile)?.let { bmp ->
                         memoryCache.put(key, bmp)
-                        try {
-                            FileOutputStream(localFile).use { out ->
-                                bmp.compress(Bitmap.CompressFormat.JPEG, 88, out)
-                            }
-                        } catch (_: Exception) {}
-                        return@withContext bmp
+                        return@withPermit bmp
                     }
                 }
-                return@withContext null
-            }
 
-            var conn: HttpURLConnection? = null
-            try {
-                conn = (URL(effectiveUrl).openConnection() as HttpURLConnection).apply {
-                    instanceFollowRedirects = true
-                    connectTimeout = 8000
-                    readTimeout = 8000
-                    doInput = true
-                    setRequestProperty("User-Agent", "Mozilla/5.0")
-                }
-                conn.connect()
-                val code = conn.responseCode
-                if (code in 200..299) {
-                    val bytes = conn.inputStream.use { it.readBytes() }
-                    if (bytes.size > 512) {
-                        val decoded = decodeDownsampledBitmap(bytes)
-                        if (decoded != null) {
-                            memoryCache.put(key, decoded)
-                            saveArtistUrl(context, artistName, effectiveUrl)
+                if (effectiveUrl.startsWith("/") || effectiveUrl.startsWith("file://")) {
+                    val path = effectiveUrl.removePrefix("file://")
+                    val f = File(path)
+                    if (f.exists() && f.length() > 512L) {
+                        val bmp = decodeDownsampledFile(f)
+                        if (bmp != null) {
+                            memoryCache.put(key, bmp)
                             try {
-                                val tempFile = File(localFile.parentFile, "${localFile.name}.tmp")
-                                FileOutputStream(tempFile).use { out ->
-                                    decoded.compress(Bitmap.CompressFormat.JPEG, 88, out)
-                                }
-                                if (tempFile.exists() && tempFile.length() > 512L) {
-                                    if (localFile.exists()) localFile.delete()
-                                    tempFile.renameTo(localFile)
-                                } else {
-                                    tempFile.delete()
+                                FileOutputStream(localFile).use { out ->
+                                    bmp.compress(Bitmap.CompressFormat.JPEG, 88, out)
                                 }
                             } catch (_: Exception) {}
-                            return@withContext decoded
+                            return@withPermit bmp
                         }
                     }
-                } else if (code in 400..499) {
-                    failedUrls.add(effectiveUrl)
+                    return@withPermit null
                 }
-            } catch (_: Throwable) {
-            } finally {
-                try {
-                    conn?.disconnect()
-                } catch (_: Exception) {}
-            }
-        }
 
-        null
+                var conn: HttpURLConnection? = null
+                try {
+                    conn = (URL(effectiveUrl).openConnection() as HttpURLConnection).apply {
+                        instanceFollowRedirects = true
+                        connectTimeout = 8000
+                        readTimeout = 8000
+                        doInput = true
+                        setRequestProperty("User-Agent", "Mozilla/5.0")
+                    }
+                    conn.connect()
+                    val code = conn.responseCode
+                    if (code in 200..299) {
+                        val bytes = conn.inputStream.use { it.readBytes() }
+                        if (bytes.size > 512) {
+                            val decoded = decodeDownsampledBitmap(bytes)
+                            if (decoded != null) {
+                                memoryCache.put(key, decoded)
+                                saveArtistUrl(context, artistName, effectiveUrl)
+                                try {
+                                    val tempFile = File(localFile.parentFile, "${localFile.name}.tmp")
+                                    FileOutputStream(tempFile).use { out ->
+                                        decoded.compress(Bitmap.CompressFormat.JPEG, 88, out)
+                                    }
+                                    if (tempFile.exists() && tempFile.length() > 512L) {
+                                        if (localFile.exists()) localFile.delete()
+                                        tempFile.renameTo(localFile)
+                                    } else {
+                                        tempFile.delete()
+                                    }
+                                } catch (_: Exception) {}
+                                return@withPermit decoded
+                            }
+                        }
+                    } else if (code in 400..499) {
+                        failedUrls.add(effectiveUrl)
+                    }
+                } catch (_: Throwable) {
+                } finally {
+                    try {
+                        conn?.disconnect()
+                    } catch (_: Exception) {}
+                }
+            }
+            null
+        }
     }
 }
 

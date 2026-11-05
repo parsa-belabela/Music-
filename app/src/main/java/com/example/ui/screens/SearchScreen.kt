@@ -77,12 +77,14 @@ fun SearchScreen(
         }
     }
 
+    val isPersian = appSettings.language == AppLanguage.PERSIAN
+
     var unifiedTracks by remember {
         mutableStateOf(if (onlineTracks.isNotEmpty()) onlineTracks else tracks)
     }
 
-    LaunchedEffect(tracks, onlineTracks) {
-        unifiedTracks = if (onlineTracks.isEmpty()) {
+    LaunchedEffect(tracks, onlineTracks, isPersian) {
+        val nextUnified = if (onlineTracks.isEmpty()) {
             tracks
         } else if (tracks.isEmpty()) {
             onlineTracks
@@ -93,9 +95,11 @@ fun SearchScreen(
                 }
             }
         }
+        if (nextUnified.isNotEmpty()) {
+            OnlineMusicRepository.computeHubDataAsync(nextUnified, isPersian)
+        }
+        unifiedTracks = nextUnified
     }
-
-    val isPersian = appSettings.language == AppLanguage.PERSIAN
 
     Box(modifier = modifier.fillMaxSize()) {
         OnlineMusicScreen(

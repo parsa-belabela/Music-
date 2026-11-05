@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val appSettings by viewModel.appSettings.collectAsStateWithLifecycle()
+            val allTracks by viewModel.allTracks.collectAsStateWithLifecycle()
 
             // Request necessary permissions at startup
             val permissionLauncher = rememberLauncherForActivityResult(
@@ -105,10 +106,15 @@ class MainActivity : ComponentActivity() {
                 // Ensure base layout direction is LTR for audio controls and sliders,
                 // while individual text items and list rows handle localized text flow.
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                    MainScreen(
-                        viewModel = viewModel,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    AuraStartupPreloaderWrapper(
+                        localTracks = allTracks,
+                        isPersian = appSettings.language == AppLanguage.PERSIAN
+                    ) {
+                        MainScreen(
+                            viewModel = viewModel,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
         }

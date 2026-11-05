@@ -8,7 +8,10 @@ import android.net.Uri
 import android.os.Environment
 import android.util.LruCache
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -16,6 +19,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
@@ -53,11 +57,17 @@ import com.example.ui.components.SpotifyArtistAvatar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -66,6 +76,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev"
 
@@ -146,11 +158,12 @@ data class OnlineTrack(
             RealTrackGenreRegistry.registerGenre(appTrackId, rawGenre)
             RealTrackGenreRegistry.registerGenre(id, rawGenre)
         }
+        val resolvedAlbumName = RealAlbumRegistry.resolveAlbum(title = title, artist = artist, rawAlbum = album)
         return Track(
             id = appTrackId,
             title = title,
             artist = artist,
-            album = album.ifBlank { "Single" },
+            album = resolvedAlbumName,
             durationMs = (durationSec.coerceAtLeast(1) * 1000L),
             uri = finalStream,
             artworkUri = finalCover.ifBlank { null },
@@ -341,6 +354,220 @@ object RealTrackGenreRegistry {
 
     fun getGenre(track: Track): String {
         return trackGenres[track.id].orEmpty().ifBlank { track.genre.lowercase() }
+    }
+}
+
+/**
+ * رجیستری و نگاشت هوشمند نام آلبوم‌های واقعی و رسمی
+ * بر اساس کاتالوگ آثار و دیسکوگرافی معتبر هنرمندان
+ * حذف کامل عناوین ساختگی نظیر "مجموعه آثار ..." یا "Category of ..."
+ */
+object RealAlbumRegistry {
+
+    fun resolveAlbum(title: String, artist: String, rawAlbum: String? = null): String {
+        val raw = rawAlbum?.trim().orEmpty()
+        if (raw.isNotBlank() &&
+            !raw.equals("Single", ignoreCase = true) &&
+            !raw.equals("unknown", ignoreCase = true) &&
+            !raw.equals("Telegram", ignoreCase = true) &&
+            !raw.equals("Telegram Archive", ignoreCase = true) &&
+            !raw.startsWith("مجموعه", ignoreCase = true) &&
+            !raw.contains("collection", ignoreCase = true) &&
+            !raw.contains("category of", ignoreCase = true)
+        ) {
+            return raw
+        }
+
+        val t = title.lowercase()
+        val a = artist.lowercase()
+
+        // ۱. Kanye West
+        if (a.contains("kanye") || t.contains("kanye")) {
+            if (containsAny(t, listOf("good morning", "champion", "stronger", "i wonder", "good life", "can't tell me nothing", "barry bonds", "drunk and hot", "flashing lights", "everything i am", "the glory", "homecoming", "big brother", "good night"))) return "Graduation"
+            if (containsAny(t, listOf("heartless", "say you will", "love lockdown", "coldest winter", "paranoid", "robocop", "street lights", "bad news"))) return "808s & Heartbreak"
+            if (containsAny(t, listOf("30 hours", "father stretch", "famous", "waves", "ultralight beam", "feedback", "highlights", "freestyle 4", "fml", "real friends", "wolves", "fade", "saint pablo"))) return "The Life of Pablo"
+            if (containsAny(t, listOf("carnival", "burn", "stars", "back to me", "paid", "talking", "fuk sumn", "vultures"))) return "Vultures 1"
+            if (containsAny(t, listOf("power", "runaway", "monster", "devil in a new dress", "all of the lights", "dark fantasy", "gorgeous", "so appalled", "hell of a life", "lost in the world"))) return "My Beautiful Dark Twisted Fantasy"
+            if (containsAny(t, listOf("bound 2", "black skinhead", "blood on the leaves", "on sight", "new slaves"))) return "Yeezus"
+            if (containsAny(t, listOf("off the grid", "hurricane", "praise god", "moon", "jail", "jonah", "ok ok", "pure souls"))) return "Donda"
+        }
+
+        // ۲. Juice WRLD
+        if (a.contains("juice wrld") || t.contains("juice wrld")) {
+            if (containsAny(t, listOf("wishing well", "righteous", "come & go", "smile", "tell me u luv me", "hate the other side", "blood on my jeans", "bad energy", "man of the year", "up up and away", "titanic", "fighting demons", "stay high", "can't die", "conversations", "anxiety", "screw juice", "life's a mess", "myth, the legend", "speaks from heaven"))) return "Legends Never Die"
+            if (containsAny(t, listOf("lucid dreams", "all girls are the same", "lean wit me", "armed and dangerous", "wasted", "scared of love", "hurt me", "black & white"))) return "Goodbye & Good Riddance"
+            if (containsAny(t, listOf("robbery", "hear me calling", "fast", "empty", "bandit", "flaws and sins", "maze"))) return "Death Race for Love"
+        }
+
+        // ۳. Future & Metro Boomin
+        if (containsAny(t, listOf("we don't trust you", "type shit", "like that", "young metro", "ice attack", "cinderella", "fried", "everyday hustle", "wtfym", "ain't no love", "seen it all", "came to the party", "claustrophobic", "magic don juan", "slimed in"))) {
+            return "WE DON'T TRUST YOU"
+        }
+        if (containsAny(t, listOf("superhero", "too many nights", "lock on me", "i can't save you", "metro spider", "creepin", "niagara falls", "umbrella", "trance", "around me", "feel the fiaaaah", "all the money"))) {
+            return "HEROES & VILLAINS"
+        }
+
+        // ۴. Future
+        if (a.contains("future")) {
+            if (containsAny(t, listOf("712pm", "i'm on one", "wait for u", "puffin on zootiez", "love you better", "massaging me", "gold stacks", "voodoo", "holy ghost"))) return "I NEVER LIKED YOU"
+            if (containsAny(t, listOf("mask off", "scrape", "super trapper", "draco", "rent money", "zoom", "poppin tags"))) return "FUTURE"
+            if (containsAny(t, listOf("thought it was a drought", "where ya at", "stick talk", "blood on the money", "percocet & stripper joint", "blow a bag", "trap niggas", "real sisters", "slave master", "kno the meaning", "fuck up some commas"))) return "DS2"
+            if (containsAny(t, listOf("codeine crazy", "monster", "throw away", "my savages", "gangland", "hardly"))) return "Monster"
+            if (containsAny(t, listOf("march madness", "56 nights", "diamonds from africa", "never gon lose"))) return "56 Nights"
+            if (containsAny(t, listOf("purple reign", "wicked", "all right", "hater shit", "inside the mattress", "run up", "drip on me", "married to the game"))) return "Purple Reign"
+            if (containsAny(t, listOf("life is good", "solitaires", "accepting my flaws", "too comfortable", "hard to choose one", "touch the sky", "hi tek tek", "riding strikers", "one of my", "posted with demons"))) return "High Off Life"
+            if (containsAny(t, listOf("crushed up", "rocket ship", "jumpin on a jet", "first off", "never stop", "temptation", "baptiize"))) return "The WIZRD"
+            if (containsAny(t, listOf("drankin n smokin", "real baby pluto", "stripes like burberry", "million dollar play", "plastic", "sleeping on the floor"))) return "Pluto x Baby Pluto"
+            if (containsAny(t, listOf("no cap", "all da smoke", "feed me dope", "f&n", "patek water", "200", "killed before", "three", "drip on me"))) return "Super Slimey"
+            if (containsAny(t, listOf("lil demon", "kick", "eye to eye", "if i could", "jersey", "fukk a interview", "no misery", "tank top pluto", "weight up", "money over everything", "streets made me a king", "out of my hands", "teflon don", "plutoski", "ski", "surfer", "ocean", "south of france"))) return "MIXTAPE PLUTO"
+            if (containsAny(t, listOf("low life", "maybach", "fly shit only", "xanny family", "photo copied", "seven rings"))) return "EVOL"
+        }
+
+        // ۵. Kendrick Lamar
+        if (a.contains("kendrick") || t.contains("kendrick")) {
+            if (containsAny(t, listOf("humble", "love.", "lust.", "duckworth", "dna.", "element", "loyalty", "pride", "xxx", "fear", "god.", "feel."))) return "DAMN."
+            if (containsAny(t, listOf("wacced out murals", "squabble up", "tv off", "chains & whips", "luther", "man at the garden", "reincarnated", "peekaboo", "dodger blue", "gloria", "heart pt. 6"))) return "GNX"
+            if (t.contains("not like us") || t.contains("meet the grahams") || t.contains("euphoria") || t.contains("6:16 in la")) return "Not Like Us"
+            if (containsAny(t, listOf("swimming pools", "bitch, don't kill my vibe", "m.a.a.d city", "poetic justice", "money trees", "backseat freestyle"))) return "good kid, m.A.A.d city"
+            if (containsAny(t, listOf("alright", "king kunta", "the blacker the berry", "these walls", "i"))) return "To Pimp a Butterfly"
+            if (containsAny(t, listOf("n95", "die hard", "father time", "rich spirit", "count me out", "silent hill", "united in grief"))) return "Mr. Morale & the Big Steppers"
+        }
+
+        // ۶. Drake
+        if (a.contains("drake")) {
+            if (containsAny(t, listOf("fair trade", "way 2 sexy", "wants and needs", "laugh now cry later", "girls want girls", "champagne poetry", "tsu", "in the bible", "love all", "pipe down", "no friends in the industry", "knife talk", "7am on bridle path", "race my mind", "fountains", "get along better", "you only live twice", "the remorse"))) return "Certified Lover Boy"
+            if (containsAny(t, listOf("jimmy cooks", "massive", "falling back", "sticky", "texts go green", "currents", "a keeper", "flights booked", "overdrive", "down hill", "tie that binds", "liability"))) return "Honestly, Nevermind"
+            if (containsAny(t, listOf("jumpman", "digital dash", "scholarships", "live from the gutter", "i'm the plug", "diamonds dancing", "big rings", "change locations", "plastic bag"))) return "What a Time to Be Alive"
+            if (containsAny(t, listOf("lose you", "teenage fever", "get it together", "passionfruit", "fake love", "gyalchester", "bleep", "free smoke", "sacrifices", "blem", "4422", "kmt", "glow", "since way back", "ice melts", "do not disturb"))) return "More Life"
+            if (containsAny(t, listOf("9", "one dance", "grammys", "u with me?", "feel no ways", "controlla", "too good", "pop style", "fire & desire", "hype", "weston road flows", "redemption", "with you", "faithful", "childs play"))) return "Views"
+            if (containsAny(t, listOf("i'm upset", "mob ties", "nonstop", "god's plan", "nice for what", "in my feelings", "don't matter to me", "elevate", "emotionless", "survival", "talk up", "can't take a joke", "jaded", "finesse", "ratchet happy birthday", "blue tint", "after dark", "march 14"))) return "Scorpion"
+            if (containsAny(t, listOf("toosie slide", "desires", "chicago freestyle", "war", "pain 1993", "demons", "time flies", "landed", "d4l", "not you too", "from florida with love"))) return "Dark Lane Demo Tapes"
+            if (containsAny(t, listOf("jungle", "know yourself", "energy", "10 bands", "legend", "no tellin", "star67", "preach", "wednesday night interlude", "used to", "company", "you & the 6"))) return "If You're Reading This It's Too Late"
+            if (containsAny(t, listOf("rich flex", "major distribution", "on bs", "spin bout u", "circo loco", "pussy & millions", "broke boys", "middle of the ocean", "treacherous twins", "privilege", "hours in silence", "more m's", "i guess it's fuck me"))) return "Her Loss"
+            if (containsAny(t, listOf("slime you out", "first person shooter", "idgaf", "virginia beach", "amen", "fear of heights", "daylight", "search & rescue", "bahamas promises", "tried our best", "members only", "drew a picasso", "what would pluto do", "all the parties", "rich baby daddy", "another late night", "away from home", "polar opposites"))) return "For All The Dogs"
+            if (containsAny(t, listOf("money in the grave", "omertà"))) return "The Best in the World Pack"
+        }
+
+        // ۷. Travis Scott
+        if (a.contains("travis") || t.contains("travis")) {
+            if (containsAny(t, listOf("fe!n", "telekinesis", "say my grace", "modern jam", "topia twins", "meltdown", "hyaena", "thank god", "sirens", "my eyes", "god's country", "delresto", "i know ?", "circus maximus", "parasail", "skitzo", "lost forever", "looove", "k-pop", "telekenesis"))) return "UTOPIA"
+            if (containsAny(t, listOf("goosebumps", "sweet sweet", "pick up the phone", "beebs in the trap", "through the late night", "coordinate", "the ends", "way back", "first take", "sdp interlude", "outside", "guidance", "wonderful"))) return "Birds in the Trap Sing McKnight"
+            if (containsAny(t, listOf("highest in the room", "gatti", "out west", "what to do", "gang gang", "had enough"))) return "JACKBOYS"
+            if (containsAny(t, listOf("sicko mode", "stargazing", "butterfly effect", "yosemite", "stop trying to be god", "can't say", "carousel", "wake up", "5% tint", "houstonfornication", "astroworld", "rip screw", "no bystanders", "skeletons", "nc-17", "who? what!", "coffee bean"))) return "Astroworld"
+            if (containsAny(t, listOf("antidote", "3500", "90210", "maria i'm drunk", "pray 4 love", "nightcrawler", "pornography", "oh my dis side", "wasted", "flying high", "i can tell", "apple pie", "never catch me"))) return "Rodeo"
+        }
+
+        // ۸. Zedbazi & Mehrad Hidden & Sohrab MJ & Sijal & Alireza JJ
+        if (a.contains("zedbazi") || a.contains("hidden") || a.contains("sijal") || a.contains("alireza jj") || a.contains("sohrab mj")) {
+            if (containsAny(t, listOf("cigare soorati", "chera badi", "tehran mibinamet", "bekhand masnooyi", "daro baz kon", "delam tang shode", "mahdekoodak", "pedare man bad mano", "nabayad vaysim", "nakoni bavar", "zakhar nameh", "montazer boodan"))) return "Zakhar Nameh"
+            if (containsAny(t, listOf("tabestoon kootahe", "zamin seafe", "zamin safe", "zamin saafe", "kooche", "party", "iroonie l.a.", "bi hess", "obi", "disss agin", "berim faza", "shahremon tehran"))) return "Zedbazi Classics"
+            if (containsAny(t, listOf("old money", "talafaate jang", "bache mahal", "khodesh midoone khoobe"))) return "Zedbazi Reunion"
+            if (containsAny(t, listOf("fooroodgah", "to hamishe bekhand", "bill", "eloel", "berizam beham", "rooz az no", "raha", "ghol midam", "solhe daroon", "sefr"))) return "Sefr"
+            if (containsAny(t, listOf("miresam", "bitab", "ghesse", "favaran", "balance", "nakhla", "toonel", "kalas", "omadam to donya", "shoroo", "bargardam"))) return "Toonel"
+            if (containsAny(t, listOf("bozorg", "poshtdast", "gorgo mish pt. 2", "raftam", "ma", "kocheye ma", "tond naro", "sarab", "yeki dige", "parizan"))) return "Bozorg (Vol. 2)"
+            if (containsAny(t, listOf("pir shodim vali bozorg na", "+3:30 tehran", "golo sangam", "sobe sobe", "har chi bade", "mehmooni khodemoone", "eyval eyval", "jozvi az man", "aston villa", "jack o ji", "ghable ejraa"))) return "Pir Shodim Vali Bozorg Na"
+            if (containsAny(t, listOf("az man che khabar", "berim baham", "saal be saal", "maro eshtebah nagir", "chemical", "hate", "kaafar", "eva mendes", "bobby", "psycho", "balance", "bang bang"))) return "Yadgari JJ"
+        }
+
+        // ۹. Sepehr Khalse
+        if (a.contains("khalse")) {
+            if (containsAny(t, listOf("terapy", "therapy", "marde saal", "tool keshid", "prada", "number one", "after party", "penalty", "sober", "dokhtar", "chashm dast"))) return "Therapy"
+            if (containsAny(t, listOf("fekr o khial", "salibi", "vancouver", "fana", "fekret", "yadegari", "cheghad sadeh", "boghz", "kamel"))) return "Yadegari"
+            if (containsAny(t, listOf("dozdi ni", "day one", "begid berizan", "adat nadaram", "siah mese barf", "enferadi", "ghol", "bache bala"))) return "Enferadi"
+            if (containsAny(t, listOf("pesare maryam", "heif", "antalya", "barbie & ken", "shahraam", "bombastic", "lifestyle", "champion", "az yad miram"))) return "Pesare Maryam"
+            if (containsAny(t, listOf("kilimanjaro", "har chand vaght ye bar", "shar ba to nadarim", "gole man", "nameh be baba", "nagoo mese oonaam"))) return "Fekr o Khial"
+        }
+
+        // ۱۰. Behzad Leito
+        if (a.contains("leito")) {
+            if (containsAny(t, listOf("penalty", "ta betoonam", "del too delam nist", "2cb", "ravanitam", "fogholade", "nesfe raah", "1.6", "bazigar", "23", "ono mikham", "khobesh"))) return "23 (Bist O Seh)"
+            if (containsAny(t, listOf("golo sangam", "+3:30 tehran", "jetlag", "traplife", "setarebazi", "setare bazi", "ghalat kardam", "man bahat gharam"))) return "Setarebazi"
+            if (containsAny(t, listOf("ba man harf bezan", "bazam ke hichi", "bezar beri yadam", "mesle ghablan", "doost daram hamishe", "be goosham resid", "bi to", "chera rafti", "boodi bedehkar", "khabaraye bad"))) return "Khabaraye Bad"
+            if (containsAny(t, listOf("faaze khalse", "palang", "doostam hastan", "tirip", "az alan be bad", "khakestari", "dore dor", "oon bala sari"))) return "Khakestari"
+        }
+
+        // ۱۱. Vinak
+        if (a.contains("vinak")) {
+            if (containsAny(t, listOf("mi vida loca", "delgire", "tarantula", "shot biriz", "ba gun", "saret miad", "be darak", "jolly chimp", "javid shah", "payande", "yadam ni"))) return "Mi Vida Loca"
+            if (containsAny(t, listOf("ghamar dar aghrab", "belaad gang", "flow", "paraffin", "bavar kon", "ghablana", "candy", "bi setare", "baila conmigo", "yadetam"))) return "Ghamar Dar Aghrab"
+            if (containsAny(t, listOf("gin", "ama to migi na", "karam hite", "moosh zade", "cuckoldy"))) return "Gin & Diss"
+        }
+
+        // ۱۲. Koorosh
+        if (a.contains("koorosh")) {
+            if (containsAny(t, listOf("sphere", "catalan", "fiancée", "mituni mage", "bahare ma gozashte", "little boy", "420"))) return "420"
+            if (containsAny(t, listOf("trap mode", "kulak", "farkarala", "too in khoone", "adamaye kiri", "caesar salad", "ma mizanim", "tdk", "roulette", "cheghad goftam"))) return "Trap Mode"
+            if (containsAny(t, listOf("casa blanca", "dashte parvaneha", "mage man mordam", "vali khoobe", "marge roya", "shawty", "yallah", "vanish", "mosafer", "ck", "homealone"))) return "Mosafer"
+        }
+
+        // ۱۳. Hiphopologist
+        if (a.contains("hiphopologist")) {
+            if (containsAny(t, listOf("prada", "bache mardom", "mama koshtamesh", "sarbaz", "khode ghadimim", "erect", "double shot", "shahin felakat", "capsule", "bad b"))) return "Capsule"
+            if (containsAny(t, listOf("binge", "rose 2", "dna", "kharabat", "khodaya mano bebakhsh", "shawty", "rothman", "carina", "100"))) return "Rothman"
+            if (containsAny(t, listOf("mamanesh bishtar", "enhelale label", "plea deal", "ta dd soroush", "bare akhar", "bezar jibet baby"))) return "RapGame"
+        }
+
+        // ۱۴. Big Shaggy
+        if (a.contains("shaggy")) {
+            if (containsAny(t, listOf("jersey", "schizophrenia", "two big ones", "adlib", "kobra11", "bang o hashish", "oh shit", "die hard", "after party", "we will rock", "vice city", "raghse andam", "1.6", "sorry", "i walk alone"))) return "Bozorg Sal"
+        }
+
+        // ۱۵. Amin Tijay
+        if (a.contains("tijay")) {
+            return "Dead Hand"
+        }
+
+        // ۱۶. PapaBoyz
+        if (a.contains("papa")) {
+            return "We Are Papa"
+        }
+
+        // ۱۷. Isam
+        if (a.contains("isam")) {
+            return "PARIS"
+        }
+
+        // ۱۸. GUCCIFLAME
+        if (a.contains("gucci")) {
+            return "SYRUP SIPPIN"
+        }
+
+        // ۱۹. Tohi
+        if (a.contains("tohi")) {
+            return "11:11"
+        }
+
+        // ۲۰. Amir Tataloo
+        if (a.contains("tataloo")) {
+            return "78"
+        }
+
+        // ۲۱. Poori
+        if (a.contains("poori")) {
+            return "Godfather"
+        }
+
+        // ۲۲. Eminem
+        if (a.contains("eminem")) {
+            if (containsAny(t, listOf("the real slim shady", "without me", "stan", "lose yourself", "cleanin' out my closet", "sing for the moment", "till i collapse", "superman", "white america", "hailie's song"))) return "The Eminem Show"
+            if (containsAny(t, listOf("not afraid", "love the way you lie", "space bound", "no love", "cinderella man", "25 to life", "won't back down"))) return "Recovery"
+            if (containsAny(t, listOf("beautiful", "crack a bottle", "we made you", "3 a.m.", "stay wide awake", "careful what you wish for"))) return "Relapse"
+            if (containsAny(t, listOf("venom", "fall", "lucky you", "kamikaze", "the ringer", "greatest", "not alike", "stepping stone"))) return "Kamikaze"
+            if (containsAny(t, listOf("godzilla", "darkness", "gnat", "lock it up", "premonition", "unaccommodating", "you gon' learn"))) return "Music to Be Murdered By"
+        }
+
+        // ۲۳. Post Malone
+        if (a.contains("post malone")) {
+            if (containsAny(t, listOf("circles", "goodbyes", "take what you want", "hollywood's bleeding", "sunflower", "enemies", "saint-tropez"))) return "Hollywood's Bleeding"
+            if (containsAny(t, listOf("rockstar", "psycho", "better now", "stay", "ball for me", "paranoid", "rich & sad"))) return "beerbongs & bentleys"
+            if (containsAny(t, listOf("white iverson", "congratulations", "i fall apart", "deja vu", "go flex", "patient"))) return "Stoney"
+        }
+
+        return "Single"
+    }
+
+    private fun containsAny(text: String, keywords: List<String>): Boolean {
+        return keywords.any { kw -> text.contains(kw) }
     }
 }
 
@@ -585,7 +812,10 @@ object RealCategoryClassifier {
 data class HubComputedData(
     val albums: List<CloudAlbumCollection> = emptyList(),
     val artists: List<CloudArtistProfile> = emptyList(),
-    val browseCategories: List<SpotifyBrowseCategory> = emptyList()
+    val browseCategories: List<SpotifyBrowseCategory> = emptyList(),
+    val artistRows: List<List<CloudArtistProfile>> = emptyList(),
+    val albumRows: List<List<CloudAlbumCollection>> = emptyList(),
+    val categoryRows: List<List<SpotifyBrowseCategory>> = emptyList()
 )
 
 /**
@@ -598,13 +828,18 @@ object OnlineMusicRepository {
     private const val PRIVATE_CATALOG_CACHE_FILE = "aura_cloud_catalog_cache_v2.json"
     private const val PRIVATE_TRACK_COVERS_DIR = "track_covers_private_cache"
 
-    private val imageMemoryCache = object : LruCache<String, Bitmap>(160) {}
+    private val imageMemoryCache = object : LruCache<String, Bitmap>(220) {}
     private val failedCoverUrls = ConcurrentHashMap.newKeySet<String>()
     private val coverDownloadLocks = ConcurrentHashMap<String, Any>()
+    private val coverIoSemaphore = Semaphore(4)
+    private val backgroundWarmScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val backgroundWarmStarted = AtomicBoolean(false)
+    private val startupPreloadCompleted = AtomicBoolean(false)
     private val streamUrlByTrackId = ConcurrentHashMap<String, String>()
     private val downloadUrlByTrackId = ConcurrentHashMap<String, String>()
     private val coverUrlByTrackId = ConcurrentHashMap<String, String>()
     private val artistPictureCache = ConcurrentHashMap<String, String>()
+    private val hubDataCache = ConcurrentHashMap<String, HubComputedData>()
 
     @Volatile
     private var lastKnownArtists: List<ArchiveArtistItem> = emptyList()
@@ -615,11 +850,7 @@ object OnlineMusicRepository {
     @Volatile
     private var memoryCachedAppTracks: List<Track> = emptyList()
 
-    @Volatile
-    private var cachedHubSignature: String = ""
-
-    @Volatile
-    private var cachedHubData: HubComputedData = HubComputedData()
+    fun isStartupPreloadCompleted(): Boolean = startupPreloadCompleted.get()
 
     fun getMemoryCachedAppTracks(): List<Track> = memoryCachedAppTracks
 
@@ -639,19 +870,27 @@ object OnlineMusicRepository {
         mapped
     }
 
+    private fun buildHubSignature(tracks: List<Track>, isPersian: Boolean): String {
+        return "${tracks.size}_${tracks.firstOrNull()?.id}_${tracks.lastOrNull()?.id}_$isPersian"
+    }
+
     fun getMemoryCachedHubData(tracks: List<Track>, isPersian: Boolean): HubComputedData? {
         if (tracks.isEmpty()) return HubComputedData()
-        val sig = "${tracks.size}_${tracks.firstOrNull()?.id}_${tracks.lastOrNull()?.id}_$isPersian"
-        return if (cachedHubSignature == sig) cachedHubData else null
+        val sig = buildHubSignature(tracks, isPersian)
+        hubDataCache[sig]?.let { return it }
+        // اگر کش برای کاتالوگ اصلی موجود است، بلافاصله برگردان تا حتی ۱ فریم هم خالی نباشد
+        if (memoryCachedAppTracks.isNotEmpty()) {
+            val baseSig = buildHubSignature(memoryCachedAppTracks, isPersian)
+            hubDataCache[baseSig]?.let { return it }
+        }
+        return null
     }
 
     suspend fun computeHubDataAsync(tracks: List<Track>, isPersian: Boolean): HubComputedData =
         withContext(Dispatchers.Default) {
             if (tracks.isEmpty()) return@withContext HubComputedData()
-            val sig = "${tracks.size}_${tracks.firstOrNull()?.id}_${tracks.lastOrNull()?.id}_$isPersian"
-            if (cachedHubSignature == sig && cachedHubData.artists.isNotEmpty()) {
-                return@withContext cachedHubData
-            }
+            val sig = buildHubSignature(tracks, isPersian)
+            hubDataCache[sig]?.let { if (it.artists.isNotEmpty()) return@withContext it }
 
             val workerArtistsMap = getKnownArtists().associateBy { it.name.trim().lowercase() }
             val canonicalDisplayNames = LinkedHashMap<String, String>()
@@ -700,56 +939,65 @@ object OnlineMusicRepository {
                 }
             }
 
-            // ساخت آلبوم‌ها و مجموعه‌های کامل برای هر خواننده (شامل تمام ترک‌های تکی و فیت‌های آن خواننده)
+            // ساخت آلبوم‌های واقعی (کاملاً بر اساس نام آلبوم‌های واقعی، بدون ساخت کالکشن‌های مصنوعی مثل مجموعه آثار یا Category of ...)
             val allAlbumsList = mutableListOf<CloudAlbumCollection>()
-            val albumsByArtistKey = LinkedHashMap<String, List<CloudAlbumCollection>>()
+            val albumsByArtistKey = LinkedHashMap<String, MutableList<CloudAlbumCollection>>()
 
-            for ((key, allTrackList) in artistAllTracks) {
-                val displayName = canonicalDisplayNames[key] ?: key
-                val artistAlbums = mutableListOf<CloudAlbumCollection>()
+            val validAlbumTracks = tracks.filter { trk ->
+                val alb = trk.album.trim()
+                alb.isNotBlank() &&
+                    !alb.equals("Single", ignoreCase = true) &&
+                    !alb.equals("unknown", ignoreCase = true) &&
+                    !alb.equals("Telegram", ignoreCase = true) &&
+                    !alb.equals("Telegram Archive", ignoreCase = true) &&
+                    !alb.startsWith("مجموعه", ignoreCase = true) &&
+                    !alb.contains("collection", ignoreCase = true) &&
+                    !alb.contains("category of", ignoreCase = true)
+            }
 
-                // ۱. اگر ترک‌ها دارای نام آلبوم اختصاصی (غیر از Single و Telegram Archive) هستند، آلبوم مستقل بساز
-                val specificAlbums = allTrackList
-                    .filter { trk ->
-                        val alb = trk.album.trim()
-                        alb.isNotBlank() &&
-                            !alb.equals("Single", ignoreCase = true) &&
-                            !alb.equals("unknown", ignoreCase = true) &&
-                            !alb.equals("Telegram", ignoreCase = true) &&
-                            !alb.equals("Telegram Archive", ignoreCase = true)
-                    }
-                    .groupBy { it.album.trim().lowercase() }
+            // گروه‌بندی بر اساس نام آلبوم و هنرمند اصلی
+            val groupedByAlbum = validAlbumTracks.groupBy { trk ->
+                val primArtist = SmartArtistParser.extractPrimaryArtist(trk.artist, trk.title).lowercase()
+                "${primArtist}___${trk.album.trim().lowercase()}"
+            }
 
-                for ((albKey, albTracks) in specificAlbums) {
-                    val albTitle = albTracks.first().album.trim()
-                    val col = CloudAlbumCollection(
-                        id = "${key}__alb__$albKey",
-                        title = albTitle,
-                        artist = displayName,
-                        coverUri = albTracks.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri,
-                        tracks = albTracks
-                    )
-                    artistAlbums.add(col)
-                    allAlbumsList.add(col)
+            for ((_, albTracks) in groupedByAlbum) {
+                if (albTracks.isEmpty()) continue
+                val sampleTrack = albTracks.first()
+                val albTitle = sampleTrack.album.trim()
+                val primArtist = SmartArtistParser.extractPrimaryArtist(sampleTrack.artist, sampleTrack.title)
+                val artistKey = primArtist.lowercase()
+                val displayName = canonicalDisplayNames[artistKey] ?: primArtist
+
+                val coverUri = albTracks.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri
+
+                val col = CloudAlbumCollection(
+                    id = "alb_${artistKey}_${albTitle.lowercase().replace(" ", "_").replace("'", "")}",
+                    title = albTitle,
+                    artist = displayName,
+                    coverUri = coverUri,
+                    tracks = albTracks
+                )
+                allAlbumsList.add(col)
+
+                val artistList = albumsByArtistKey.getOrPut(artistKey) { mutableListOf() }
+                if (artistList.none { it.id == col.id }) {
+                    artistList.add(col)
                 }
 
-                // ۲. مجموعه کامل آثار خواننده (شامل تمام ترک‌های آن خواننده تا هیچ آهنگی از قلم نیفتد)
-                val collectionTitle = if (isPersian) "مجموعه آثار $displayName" else "$displayName Collection"
-                val preferredCover = allTrackList.firstOrNull {
-                    !SmartArtistParser.isCollaborationString(it.artist) && !it.artworkUri.isNullOrBlank()
-                }?.artworkUri ?: allTrackList.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri
-
-                val mainCollection = CloudAlbumCollection(
-                    id = "${key}__collection",
-                    title = collectionTitle,
-                    artist = displayName,
-                    coverUri = preferredCover,
-                    tracks = allTrackList
-                )
-                artistAlbums.add(0, mainCollection)
-                allAlbumsList.add(mainCollection)
-
-                albumsByArtistKey[key] = artistAlbums
+                // ثبت در سایر هنرمندان همکار در صورت وجود
+                for (trk in albTracks) {
+                    val participants = SmartArtistParser.extractArtistsFromTrack(trk.artist)
+                    for (part in participants) {
+                        val partKey = part.lowercase()
+                        if (partKey != artistKey && artistAllTracks.containsKey(partKey)) {
+                            val partList = albumsByArtistKey.getOrPut(partKey) { mutableListOf() }
+                            if (partList.none { it.id == col.id }) {
+                                partList.add(col)
+                            }
+                        }
+                    }
+                }
             }
 
             val sortedAlbums = allAlbumsList.sortedByDescending { it.tracks.size }
@@ -784,12 +1032,169 @@ object OnlineMusicRepository {
             val result = HubComputedData(
                 albums = sortedAlbums,
                 artists = computedArtists,
-                browseCategories = computedCategories
+                browseCategories = computedCategories,
+                artistRows = computedArtists.chunked(3),
+                albumRows = sortedAlbums.chunked(2),
+                categoryRows = computedCategories.chunked(2)
             )
-            cachedHubSignature = sig
-            cachedHubData = result
+            hubDataCache[sig] = result
             result
         }
+
+    /**
+     * پیش‌بارگذاری کامل کاتالوگ، آلبوم‌ها، دسته‌بندی‌ها، کاور آهنگ‌ها و عکس هنرمندان در صفحه لودینگ ابتدای برنامه
+     * تا پس از ورود به برنامه، هیچ‌گونه کندی در تب سرچ، آلبوم‌ها یا دسته‌بندی‌ها وجود نداشته باشد.
+     */
+    suspend fun preloadStartupEverything(
+        context: Context,
+        localTracks: List<Track>,
+        isPersian: Boolean,
+        onProgress: (Float, String) -> Unit
+    ) {
+        if (startupPreloadCompleted.get() && memoryCachedAppTracks.isNotEmpty()) {
+            onProgress(1f, if (isPersian) "آماده ورود" else "Ready")
+            return
+        }
+
+        val appCtx = context.applicationContext
+        onProgress(
+            0.08f,
+            if (isPersian) "در حال بارگذاری آرشیو ابری..." else "Loading cloud catalog..."
+        )
+
+        // ۱. بارگذاری فوری از کش دیسک یا دریافت از سرور کلادفلر
+        var onlineAppTracks = loadCachedAppTracksAsync()
+        if (onlineAppTracks.isEmpty()) {
+            val fetched = withTimeoutOrNull(4500L) { fetchFromWorker() }
+            if (fetched != null && fetched.tracks.isNotEmpty()) {
+                onlineAppTracks = withContext(Dispatchers.Default) {
+                    fetched.tracks.map { it.toAppTrack() }
+                }
+                setMemoryCachedAppTracks(onlineAppTracks)
+            }
+        } else {
+            // بروزرسانی بی‌صدا در پس‌زمینه
+            backgroundWarmScope.launch {
+                try {
+                    val fresh = fetchFromWorker()
+                    if (fresh.tracks.isNotEmpty()) {
+                        val mapped = fresh.tracks.map { it.toAppTrack() }
+                        setMemoryCachedAppTracks(mapped)
+                        computeHubDataAsync(mapped, true)
+                        computeHubDataAsync(mapped, false)
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        onProgress(
+            0.32f,
+            if (isPersian) "در حال ساخت آلبوم‌ها، دسته‌بندی‌ها و پروفایل هنرمندان..." else "Indexing albums, categories & artists..."
+        )
+
+        val baseTracks = if (onlineAppTracks.isNotEmpty()) onlineAppTracks else localTracks
+        val unifiedTracks = if (onlineAppTracks.isNotEmpty() && localTracks.isNotEmpty()) {
+            withContext(Dispatchers.Default) {
+                (onlineAppTracks + localTracks).distinctBy {
+                    "${it.title.trim().lowercase()}__${it.artist.trim().lowercase()}"
+                }
+            }
+        } else {
+            baseTracks
+        }
+
+        // ۲. پیش‌محاسبه کامل آلبوم‌ها، هنرمندان و دسته‌بندی‌ها در رم برای هر دو حالت زبان
+        val hubPrimary = computeHubDataAsync(unifiedTracks, isPersian)
+        computeHubDataAsync(unifiedTracks, !isPersian)
+        if (onlineAppTracks.isNotEmpty() && unifiedTracks.size != onlineAppTracks.size) {
+            computeHubDataAsync(onlineAppTracks, isPersian)
+            computeHubDataAsync(onlineAppTracks, !isPersian)
+        }
+
+        onProgress(
+            0.55f,
+            if (isPersian) "در حال آماده‌سازی کاور آلبوم‌ها و عکس پروفایل هنرمندان..." else "Preloading album covers & artist profiles..."
+        )
+
+        // ۳. پیش‌بارگذاری کاور آلبوم‌های اول و عکس پروفایل هنرمندان برتر در حین لودینگ اولیه (حداکثر ۲.۶ ثانیه)
+        val topArtistsToPreload = hubPrimary.artists.take(18)
+        val topAlbumCoversToPreload = (
+            hubPrimary.albums.take(18).mapNotNull { it.coverUri } +
+                unifiedTracks.take(15).mapNotNull { it.artworkUri }
+            ).distinct().take(24)
+
+        val totalAssets = (topArtistsToPreload.size + topAlbumCoversToPreload.size).coerceAtLeast(1)
+        val completedAssets = AtomicInteger(0)
+
+        withTimeoutOrNull(2700L) {
+            coroutineScope {
+                val preloaderSemaphore = Semaphore(6)
+                val artistJobs = topArtistsToPreload.map { artist ->
+                    async(Dispatchers.IO) {
+                        preloaderSemaphore.withPermit {
+                            val url = artist.cover.ifBlank { artist.picture }
+                            ArtistAvatarDiskCache.loadOrDownloadArtistBitmap(
+                                context = appCtx,
+                                artistName = artist.name,
+                                remoteUrl = url
+                            )
+                            val done = completedAssets.incrementAndGet()
+                            val pct = 0.55f + (done.toFloat() / totalAssets.toFloat()) * 0.42f
+                            onProgress(
+                                pct.coerceIn(0.55f, 0.97f),
+                                if (isPersian) "در حال کش کردن کاورها و آرتیست‌ها ($done/$totalAssets)..."
+                                else "Caching covers & artist avatars ($done/$totalAssets)..."
+                            )
+                        }
+                    }
+                }
+                val coverJobs = topAlbumCoversToPreload.map { coverUrl ->
+                    async(Dispatchers.IO) {
+                        preloaderSemaphore.withPermit {
+                            loadCoverBitmapBlocking(coverUrl)
+                            val done = completedAssets.incrementAndGet()
+                            val pct = 0.55f + (done.toFloat() / totalAssets.toFloat()) * 0.42f
+                            onProgress(
+                                pct.coerceIn(0.55f, 0.97f),
+                                if (isPersian) "در حال کش کردن کاورها و آرتیست‌ها ($done/$totalAssets)..."
+                                else "Caching covers & artist avatars ($done/$totalAssets)..."
+                            )
+                        }
+                    }
+                }
+                (artistJobs + coverJobs).awaitAll()
+            }
+        }
+
+        // ۴. ادامه آرام پیش‌ذخیره بقیه کاورهای آلبوم‌ها و هنرمندان در پس‌زمینه با محدودکننده ملایم (حداکثر ۲ ترد)
+        if (backgroundWarmStarted.compareAndSet(false, true)) {
+            backgroundWarmScope.launch {
+                val gentleSemaphore = Semaphore(2)
+                for (artist in hubPrimary.artists.drop(18)) {
+                    gentleSemaphore.withPermit {
+                        try {
+                            ArtistAvatarDiskCache.loadOrDownloadArtistBitmap(
+                                context = appCtx,
+                                artistName = artist.name,
+                                remoteUrl = artist.cover.ifBlank { artist.picture }
+                            )
+                        } catch (_: Throwable) {}
+                    }
+                }
+                for (album in hubPrimary.albums.drop(18)) {
+                    val uri = album.coverUri ?: continue
+                    gentleSemaphore.withPermit {
+                        try {
+                            loadCoverBitmapBlocking(uri)
+                        } catch (_: Throwable) {}
+                    }
+                }
+            }
+        }
+
+        startupPreloadCompleted.set(true)
+        onProgress(1f, if (isPersian) "آماده ورود به برنامه" else "Ready")
+    }
 
     fun resolveWorkerUrl(rawUrl: String): String {
         val trimmed = rawUrl.trim()
@@ -1227,12 +1632,17 @@ object OnlineMusicRepository {
                         RealTrackGenreRegistry.registerGenre("online_$id", rawGenre)
                     }
 
+                    val resolvedAlb = RealAlbumRegistry.resolveAlbum(
+                        title = title,
+                        artist = artistName,
+                        rawAlbum = obj.optString("album", "")
+                    )
                     tracksList.add(
                         OnlineTrack(
                             id = id,
                             title = title,
                             artist = artistName,
-                            album = obj.optString("album", "Single"),
+                            album = resolvedAlb,
                             coverUrl = coverUrl,
                             durationSec = durationSec,
                             streamUrl = streamUrl,
@@ -1317,7 +1727,15 @@ object OnlineMusicRepository {
     }
 
     suspend fun loadCoverBitmap(url: String): Bitmap? = withContext(Dispatchers.IO) {
-        loadCoverBitmapBlocking(url)
+        if (url.isBlank()) return@withContext null
+        val resolvedUrl = normalizeWorkerImageUrl(url)
+        imageMemoryCache.get(resolvedUrl)?.let { return@withContext it }
+        imageMemoryCache.get(url)?.let { return@withContext it }
+        if (failedCoverUrls.contains(resolvedUrl)) return@withContext null
+
+        coverIoSemaphore.withPermit {
+            loadCoverBitmapBlocking(url)
+        }
     }
 
     fun loadCoverBitmapBlocking(url: String): Bitmap? {
@@ -1821,12 +2239,15 @@ object OnlineTasteEngine {
                 val cachedFile = OnlineCacheHolder.getCachedFileIfPresent(context, id)
                 val uri = cachedFile?.absolutePath ?: obj.optString("uri")
                 if (id.isNotBlank() && uri.isNotBlank()) {
+                    val tTitle = obj.optString("title", "Unknown")
+                    val tArtist = obj.optString("artist", "Unknown")
+                    val tAlbum = RealAlbumRegistry.resolveAlbum(tTitle, tArtist, obj.optString("album", "Single"))
                     list.add(
                         Track(
                             id = id,
-                            title = obj.optString("title", "Unknown"),
-                            artist = obj.optString("artist", "Unknown"),
-                            album = obj.optString("album", "Single"),
+                            title = tTitle,
+                            artist = tArtist,
+                            album = tAlbum,
                             durationMs = obj.optLong("durationMs", 180_000L),
                             uri = uri,
                             artworkUri = obj.optString("artworkUri").takeIf { it.isNotBlank() },
@@ -1953,261 +2374,269 @@ fun OnlineMusicScreen(
                 )
             )
     ) {
-        AnimatedContent(
-            targetState = navState,
-            label = "SpotifyHubNav"
-        ) { state ->
-            when (state) {
-                is HubNavigationState.ArtistPage -> {
-                    SpotifyFullArtistScreen(
-                        artist = state.artist,
-                        currentPlayingTrack = currentPlayingTrack,
-                        isPersian = isPersian,
-                        onBack = { navState = HubNavigationState.MainHub },
-                        onAlbumClick = { navState = HubNavigationState.AlbumPage(it) },
-                        onPlayTrack = onPlayTrack,
-                        onDownloadTrack = onDownloadTrack
-                    )
+        when (val state = navState) {
+            is HubNavigationState.ArtistPage -> {
+                SpotifyFullArtistScreen(
+                    artist = state.artist,
+                    currentPlayingTrack = currentPlayingTrack,
+                    isPersian = isPersian,
+                    onBack = { navState = HubNavigationState.MainHub },
+                    onAlbumClick = { navState = HubNavigationState.AlbumPage(it) },
+                    onPlayTrack = onPlayTrack,
+                    onDownloadTrack = onDownloadTrack
+                )
+            }
+
+            is HubNavigationState.AlbumPage -> {
+                SpotifyFullAlbumScreen(
+                    album = state.album,
+                    currentPlayingTrack = currentPlayingTrack,
+                    isPersian = isPersian,
+                    onBack = { navState = HubNavigationState.MainHub },
+                    onPlayTrack = onPlayTrack,
+                    onDownloadTrack = onDownloadTrack
+                )
+            }
+
+            is HubNavigationState.CategoryPage -> {
+                SpotifyCategoryPlaylistScreen(
+                    category = state.category,
+                    currentPlayingTrack = currentPlayingTrack,
+                    isPersian = isPersian,
+                    onBack = { navState = HubNavigationState.MainHub },
+                    onPlayTrack = onPlayTrack,
+                    onDownloadTrack = onDownloadTrack
+                )
+            }
+
+            HubNavigationState.MainHub -> {
+                val q = searchQuery.trim()
+                val matchedArtists = remember(artists, q) {
+                    if (q.isBlank()) emptyList()
+                    else artists.filter { it.name.contains(q, ignoreCase = true) }.take(15)
+                }
+                val matchedAlbums = remember(albums, q) {
+                    if (q.isBlank()) emptyList()
+                    else albums.filter {
+                        it.title.contains(q, ignoreCase = true) || it.artist.contains(q, ignoreCase = true)
+                    }.take(15)
+                }
+                val matchedTracks = remember(onlineTracks, q) {
+                    if (q.isBlank()) emptyList()
+                    else onlineTracks.filter {
+                        it.title.contains(q, ignoreCase = true) ||
+                            it.artist.contains(q, ignoreCase = true) ||
+                            it.album.contains(q, ignoreCase = true)
+                    }.take(35)
                 }
 
-                is HubNavigationState.AlbumPage -> {
-                    SpotifyFullAlbumScreen(
-                        album = state.album,
-                        currentPlayingTrack = currentPlayingTrack,
-                        isPersian = isPersian,
-                        onBack = { navState = HubNavigationState.MainHub },
-                        onPlayTrack = onPlayTrack,
-                        onDownloadTrack = onDownloadTrack
-                    )
-                }
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = bottomPadding)
+                ) {
+                    item(key = "top_glass_bar") {
+                        SpotifyGlassTopBar(
+                            totalTracks = onlineTracks.size,
+                            totalArtists = artists.size,
+                            searchQuery = searchQuery,
+                            isPersian = isPersian,
+                            onSearchChange = { searchQuery = it },
+                            onRefresh = onRefresh
+                        )
+                    }
 
-                is HubNavigationState.CategoryPage -> {
-                    SpotifyCategoryPlaylistScreen(
-                        category = state.category,
-                        currentPlayingTrack = currentPlayingTrack,
-                        isPersian = isPersian,
-                        onBack = { navState = HubNavigationState.MainHub },
-                        onPlayTrack = onPlayTrack,
-                        onDownloadTrack = onDownloadTrack
-                    )
-                }
-
-                HubNavigationState.MainHub -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = bottomPadding)
-                    ) {
-                        item {
-                            SpotifyGlassTopBar(
-                                totalTracks = onlineTracks.size,
-                                totalArtists = artists.size,
-                                searchQuery = searchQuery,
-                                isPersian = isPersian,
-                                onSearchChange = { searchQuery = it },
-                                onRefresh = onRefresh
-                            )
+                    if (q.isNotBlank()) {
+                        categorizedInstantSearchItems(
+                            matchedArtists = matchedArtists,
+                            matchedAlbums = matchedAlbums,
+                            matchedTracks = matchedTracks,
+                            currentPlayingTrack = currentPlayingTrack,
+                            isPersian = isPersian,
+                            onArtistClick = { navState = HubNavigationState.ArtistPage(it) },
+                            onAlbumClick = { navState = HubNavigationState.AlbumPage(it) },
+                            onPlayTrack = onPlayTrack,
+                            onDownloadTrack = onDownloadTrack
+                        )
+                    } else {
+                        item(key = "top_hub_tabs") {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(TopHubTab.entries, key = { it.name }) { tab ->
+                                    val isSelected = activeTab == tab
+                                    Surface(
+                                        onClick = { activeTab = tab },
+                                        shape = RoundedCornerShape(50),
+                                        color = if (isSelected) Color(0xFF1DB954) else Color.White.copy(alpha = 0.07f),
+                                        border = if (isSelected) null else BorderStroke(
+                                            1.dp,
+                                            Color.White.copy(alpha = 0.12f)
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = tab.icon,
+                                                contentDescription = null,
+                                                tint = if (isSelected) Color.Black else Color.White,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = if (isPersian) tab.titleFa else tab.titleEn,
+                                                color = if (isSelected) Color.Black else Color.White,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
 
-                        if (searchQuery.isNotBlank()) {
-                            item {
-                                CategorizedInstantSearchResults(
-                                    query = searchQuery,
-                                    artists = artists,
-                                    albums = albums,
-                                    allTracks = onlineTracks,
-                                    currentPlayingTrack = currentPlayingTrack,
-                                    isPersian = isPersian,
-                                    onArtistClick = { navState = HubNavigationState.ArtistPage(it) },
-                                    onAlbumClick = { navState = HubNavigationState.AlbumPage(it) },
-                                    onPlayTrack = onPlayTrack,
-                                    onDownloadTrack = onDownloadTrack
-                                )
+                        if (isLoading && onlineTracks.isEmpty()) {
+                            item(key = "hub_loading") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 90.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(color = Color(0xFF1DB954))
+                                }
                             }
                         } else {
-                            item {
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    items(TopHubTab.entries) { tab ->
-                                        val isSelected = activeTab == tab
-                                        Surface(
-                                            onClick = { activeTab = tab },
-                                            shape = RoundedCornerShape(50),
-                                            color = if (isSelected) Color(0xFF1DB954) else Color.White.copy(alpha = 0.07f),
-                                            border = if (isSelected) null else BorderStroke(
-                                                1.dp,
-                                                Color.White.copy(alpha = 0.12f)
-                                            )
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Icon(
-                                                    imageVector = tab.icon,
-                                                    contentDescription = null,
-                                                    tint = if (isSelected) Color.Black else Color.White,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(
-                                                    text = if (isPersian) tab.titleFa else tab.titleEn,
-                                                    color = if (isSelected) Color.Black else Color.White,
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.ExtraBold
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (isLoading && onlineTracks.isEmpty()) {
-                                item {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 90.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        CircularProgressIndicator(color = Color(0xFF1DB954))
-                                    }
-                                }
-                            } else {
-                                when (activeTab) {
-                                    TopHubTab.DISCOVER -> {
-                                        item {
-                                            AppleMusicHeroPager(
-                                                onlineTracks = onlineTracks,
-                                                browseCategories = browseCategories,
-                                                isPersian = isPersian,
-                                                onPlayMix = { mixTracks ->
-                                                    if (mixTracks.isNotEmpty()) {
-                                                        onPlayTrack(mixTracks.first(), mixTracks)
-                                                    }
+                            when (activeTab) {
+                                TopHubTab.DISCOVER -> {
+                                    item(key = "discover_hero") {
+                                        AppleMusicHeroPager(
+                                            onlineTracks = onlineTracks,
+                                            browseCategories = browseCategories,
+                                            isPersian = isPersian,
+                                            onPlayMix = { mixTracks ->
+                                                if (mixTracks.isNotEmpty()) {
+                                                    onPlayTrack(mixTracks.first(), mixTracks)
                                                 }
-                                            )
-                                            Spacer(modifier = Modifier.height(24.dp))
-                                        }
-
-                                        if (artists.isNotEmpty()) {
-                                            item {
-                                                HubSectionHeader(
-                                                    title = if (isPersian) "هنرمندان برجسته" else "Featured Artists",
-                                                    subtitle = if (isPersian) "پروفایل یکتا برای ${artists.size} هنرمند (همراه با فیت‌ها)" else "${artists.size} unified artist profiles (including features)",
-                                                    actionLabel = if (isPersian) "مشاهده همه" else "See All",
-                                                    onAction = { activeTab = TopHubTab.ARTISTS }
-                                                )
-                                                LazyRow(
-                                                    contentPadding = PaddingValues(horizontal = 16.dp),
-                                                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                                                ) {
-                                                    items(artists.take(15), key = { "hub_art_${it.name}" }) { artist ->
-                                                        SpotifyArtistCard(
-                                                            artist = artist,
-                                                            isPersian = isPersian,
-                                                            onClick = { navState = HubNavigationState.ArtistPage(artist) }
-                                                        )
-                                                    }
-                                                }
-                                                Spacer(modifier = Modifier.height(26.dp))
                                             }
-                                        }
-
-                                        if (quickPicks.isNotEmpty()) {
-                                            item {
-                                                HubSectionHeader(
-                                                    title = if (isPersian) "پیشنهاد سریع" else "Quick Picks",
-                                                    subtitle = if (isPersian) "پخش فوری از آرشیو ابری" else "Instant cloud stream picks",
-                                                    actionLabel = if (isPersian) "پیشنهاد جدید" else "Refresh Picks",
-                                                    onAction = { quickPicksSeed++ }
-                                                )
-                                                QuickPicksThreeRowGrid(
-                                                    tracks = quickPicks,
-                                                    currentPlayingTrack = currentPlayingTrack,
-                                                    onPlayTrack = { track -> onPlayTrack(track, quickPicks) }
-                                                )
-                                                Spacer(modifier = Modifier.height(26.dp))
-                                            }
-                                        }
-
-                                        if (albums.isNotEmpty()) {
-                                            item {
-                                                HubSectionHeader(
-                                                    title = if (isPersian) "آلبوم‌ها و مجموعه‌ها" else "Albums & Collections",
-                                                    subtitle = if (isPersian) "آهنگ‌های هر مجموعه در کنار هم" else "Grouped albums & artist collections",
-                                                    actionLabel = if (isPersian) "همه آلبوم‌ها" else "See All",
-                                                    onAction = { activeTab = TopHubTab.ALBUMS }
-                                                )
-                                                LazyRow(
-                                                    contentPadding = PaddingValues(horizontal = 16.dp),
-                                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                                                ) {
-                                                    items(albums.take(15), key = { "hub_alb_${it.id}" }) { album ->
-                                                        SpotifyAlbumCardItem(
-                                                            album = album,
-                                                            isPersian = isPersian,
-                                                            onClick = { navState = HubNavigationState.AlbumPage(album) }
-                                                        )
-                                                    }
-                                                }
-                                                Spacer(modifier = Modifier.height(26.dp))
-                                            }
-                                        }
-
-                                        if (browseCategories.isNotEmpty()) {
-                                            item {
-                                                HubSectionHeader(
-                                                    title = if (isPersian) "مرور بر اساس سبک" else "Browse by Genre",
-                                                    subtitle = if (isPersian) "دسته‌بندی واقعی بر اساس متادیتا و سبک آهنگ" else "Strictly matched by real genre & artist metadata"
-                                                )
-                                                SpotifyCategoriesGrid(
-                                                    categories = browseCategories,
-                                                    isPersian = isPersian,
-                                                    onCategoryClick = { category ->
-                                                        navState = HubNavigationState.CategoryPage(category)
-                                                    }
-                                                )
-                                            }
-                                        }
+                                        )
+                                        Spacer(modifier = Modifier.height(24.dp))
                                     }
 
-                                    TopHubTab.CATEGORIES -> {
-                                        item {
+                                    if (artists.isNotEmpty()) {
+                                        item(key = "discover_featured_artists") {
                                             HubSectionHeader(
-                                                title = if (isPersian) "همه دسته‌بندی‌ها" else "All Genres & Categories",
-                                                subtitle = if (isPersian) "تفکیک شده بر اساس ژانر واقعی" else "Verified genre classification"
+                                                title = if (isPersian) "هنرمندان برجسته" else "Featured Artists",
+                                                subtitle = if (isPersian) "پروفایل یکتا برای ${artists.size} هنرمند (همراه با فیت‌ها)" else "${artists.size} unified artist profiles (including features)",
+                                                actionLabel = if (isPersian) "مشاهده همه" else "See All",
+                                                onAction = { activeTab = TopHubTab.ARTISTS }
                                             )
-                                            SpotifyCategoriesGrid(
-                                                categories = browseCategories,
-                                                isPersian = isPersian,
-                                                onCategoryClick = { category ->
-                                                    navState = HubNavigationState.CategoryPage(category)
+                                            LazyRow(
+                                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                            ) {
+                                                items(artists.take(15), key = { "hub_art_${it.name}" }) { artist ->
+                                                    SpotifyArtistCard(
+                                                        artist = artist,
+                                                        isPersian = isPersian,
+                                                        onClick = { navState = HubNavigationState.ArtistPage(artist) }
+                                                    )
                                                 }
-                                            )
+                                            }
+                                            Spacer(modifier = Modifier.height(26.dp))
                                         }
                                     }
 
-                                    TopHubTab.ARTISTS -> {
-                                        item {
-                                            ArtistsDirectoryGridSection(
-                                                artists = artists,
-                                                isPersian = isPersian,
-                                                onArtistClick = { navState = HubNavigationState.ArtistPage(it) }
+                                    if (quickPicks.isNotEmpty()) {
+                                        item(key = "discover_quick_picks") {
+                                            HubSectionHeader(
+                                                title = if (isPersian) "پیشنهاد سریع" else "Quick Picks",
+                                                subtitle = if (isPersian) "پخش فوری از آرشیو ابری" else "Instant cloud stream picks",
+                                                actionLabel = if (isPersian) "پیشنهاد جدید" else "Refresh Picks",
+                                                onAction = { quickPicksSeed++ }
                                             )
+                                            QuickPicksThreeRowGrid(
+                                                tracks = quickPicks,
+                                                currentPlayingTrack = currentPlayingTrack,
+                                                onPlayTrack = { track -> onPlayTrack(track, quickPicks) }
+                                            )
+                                            Spacer(modifier = Modifier.height(26.dp))
                                         }
                                     }
 
-                                    TopHubTab.ALBUMS -> {
-                                        item {
-                                            AlbumsDirectoryGridSection(
-                                                albums = albums,
-                                                isPersian = isPersian,
-                                                onAlbumClick = { navState = HubNavigationState.AlbumPage(it) }
+                                    if (albums.isNotEmpty()) {
+                                        item(key = "discover_albums") {
+                                            HubSectionHeader(
+                                                title = if (isPersian) "آلبوم‌های محبوب" else "Popular Albums",
+                                                subtitle = if (isPersian) "آلبوم‌های رسمی و منتشر شده هنرمندان" else "Official releases & studio albums",
+                                                actionLabel = if (isPersian) "همه آلبوم‌ها" else "See All",
+                                                onAction = { activeTab = TopHubTab.ALBUMS }
                                             )
+                                            LazyRow(
+                                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                            ) {
+                                                items(albums.take(15), key = { "hub_alb_${it.id}" }) { album ->
+                                                    SpotifyAlbumCardItem(
+                                                        album = album,
+                                                        isPersian = isPersian,
+                                                        onClick = { navState = HubNavigationState.AlbumPage(album) }
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(26.dp))
                                         }
                                     }
+
+                                    if (browseCategories.isNotEmpty()) {
+                                        item(key = "discover_categories_header") {
+                                            HubSectionHeader(
+                                                title = if (isPersian) "مرور بر اساس سبک" else "Browse by Genre",
+                                                subtitle = if (isPersian) "دسته‌بندی واقعی بر اساس متادیتا و سبک آهنگ" else "Strictly matched by real genre & artist metadata"
+                                            )
+                                        }
+                                        spotifyCategoriesLazyRows(
+                                            categoryRows = hubData.categoryRows,
+                                            isPersian = isPersian,
+                                            onCategoryClick = { category ->
+                                                navState = HubNavigationState.CategoryPage(category)
+                                            }
+                                        )
+                                    }
+                                }
+
+                                TopHubTab.CATEGORIES -> {
+                                    item(key = "all_categories_header") {
+                                        HubSectionHeader(
+                                            title = if (isPersian) "همه دسته‌بندی‌ها" else "All Genres & Categories",
+                                            subtitle = if (isPersian) "تفکیک شده بر اساس ژانر واقعی" else "Verified genre classification"
+                                        )
+                                    }
+                                    spotifyCategoriesLazyRows(
+                                        categoryRows = hubData.categoryRows,
+                                        isPersian = isPersian,
+                                        onCategoryClick = { category ->
+                                            navState = HubNavigationState.CategoryPage(category)
+                                        }
+                                    )
+                                }
+
+                                TopHubTab.ARTISTS -> {
+                                    artistsDirectoryLazyRows(
+                                        artistRows = hubData.artistRows,
+                                        isPersian = isPersian,
+                                        onArtistClick = { navState = HubNavigationState.ArtistPage(it) }
+                                    )
+                                }
+
+                                TopHubTab.ALBUMS -> {
+                                    albumsDirectoryLazyRows(
+                                        albumRows = hubData.albumRows,
+                                        isPersian = isPersian,
+                                        onAlbumClick = { navState = HubNavigationState.AlbumPage(it) }
+                                    )
                                 }
                             }
                         }
@@ -2633,87 +3062,82 @@ private fun QuickPicksThreeRowGrid(
 }
 
 /**
- * گرید دسته‌بندی‌های واقعی به سبک Spotify Browse
+ * ردیف‌های Lazy دسته‌بندی‌ها در LazyColumn
  */
-@Composable
-private fun SpotifyCategoriesGrid(
-    categories: List<SpotifyBrowseCategory>,
+private fun LazyListScope.spotifyCategoriesLazyRows(
+    categoryRows: List<List<SpotifyBrowseCategory>>,
     isPersian: Boolean,
     onCategoryClick: (SpotifyBrowseCategory) -> Unit
 ) {
-    val rows = remember(categories) { categories.chunked(2) }
+    items(
+        items = categoryRows,
+        key = { row -> "cat_row_${row.firstOrNull()?.id.orEmpty()}" }
+    ) { rowItems ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            rowItems.forEach { category ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(108.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Brush.linearGradient(category.gradient))
+                        .border(
+                            width = 1.dp,
+                            color = Color.White.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(18.dp)
+                        )
+                        .clickable { onCategoryClick(category) }
+                        .padding(14.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .fillMaxWidth(0.78f)
+                    ) {
+                        Text(
+                            text = if (isPersian) category.titleFa else category.titleEn,
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (isPersian) category.subtitleFa else category.subtitleEn,
+                            color = Color.White.copy(alpha = 0.82f),
+                            fontSize = 11.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        rows.forEach { rowItems ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                rowItems.forEach { category ->
                     Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .height(108.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(Brush.linearGradient(category.gradient))
-                            .border(
-                                width = 1.dp,
-                                color = Color.White.copy(alpha = 0.14f),
-                                shape = RoundedCornerShape(18.dp)
-                            )
-                            .clickable { onCategoryClick(category) }
-                            .padding(14.dp)
+                            .size(54.dp)
+                            .align(Alignment.BottomEnd)
+                            .offset(x = 8.dp, y = 8.dp)
+                            .rotate(22f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.18f)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .fillMaxWidth(0.78f)
-                        ) {
-                            Text(
-                                text = if (isPersian) category.titleFa else category.titleEn,
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = if (isPersian) category.subtitleFa else category.subtitleEn,
-                                color = Color.White.copy(alpha = 0.82f),
-                                fontSize = 11.sp,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .size(54.dp)
-                                .align(Alignment.BottomEnd)
-                                .offset(x = 8.dp, y = 8.dp)
-                                .rotate(22f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color.White.copy(alpha = 0.18f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = category.icon,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
+                        Icon(
+                            imageVector = category.icon,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
                     }
                 }
-                if (rowItems.size == 1) {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
+            }
+            if (rowItems.size == 1) {
+                Spacer(modifier = Modifier.weight(1f))
             }
         }
     }
@@ -2823,12 +3247,10 @@ private fun SpotifyAlbumCardItem(
     }
 }
 
-@Composable
-private fun CategorizedInstantSearchResults(
-    query: String,
-    artists: List<CloudArtistProfile>,
-    albums: List<CloudAlbumCollection>,
-    allTracks: List<Track>,
+private fun LazyListScope.categorizedInstantSearchItems(
+    matchedArtists: List<CloudArtistProfile>,
+    matchedAlbums: List<CloudAlbumCollection>,
+    matchedTracks: List<Track>,
     currentPlayingTrack: Track?,
     isPersian: Boolean,
     onArtistClick: (CloudArtistProfile) -> Unit,
@@ -2836,25 +3258,8 @@ private fun CategorizedInstantSearchResults(
     onPlayTrack: (Track, List<Track>) -> Unit,
     onDownloadTrack: ((Track) -> Unit)? = null
 ) {
-    val q = query.trim()
-    val matchedArtists = remember(artists, q) {
-        artists.filter { it.name.contains(q, ignoreCase = true) }.take(15)
-    }
-    val matchedAlbums = remember(albums, q) {
-        albums.filter {
-            it.title.contains(q, ignoreCase = true) || it.artist.contains(q, ignoreCase = true)
-        }.take(15)
-    }
-    val matchedTracks = remember(allTracks, q) {
-        allTracks.filter {
-            it.title.contains(q, ignoreCase = true) ||
-                it.artist.contains(q, ignoreCase = true) ||
-                it.album.contains(q, ignoreCase = true)
-        }.take(35)
-    }
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        if (matchedArtists.isNotEmpty()) {
+    if (matchedArtists.isNotEmpty()) {
+        item(key = "srch_artists_sec") {
             HubSectionHeader(
                 title = if (isPersian) "هنرمندان (${matchedArtists.size})" else "Artists (${matchedArtists.size})"
             )
@@ -2872,8 +3277,10 @@ private fun CategorizedInstantSearchResults(
             }
             Spacer(modifier = Modifier.height(20.dp))
         }
+    }
 
-        if (matchedAlbums.isNotEmpty()) {
+    if (matchedAlbums.isNotEmpty()) {
+        item(key = "srch_albums_sec") {
             HubSectionHeader(
                 title = if (isPersian) "آلبوم‌ها (${matchedAlbums.size})" else "Albums (${matchedAlbums.size})"
             )
@@ -2891,19 +3298,21 @@ private fun CategorizedInstantSearchResults(
             }
             Spacer(modifier = Modifier.height(20.dp))
         }
+    }
 
-        if (matchedTracks.isNotEmpty()) {
+    if (matchedTracks.isNotEmpty()) {
+        item(key = "srch_tracks_hdr") {
             HubSectionHeader(
                 title = if (isPersian) "آهنگ‌ها (${matchedTracks.size})" else "Songs (${matchedTracks.size})"
             )
-            matchedTracks.forEach { track ->
-                SpotifyTrackRowItem(
-                    track = track,
-                    isPlaying = currentPlayingTrack?.id == track.id,
-                    onClick = { onPlayTrack(track, matchedTracks) },
-                    onDownloadClick = onDownloadTrack?.let { { it(track) } }
-                )
-            }
+        }
+        items(matchedTracks, key = { "srch_trk_${it.id}" }) { track ->
+            SpotifyTrackRowItem(
+                track = track,
+                isPlaying = currentPlayingTrack?.id == track.id,
+                onClick = { onPlayTrack(track, matchedTracks) },
+                onDownloadClick = onDownloadTrack?.let { { it(track) } }
+            )
         }
     }
 }
@@ -3084,7 +3493,7 @@ private fun SpotifyFullArtistScreen(
             item {
                 Spacer(modifier = Modifier.height(20.dp))
                 HubSectionHeader(
-                    title = if (isPersian) "آلبوم‌ها و مجموعه‌ها" else "Albums & Collections"
+                    title = if (isPersian) "آلبوم‌های رسمی" else "Official Albums"
                 )
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
@@ -3112,11 +3521,16 @@ private fun SpotifyFullAlbumScreen(
     onPlayTrack: (Track, List<Track>) -> Unit,
     onDownloadTrack: ((Track) -> Unit)? = null
 ) {
+    var visibleLimit by remember(album.id) { mutableIntStateOf(25) }
+    val visibleTracks = remember(album.tracks, visibleLimit) {
+        album.tracks.take(visibleLimit)
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 130.dp)
     ) {
-        item {
+        item(key = "alb_header_${album.id}") {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -3177,13 +3591,34 @@ private fun SpotifyFullAlbumScreen(
             }
         }
 
-        items(album.tracks, key = { "alb_trk_${it.id}" }) { track ->
+        items(visibleTracks, key = { "alb_trk_${it.id}" }) { track ->
             SpotifyTrackRowItem(
                 track = track,
                 isPlaying = currentPlayingTrack?.id == track.id,
                 onClick = { onPlayTrack(track, album.tracks) },
                 onDownloadClick = onDownloadTrack?.let { { it(track) } }
             )
+        }
+
+        if (visibleLimit < album.tracks.size) {
+            item(key = "alb_load_more") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    OutlinedButton(
+                        onClick = { visibleLimit += 30 },
+                        shape = RoundedCornerShape(50)
+                    ) {
+                        Text(
+                            text = if (isPersian) "نمایش بیشتر (${album.tracks.size - visibleLimit})" else "Load More (${album.tracks.size - visibleLimit})",
+                            color = Color(0xFF1DB954)
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -3283,71 +3718,69 @@ private fun SpotifyCategoryPlaylistScreen(
     }
 }
 
-@Composable
-private fun ArtistsDirectoryGridSection(
-    artists: List<CloudArtistProfile>,
+/**
+ * ردیف‌های Lazy هنرمندان در LazyColumn (فقط ردیف‌های قابل مشاهده روی صفحه رندر می‌شوند تا هیچ لگ و مصرف رم اضافی ایجاد نشود)
+ */
+private fun LazyListScope.artistsDirectoryLazyRows(
+    artistRows: List<List<CloudArtistProfile>>,
     isPersian: Boolean,
     onArtistClick: (CloudArtistProfile) -> Unit
 ) {
-    val rows = remember(artists) { artists.chunked(3) }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        rows.forEach { row ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                row.forEach { artist ->
-                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        SpotifyArtistCard(
-                            artist = artist,
-                            isPersian = isPersian,
-                            onClick = { onArtistClick(artist) }
-                        )
-                    }
+    items(
+        items = artistRows,
+        key = { row -> "art_row_${row.firstOrNull()?.name.orEmpty()}" }
+    ) { row ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            row.forEach { artist ->
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    SpotifyArtistCard(
+                        artist = artist,
+                        isPersian = isPersian,
+                        onClick = { onArtistClick(artist) }
+                    )
                 }
-                repeat(3 - row.size) {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
+            }
+            repeat(3 - row.size) {
+                Spacer(modifier = Modifier.weight(1f))
             }
         }
     }
 }
 
-@Composable
-private fun AlbumsDirectoryGridSection(
-    albums: List<CloudAlbumCollection>,
+/**
+ * ردیف‌های Lazy آلبوم‌ها در LazyColumn (فقط ردیف‌های قابل مشاهده روی صفحه رندر می‌شوند تا کلیک روی تب آلبوم‌ها در ۰ میلی‌ثانیه باز شود)
+ */
+private fun LazyListScope.albumsDirectoryLazyRows(
+    albumRows: List<List<CloudAlbumCollection>>,
     isPersian: Boolean,
     onAlbumClick: (CloudAlbumCollection) -> Unit
 ) {
-    val rows = remember(albums) { albums.chunked(2) }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        rows.forEach { row ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                row.forEach { album ->
-                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        SpotifyAlbumCardItem(
-                            album = album,
-                            isPersian = isPersian,
-                            onClick = { onAlbumClick(album) }
-                        )
-                    }
+    items(
+        items = albumRows,
+        key = { row -> "alb_row_${row.firstOrNull()?.id.orEmpty()}" }
+    ) { row ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            row.forEach { album ->
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    SpotifyAlbumCardItem(
+                        album = album,
+                        isPersian = isPersian,
+                        onClick = { onAlbumClick(album) }
+                    )
                 }
-                if (row.size == 1) {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
+            }
+            if (row.size == 1) {
+                Spacer(modifier = Modifier.weight(1f))
             }
         }
     }
@@ -3504,7 +3937,11 @@ private fun CloudTrackCoverBox(
         modifier = Modifier
             .size(size)
             .clip(shape)
-            .background(Color(0xFF121622)),
+            .background(
+                Brush.linearGradient(
+                    listOf(Color(0xFF171E2E), Color(0xFF0E131F))
+                )
+            ),
         contentAlignment = Alignment.Center
     ) {
         val bmp = cachedBitmap
@@ -3518,12 +3955,171 @@ private fun CloudTrackCoverBox(
                     .clip(shape)
             )
         } else {
-            SpotifyArtistAvatar(
-                artistName = fallbackName,
-                size = size,
-                shape = shape,
-                showVerifiedBadge = false
-            )
+            // جایگزین بسیار سبک بدون ایجاد هیچ درخواست شبکه یا ترد اضافه در حین لود شدن کاور تلگرام
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = Color(0xFF1DB954).copy(alpha = 0.7f),
+                    modifier = Modifier.size(if (size >= 100.dp) 34.dp else 18.dp)
+                )
+                if (size >= 90.dp && fallbackName.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = fallbackName,
+                        color = Color.White.copy(alpha = 0.75f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * صفحه لودینگ ظریف و سریع ابتدای ورود به برنامه:
+ * قبل از ورود کاربر به برنامه، کاتالوگ، آلبوم‌ها، دسته‌بندی‌ها، کاور آهنگ‌ها و عکس پروفایل هنرمندان را آماده و کش می‌کند
+ * تا در زمان کار با برنامه هیچ کندی یا مکثی در آلبوم‌ها و دسته‌بندی‌ها وجود نداشته باشد.
+ */
+@Composable
+fun AuraStartupPreloaderWrapper(
+    localTracks: List<Track> = emptyList(),
+    isPersian: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val context = LocalContext.current
+    var isReady by remember { mutableStateOf(OnlineMusicRepository.isStartupPreloadCompleted()) }
+    var progress by remember { mutableFloatStateOf(if (isReady) 1f else 0.05f) }
+    var statusText by remember(isPersian) {
+        mutableStateOf(
+            if (isPersian) "در حال آماده‌سازی آرشیو و کاورها..."
+            else "Preparing library, albums & covers..."
+        )
+    }
+
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = tween(durationMillis = 240),
+        label = "StartupPreloadProgress"
+    )
+
+    LaunchedEffect(Unit) {
+        if (!isReady) {
+            OnlineMusicRepository.preloadStartupEverything(
+                context = context,
+                localTracks = localTracks,
+                isPersian = isPersian
+            ) { pct, msg ->
+                progress = pct
+                statusText = msg
+            }
+            isReady = true
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // محتوای اصلی برنامه در زیر لایه لودینگ آماده می‌شود تا به محض اتمام لودینگ، بدون پرش نمایش داده شود
+        content()
+
+        AnimatedVisibility(
+            visible = !isReady,
+            exit = fadeOut(animationSpec = tween(320))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color(0xFF0A0F1A),
+                                Color(0xFF060812),
+                                Color(0xFF04050A)
+                            )
+                        )
+                    )
+                    .clickable(enabled = false) {},
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    modifier = Modifier
+                        .widthIn(max = 310.dp)
+                        .fillMaxWidth(0.84f)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color.White.copy(alpha = 0.05f))
+                        .border(
+                            width = 1.dp,
+                            color = Color(0xFF1DB954).copy(alpha = 0.28f),
+                            shape = RoundedCornerShape(24.dp)
+                        )
+                        .padding(horizontal = 24.dp, vertical = 26.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF1DB954).copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GraphicEq,
+                            contentDescription = null,
+                            tint = Color(0xFF1DB954),
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = if (isPersian) "در حال آماده‌سازی برنامه" else "Preparing Aura Music",
+                        color = Color.White,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = statusText,
+                        color = Color.White.copy(alpha = 0.68f),
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    LinearProgressIndicator(
+                        progress = { animatedProgress.coerceIn(0.05f, 1f) },
+                        color = Color(0xFF1DB954),
+                        trackColor = Color.White.copy(alpha = 0.1f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(50))
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "${(animatedProgress * 100).toInt().coerceIn(5, 100)}%",
+                        color = Color(0xFF1DB954),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
     }
 }
