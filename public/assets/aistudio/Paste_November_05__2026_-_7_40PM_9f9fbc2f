@@ -1,0 +1,2052 @@
+برای اینکه بتوانید این کدها را مستقیماً به Google AI Studio بدهید تا جایگزین کند (و چون فایل ارسالی شما به صورت فشرده .zip بود، متغیر آدرس سرور کلادفلر و امضای دقیق متدهای MusicPlayerViewModel شما حفظ شود)، کافی است کل متن زیر را کپی کرده و در Google AI Studio قرار دهید.
+راهنمای جایگذاری برای Google AI Studio (این بخش را همراه کدها کپی کنید)
+> Instruction for Google AI Studio:
+> Please update and replace the following files in the project while preserving the existing CLOUDFLARE_WORKER_URL / API endpoint constants and adapting any MusicPlayerViewModel / Track data model method calls to match the existing definitions in app/src/main/java/com/example/data/model/Track.kt and app/src/main/java/com/example/ui/viewmodel/MusicPlayerViewModel.kt.
+> 
+۱. مسیر فایل: app/src/main/java/com/example/ui/components/ArtistAvatar.kt
+(کامپوننت جدید برای دریافت عکس واقعی خواننده از API بدون فیلتر + ساخت آواتار تایپوگرافی مدرن با نام خواننده به جای استفاده از کاور آهنگ‌ها)
+package com.example.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.SubcomposeAsyncImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
+
+/**
+ * کش درون‌حافظه‌ای برای جلوگیری از درخواست‌های تکراری عکس آرتیست
+ */
+private val artistImageCache = ConcurrentHashMap<String, String>()
+
+/**
+ * دریافت عکس واقعی خواننده از سرویس‌های بدون فیلتر در ایران
+ * ۱. ابتدا از طریق پراکسی کلادفلر خودتان (در صورت وجود مسیر) یا مستقیماً از iTunes / Deezer API
+ * ۲. در صورت عدم وجود عکس، به هیچ عنوان از کاور آهنگ استفاده نمی‌کند و آواتار تایپوگرافی مدرن می‌سازد
+ */
+suspend fun fetchRealArtistImageUrl(
+    artistName: String,
+    cloudflareWorkerBaseUrl: String? = null
+): String? = withContext(Dispatchers.IO) {
+    val cleanName = artistName.trim()
+    if (cleanName.isBlank() || cleanName.equals("Unknown Artist", ignoreCase = true) || cleanName == "خواننده ناشناس") {
+        return@withContext null
+    }
+
+    artistImageCache[cleanName]?.let { cached ->
+        return@withContext cached.ifEmpty { null }
+    }
+
+    val encodedName = try {
+        URLEncoder.encode(cleanName, "UTF-8")
+    } catch (e: Exception) {
+        return@withContext null
+    }
+
+    // ۱. تلاش اول: استفاده از پراکسی کلادفلر (بدون فیلتر در ایران) برای دریافت تصویر آرتیست از Deezer
+    val endpoints = buildList {
+        if (!cloudflareWorkerBaseUrl.isNullOrBlank()) {
+            add("${cloudflareWorkerBaseUrl.trimEnd('/')}/artist-image?name=$encodedName")
+        }
+        // API دیزر و آیتونز برای جستجوی تصویر رسمی خواننده
+        add("https://api.deezer.com/search/artist?q=$encodedName&limit=1")
+    }
+
+    for (endpoint in endpoints) {
+        try {
+            val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 4500
+                readTimeout = 4500
+                requestMethod = "GET"
+                setRequestProperty("Accept", "application/json")
+            }
+
+            if (connection.responseCode == 200) {
+                val responseText = connection.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(responseText)
+
+                // اگر از ورکر مستقیم لینک عکس برگشت داده شد
+                if (json.has("imageUrl")) {
+                    val directUrl = json.optString("imageUrl")
+                    if (directUrl.startsWith("http")) {
+                        artistImageCache[cleanName] = directUrl
+                        return@withContext directUrl
+                    }
+                }
+
+                // ساختار پاسخ Deezer Artist API
+                val dataArray = json.optJSONArray("data")
+                if (dataArray != null && dataArray.length() > 0) {
+                    val artistObj = dataArray.getJSONObject(0)
+                    val pictureUrl = artistObj.optString("picture_big")
+                        .ifEmpty { artistObj.optString("picture_medium") }
+                    // جلوگیری از عکس خالی پیش‌فرض دیزر
+                    if (pictureUrl.startsWith("http") && !pictureUrl.contains("/images/artist//")) {
+                        artistImageCache[cleanName] = pictureUrl
+                        return@withContext pictureUrl
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // در صورت خطا یا محدودیت شبکه، سراغ آواتار تایپوگرافی مدرن می‌رویم
+        }
+    }
+
+    artistImageCache[cleanName] = ""
+    null
+}
+
+/**
+ * کامپوننت آواتار خواننده به سبک Spotify
+ * - اولویت اول: عکس واقعی خود خواننده (نه کاور آهنگ!)
+ * - اولویت دوم (Fallback): طراحی تایپوگرافی مدرن که نام کامل خواننده را با گرادیان نئونی و فونت زیبا داخل قاب نمایش می‌دهد
+ */
+@Composable
+fun SpotifyArtistAvatar(
+    artistName: String,
+    modifier: Modifier = Modifier,
+    size: Dp = 88.dp,
+    shape: Shape = CircleShape,
+    explicitArtistImageUrl: String? = null,
+    cloudflareWorkerBaseUrl: String? = null
+) {
+    var fetchedImageUrl by remember(artistName, explicitArtistImageUrl) {
+        mutableStateOf(explicitArtistImageUrl ?: artistImageCache[artistName.trim()]?.takeIf { it.isNotEmpty() })
+    }
+
+    LaunchedEffect(artistName, explicitArtistImageUrl) {
+        if (explicitArtistImageUrl.isNullOrBlank() && fetchedImageUrl == null) {
+            fetchedImageUrl = fetchRealArtistImageUrl(artistName, cloudflareWorkerBaseUrl)
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(shape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!fetchedImageUrl.isNullOrBlank()) {
+            SubcomposeAsyncImage(
+                model = fetchedImageUrl,
+                contentDescription = artistName,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .border(
+                        width = 1.5.dp,
+                        brush = Brush.linearGradient(
+                            listOf(
+                                Color(0xFF1DB954).copy(alpha = 0.7f),
+                                Color.White.copy(alpha = 0.15f)
+                            )
+                        ),
+                        shape = shape
+                    ),
+                loading = {
+                    ModernTypographyArtistPlaceholder(artistName = artistName, size = size, shape = shape)
+                },
+                error = {
+                    ModernTypographyArtistPlaceholder(artistName = artistName, size = size, shape = shape)
+                }
+            )
+        } else {
+            ModernTypographyArtistPlaceholder(artistName = artistName, size = size, shape = shape)
+        }
+    }
+}
+
+/**
+ * پروفایل تایپوگرافی مدرن که اسم کامل خواننده را به شکل گرافیکی شیک داخل دایره/کارت می‌نویسد
+ */
+@Composable
+fun ModernTypographyArtistPlaceholder(
+    artistName: String,
+    size: Dp,
+    shape: Shape = CircleShape
+) {
+    val cleanName = artistName.trim().ifBlank { "Artist" }
+    val hash = abs(cleanName.hashCode())
+
+    val palettes = listOf(
+        listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)),
+        listOf(Color(0xFF1A0933), Color(0xFF3B185F), Color(0xFF7B2CBF)),
+        listOf(Color(0xFF092014), Color(0xFF114B2F), Color(0xFF1DB954)),
+        listOf(Color(0xFF2B0918), Color(0xFF590D22), Color(0xFFA4133C)),
+        listOf(Color(0xFF0B132B), Color(0xFF1C2541), Color(0xFF3A506B)),
+        listOf(Color(0xFF241505), Color(0xFF5C330A), Color(0xFFD97706))
+    )
+    val selectedColors = palettes[hash % palettes.size]
+
+    val dynamicFontSize = when {
+        size < 52.dp -> 10.sp
+        size < 76.dp -> 12.sp
+        size < 105.dp -> 14.sp
+        else -> 18.sp
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                brush = Brush.linearGradient(selectedColors),
+                shape = shape
+            )
+            .border(
+                width = 1.5.dp,
+                brush = Brush.sweepGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.35f),
+                        selectedColors.last().copy(alpha = 0.8f),
+                        Color.White.copy(alpha = 0.1f),
+                        Color.White.copy(alpha = 0.35f)
+                    )
+                ),
+                shape = shape
+            )
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // هاله نوری ظریف پشت نوشته
+        Box(
+            modifier = Modifier
+                .fillMaxSize(0.75f)
+                .clip(RoundedCornerShape(50))
+                .background(Color.White.copy(alpha = 0.05f))
+        )
+
+        Text(
+            text = cleanName,
+            color = Color.White,
+            fontSize = dynamicFontSize,
+            fontWeight = FontWeight.ExtraBold,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            lineHeight = (dynamicFontSize.value + 3).sp,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.titleMedium
+        )
+    }
+}
+
+۲. مسیر فایل: app/src/main/java/com/example/OnlineMusicScreen.kt
+(بازطراحی کامل بخش کلادفلر و آرشیو تلگرام به سبک Spotify: دسته‌بندی‌ها، کروسل افقی آرتیست‌ها، گروه‌بندی آلبوم‌ها در کنار هم، بخش پیشنهاد ویژه، صفحه‌بندی هوشمند برای آرشیوهای بالای ۵۰۰۰ آهنگ، و صفحه اختصاصی هر خواننده و آلبوم)
+package com.example
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.example.data.model.Track
+import com.example.ui.components.SpotifyArtistAvatar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+
+// مدل‌های داده برای ساختار اسپاتیفای‌طور بخش آنلاین کلادفلر / تلگرام
+data class CloudArtistGroup(
+    val name: String,
+    val tracks: List<Track>,
+    val albums: List<CloudAlbumGroup>,
+    val artistImageUrl: String? = null
+)
+
+data class CloudAlbumGroup(
+    val title: String,
+    val artist: String,
+    val coverUri: String?,
+    val tracks: List<Track>
+)
+
+enum class OnlineFilterCategory(val labelFa: String, val labelEn: String) {
+    ALL("همه", "All"),
+    SUGGESTED("پیشنهاد ویژه", "Featured"),
+    ARTISTS("خواننده‌ها", "Artists"),
+    ALBUMS("آلبوم‌ها", "Albums"),
+    NEWEST("جدیدترین‌ها", "Latest")
+}
+
+private sealed class OnlineSubScreen {
+    object Explore : OnlineSubScreen()
+    data class ArtistDetail(val artist: CloudArtistGroup) : OnlineSubScreen()
+    data class AlbumDetail(val album: CloudAlbumGroup) : OnlineSubScreen()
+    object AllArtistsGrid : OnlineSubScreen()
+}
+
+/**
+ * مخزن مرکزی کش‌شده برای آهنگ‌های کلادفلر / آرشیو تلگرام
+ * تا در HomeScreen و SearchScreen هم بدون بارگذاری مجدد برای پیشنهاد و سرچ در دسترس باشد
+ */
+object CloudflareArchiveCache {
+    var cachedTracks by mutableStateOf<List<Track>>(emptyList())
+    var isLoaded by mutableStateOf(false)
+    var isLoading by mutableStateOf(false)
+    var lastError by mutableStateOf<String?>(null)
+
+    // توجه برای Google AI Studio: آدرس ورکر کلادفلر موجود در پروژه را در این ثابت حفظ کن
+    var WORKER_URL: String = "https://your-cloudflare-worker.workers.dev/tracks"
+
+    suspend fun ensureLoaded(forceRefresh: Boolean = false) {
+        if (isLoaded && !forceRefresh && cachedTracks.isNotEmpty()) return
+        if (isLoading) return
+        isLoading = true
+        lastError = null
+        try {
+            val fetched = fetchTracksFromCloudflare(WORKER_URL)
+            if (fetched.isNotEmpty()) {
+                cachedTracks = fetched
+                isLoaded = true
+            }
+        } catch (e: Exception) {
+            lastError = e.localizedMessage ?: "خطا در اتصال به سرور کلادفلر"
+        } finally {
+            isLoading = false
+        }
+    }
+
+    private suspend fun fetchTracksFromCloudflare(endpoint: String): List<Track> =
+        withContext(Dispatchers.IO) {
+            val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 8000
+                readTimeout = 8000
+                requestMethod = "GET"
+            }
+            if (connection.responseCode != 200) return@withContext emptyList()
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            parseCloudflareJson(body)
+        }
+
+    fun parseCloudflareJson(rawJson: String): List<Track> {
+        val result = mutableListOf<Track>()
+        val array = if (rawJson.trim().startsWith("[")) {
+            JSONArray(rawJson)
+        } else {
+            val obj = JSONObject(rawJson)
+            obj.optJSONArray("tracks")
+                ?: obj.optJSONArray("data")
+                ?: obj.optJSONArray("results")
+                ?: JSONArray()
+        }
+
+        for (i in 0 until array.length()) {
+            val item = array.optJSONObject(i) ?: continue
+            val id = item.optString("id").ifBlank { "cf_track_$i" }
+            val title = item.optString("title")
+                .ifBlank { item.optString("name") }
+                .ifBlank { "بدون عنوان" }
+            val artist = item.optString("artist")
+                .ifBlank { item.optString("performer") }
+                .ifBlank { "خواننده ناشناس" }
+            val album = item.optString("album")
+                .ifBlank { "تک‌آهنگ‌ها ($artist)" }
+            val streamUrl = item.optString("url")
+                .ifBlank { item.optString("streamUrl") }
+                .ifBlank { item.optString("audioUrl") }
+                .ifBlank { item.optString("file_url") }
+            val coverUrl = item.optString("cover")
+                .ifBlank { item.optString("artwork") }
+                .ifBlank { item.optString("thumb") }
+                .takeIf { it.isNotBlank() }
+            val durationMs = item.optLong("duration", 0L).let {
+                if (it in 1..10000) it * 1000L else it
+            }
+
+            if (streamUrl.isNotBlank()) {
+                // سازگار با مدل Track پروژه
+                result.add(
+                    Track(
+                        id = id,
+                        title = title,
+                        artist = artist,
+                        album = album,
+                        uri = streamUrl,
+                        artworkUri = coverUrl,
+                        duration = durationMs
+                    )
+                )
+            }
+        }
+        return result
+    }
+}
+
+@Composable
+fun OnlineMusicScreen(
+    onlineTracks: List<Track> = CloudflareArchiveCache.cachedTracks,
+    isLoading: Boolean = CloudflareArchiveCache.isLoading,
+    currentPlayingTrack: Track? = null,
+    isPersian: Boolean = true,
+    onPlayTrack: (Track, List<Track>) -> Unit,
+    onRefresh: () -> Unit = {}
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf(OnlineFilterCategory.ALL) }
+    var currentSubScreen by remember { mutableStateOf<OnlineSubScreen>(OnlineSubScreen.Explore) }
+
+    // صفحه‌بندی هوشمند برای زمانی که ۵۰۰۰+ آهنگ در آرشیو تلگرام/کلادفلر وجود دارد
+    var visibleTrackCount by remember(searchQuery, selectedCategory) { mutableIntStateOf(40) }
+    val listState = rememberLazyListState()
+
+    // هندل کردن دکمه بازگشت وقتی کاربر داخل صفحه آلبوم یا پروفایل آرتیست است
+    BackHandler(enabled = currentSubScreen != OnlineSubScreen.Explore) {
+        currentSubScreen = OnlineSubScreen.Explore
+    }
+
+    // استخراج هوشمند آلبوم‌ها و آرتیست‌ها بدون رندر کردن سنگین در هر فریم
+    val albumsList = remember(onlineTracks) {
+        onlineTracks
+            .groupBy { "${it.artist.trim()}__${it.album.trim()}" }
+            .map { (_, tracks) ->
+                val first = tracks.first()
+                CloudAlbumGroup(
+                    title = first.album.ifBlank { "تک‌آهنگ‌ها" },
+                    artist = first.artist.ifBlank { "خواننده ناشناس" },
+                    coverUri = tracks.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri,
+                    tracks = tracks
+                )
+            }
+            .sortedByDescending { it.tracks.size }
+    }
+
+    val artistsList = remember(onlineTracks, albumsList) {
+        onlineTracks
+            .groupBy { it.artist.trim().ifBlank { "خواننده ناشناس" } }
+            .map { (artistName, tracks) ->
+                CloudArtistGroup(
+                    name = artistName,
+                    tracks = tracks,
+                    albums = albumsList.filter { it.artist.equals(artistName, ignoreCase = true) }
+                )
+            }
+            .sortedByDescending { it.tracks.size }
+    }
+
+    // پیشنهادهای هوشمند از آرشیو تلگرام / کلادفلر (بدون مرتب‌سازی الفبایی خشک)
+    val suggestedTracks = remember(onlineTracks) {
+        onlineTracks.shuffled().take(15)
+    }
+
+    val filteredTracks = remember(onlineTracks, searchQuery, selectedCategory, suggestedTracks) {
+        val base = when (selectedCategory) {
+            OnlineFilterCategory.SUGGESTED -> suggestedTracks
+            OnlineFilterCategory.NEWEST -> onlineTracks.reversed()
+            else -> onlineTracks
+        }
+        if (searchQuery.isBlank()) {
+            base
+        } else {
+            val q = searchQuery.trim()
+            onlineTracks.filter {
+                it.title.contains(q, ignoreCase = true) ||
+                    it.artist.contains(q, ignoreCase = true) ||
+                    it.album.contains(q, ignoreCase = true)
+            }
+        }
+    }
+
+    val filteredArtists = remember(artistsList, searchQuery) {
+        if (searchQuery.isBlank()) artistsList
+        else artistsList.filter { it.name.contains(searchQuery.trim(), ignoreCase = true) }
+    }
+
+    val filteredAlbums = remember(albumsList, searchQuery) {
+        if (searchQuery.isBlank()) albumsList
+        else albumsList.filter {
+            it.title.contains(searchQuery.trim(), ignoreCase = true) ||
+                it.artist.contains(searchQuery.trim(), ignoreCase = true)
+        }
+    }
+
+    // بارگذاری خودکار صفحه بعدی هنگام اسکرول به انتهای لیست (برای ۵۰۰۰+ آهنگ)
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val totalItems = listState.layoutInfo.totalItemsCount
+            totalItems > 0 && lastVisible >= totalItems - 4
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore) {
+        if (shouldLoadMore && visibleTrackCount < filteredTracks.size) {
+            visibleTrackCount = (visibleTrackCount + 40).coerceAtMost(filteredTracks.size)
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF090B10))
+    ) {
+        AnimatedContent(
+            targetState = currentSubScreen,
+            label = "OnlineSubScreenTransition"
+        ) { subScreen ->
+            when (subScreen) {
+                is OnlineSubScreen.ArtistDetail -> {
+                    SpotifyArtistDetailView(
+                        artist = subScreen.artist,
+                        currentPlayingTrack = currentPlayingTrack,
+                        onBack = { currentSubScreen = OnlineSubScreen.Explore },
+                        onAlbumClick = { currentSubScreen = OnlineSubScreen.AlbumDetail(it) },
+                        onPlayTrack = onPlayTrack
+                    )
+                }
+
+                is OnlineSubScreen.AlbumDetail -> {
+                    SpotifyAlbumDetailView(
+                        album = subScreen.album,
+                        currentPlayingTrack = currentPlayingTrack,
+                        onBack = { currentSubScreen = OnlineSubScreen.Explore },
+                        onPlayTrack = onPlayTrack
+                    )
+                }
+
+                is OnlineSubScreen.AllArtistsGrid -> {
+                    AllArtistsDirectoryView(
+                        artists = filteredArtists,
+                        onBack = { currentSubScreen = OnlineSubScreen.Explore },
+                        onArtistClick = { currentSubScreen = OnlineSubScreen.ArtistDetail(it) }
+                    )
+                }
+
+                OnlineSubScreen.Explore -> {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 120.dp)
+                    ) {
+                        // ۱. هدر مدرن کلادفلر + آرشیو تلگرام و باکس جستجوی آنی
+                        item {
+                            CloudflareSpotifyHeader(
+                                totalTracksCount = onlineTracks.size,
+                                totalArtistsCount = artistsList.size,
+                                searchQuery = searchQuery,
+                                onSearchChange = { searchQuery = it },
+                                onRefresh = onRefresh
+                            )
+                        }
+
+                        // ۲. تب‌های دسته‌بندی به سبک Spotify
+                        item {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(OnlineFilterCategory.entries) { category ->
+                                    val selected = selectedCategory == category
+                                    FilterChip(
+                                        selected = selected,
+                                        onClick = { selectedCategory = category },
+                                        label = {
+                                            Text(
+                                                text = if (isPersian) category.labelFa else category.labelEn,
+                                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFF1DB954),
+                                            selectedLabelColor = Color.Black,
+                                            containerColor = Color.White.copy(alpha = 0.07f),
+                                            labelColor = Color.White
+                                        ),
+                                        border = null,
+                                        shape = RoundedCornerShape(50)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (isLoading && onlineTracks.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 80.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(color = Color(0xFF1DB954))
+                                }
+                            }
+                        } else if (searchQuery.isNotBlank()) {
+                            // حالت جستجو: نمایش تفکیک‌شده خواننده‌ها، آلبوم‌ها و آهنگ‌ها
+                            if (filteredArtists.isNotEmpty()) {
+                                item {
+                                    SectionHeaderRow(
+                                        title = "خوانندگان مرتبط (${filteredArtists.size})",
+                                        actionText = null
+                                    )
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                    ) {
+                                        items(filteredArtists.take(15), key = { it.name }) { artist ->
+                                            ArtistCircleItem(
+                                                artist = artist,
+                                                onClick = { currentSubScreen = OnlineSubScreen.ArtistDetail(artist) }
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                }
+                            }
+
+                            if (filteredAlbums.isNotEmpty()) {
+                                item {
+                                    SectionHeaderRow(
+                                        title = "آلبوم‌های یافت‌شده (${filteredAlbums.size})",
+                                        actionText = null
+                                    )
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                    ) {
+                                        items(filteredAlbums.take(15), key = { "${it.artist}_${it.title}" }) { album ->
+                                            SpotifyAlbumCard(
+                                                album = album,
+                                                onClick = { currentSubScreen = OnlineSubScreen.AlbumDetail(album) }
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                }
+                            }
+                        } else {
+                            // حالت عادی Spotify Explore (وقتی سرچ خالی است)
+
+                            // ۳. بنر پیشنهاد ویژه از آرشیو تلگرام / کلادفلر
+                            if (suggestedTracks.isNotEmpty() &&
+                                (selectedCategory == OnlineFilterCategory.ALL || selectedCategory == OnlineFilterCategory.SUGGESTED)
+                            ) {
+                                item {
+                                    SectionHeaderRow(
+                                        title = "پیشنهاد ویژه از آرشیو تلگرام",
+                                        subtitle = "انتخاب هوشمند برای شما از سرور کلادفلر"
+                                    )
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                    ) {
+                                        items(suggestedTracks.take(10), key = { "sug_${it.id}" }) { track ->
+                                            SuggestedCloudTrackCard(
+                                                track = track,
+                                                isPlaying = currentPlayingTrack?.id == track.id,
+                                                onClick = { onPlayTrack(track, suggestedTracks) }
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(22.dp))
+                                }
+                            }
+
+                            // ۴. کروسل افقی خوانندگان محبوب (به‌جای ریختن همه خواننده‌ها زیر هم)
+                            if (artistsList.isNotEmpty() &&
+                                (selectedCategory == OnlineFilterCategory.ALL || selectedCategory == OnlineFilterCategory.ARTISTS)
+                            ) {
+                                item {
+                                    SectionHeaderRow(
+                                        title = "هنرمندان محبوب آرشیو",
+                                        subtitle = "${artistsList.size} خواننده در آرشیو کلادفلر",
+                                        actionText = "مشاهده همه",
+                                        onActionClick = { currentSubScreen = OnlineSubScreen.AllArtistsGrid }
+                                    )
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                    ) {
+                                        items(artistsList.take(20), key = { "art_${it.name}" }) { artist ->
+                                            ArtistCircleItem(
+                                                artist = artist,
+                                                onClick = { currentSubScreen = OnlineSubScreen.ArtistDetail(artist) }
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(24.dp))
+                                }
+                            }
+
+                            // ۵. بخش آلبوم‌ها و مجموعه‌ها کنار هم به سبک Spotify
+                            if (albumsList.isNotEmpty() &&
+                                (selectedCategory == OnlineFilterCategory.ALL || selectedCategory == OnlineFilterCategory.ALBUMS)
+                            ) {
+                                item {
+                                    SectionHeaderRow(
+                                        title = "آلبوم‌ها و مجموعه‌ها",
+                                        subtitle = "آهنگ‌های هر آلبوم یکجا کنار هم"
+                                    )
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                    ) {
+                                        items(albumsList.take(20), key = { "alb_${it.artist}_${it.title}" }) { album ->
+                                            SpotifyAlbumCard(
+                                                album = album,
+                                                onClick = { currentSubScreen = OnlineSubScreen.AlbumDetail(album) }
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(24.dp))
+                                }
+                            }
+                        }
+
+                        // ۶. لیست صفحه‌بندی‌شده آهنگ‌ها (جلوگیری از شلوغی ۵۰۰۰+ آهنگ زیر هم)
+                        item {
+                            SectionHeaderRow(
+                                title = if (searchQuery.isBlank()) "مرور آهنگ‌های آرشیو (${filteredTracks.size})"
+                                else "آهنگ‌های یافت‌شده (${filteredTracks.size})",
+                                subtitle = "بارگذاری هوشمند و سریع بدون کندی",
+                                actionText = if (filteredTracks.isNotEmpty()) "پخش تصادفی همه" else null,
+                                onActionClick = {
+                                    if (filteredTracks.isNotEmpty()) {
+                                        val shuffled = filteredTracks.shuffled()
+                                        onPlayTrack(shuffled.first(), shuffled)
+                                    }
+                                }
+                            )
+                        }
+
+                        val displayedTracks = filteredTracks.take(visibleTrackCount)
+                        items(displayedTracks, key = { "trk_${it.id}" }) { track ->
+                            SpotifyCompactTrackRow(
+                                track = track,
+                                isPlaying = currentPlayingTrack?.id == track.id,
+                                onClick = { onPlayTrack(track, filteredTracks) }
+                            )
+                        }
+
+                        if (visibleTrackCount < filteredTracks.size) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            visibleTrackCount = (visibleTrackCount + 50).coerceAtMost(filteredTracks.size)
+                                        },
+                                        shape = RoundedCornerShape(50),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF1DB954))
+                                    ) {
+                                        Text("نمایش آهنگ‌های بیشتر (${filteredTracks.size - visibleTrackCount} باقی‌مانده)")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CloudflareSpotifyHeader(
+    totalTracksCount: Int,
+    totalArtistsCount: Int,
+    searchQuery: String,
+    onSearchChange: (String) -> Unit,
+    onRefresh: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF1DB954).copy(alpha = 0.22f),
+                        Color(0xFF090B10)
+                    )
+                )
+            )
+            .padding(horizontal = 16.dp, vertical = 18.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.CloudDone,
+                        contentDescription = null,
+                        tint = Color(0xFF1DB954),
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "آرشیو ابری تلگرام و کلادفلر",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "دسترسی مستقیم به $totalTracksCount آهنگ از $totalArtistsCount خواننده",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 12.sp
+                )
+            }
+
+            IconButton(
+                onClick = onRefresh,
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.08f))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "بروزرسانی",
+                    tint = Color.White
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // نوار جستجوی سریع داخل آرشیو ۵۰۰۰+ تایی تلگرام
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = onSearchChange,
+            placeholder = {
+                Text(
+                    text = "جستجوی نام خواننده، آهنگ یا آلبوم در آرشیو تلگرام...",
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = 13.sp
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = null,
+                    tint = Color(0xFF1DB954)
+                )
+            },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { onSearchChange("") }) {
+                        Icon(Icons.Default.Close, contentDescription = null, tint = Color.White)
+                    }
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = Color.White.copy(alpha = 0.08f),
+                unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
+                focusedBorderColor = Color(0xFF1DB954),
+                unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+private fun ArtistCircleItem(
+    artist: CloudArtistGroup,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(104.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // استفاده از عکس واقعی خواننده یا آواتار تایپوگرافی مدرن (نه کاور آهنگ!)
+        SpotifyArtistAvatar(
+            artistName = artist.name,
+            size = 88.dp,
+            shape = CircleShape,
+            explicitArtistImageUrl = artist.artistImageUrl
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = artist.name,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
+        Text(
+            text = "${artist.tracks.size} آهنگ",
+            color = Color.White.copy(alpha = 0.55f),
+            fontSize = 11.sp,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun SpotifyAlbumCard(
+    album: CloudAlbumGroup,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(148.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.05f))
+            .clickable(onClick = onClick)
+            .padding(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(128.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF181C24))
+        ) {
+            if (!album.coverUri.isNullOrBlank()) {
+                AsyncImage(
+                    model = album.coverUri,
+                    contentDescription = album.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                SpotifyArtistAvatar(
+                    artistName = album.title,
+                    size = 128.dp,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+
+            // بج تعداد آهنگ‌های داخل آلبوم
+            Surface(
+                color = Color.Black.copy(alpha = 0.7f),
+                shape = RoundedCornerShape(50),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(6.dp)
+            ) {
+                Text(
+                    text = "${album.tracks.size} ترک",
+                    color = Color(0xFF1DB954),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = album.title,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = album.artist,
+            color = Color.White.copy(alpha = 0.6f),
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun SuggestedCloudTrackCard(
+    track: Track,
+    isPlaying: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .width(250.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                Brush.horizontalGradient(
+                    listOf(
+                        Color(0xFF1DB954).copy(alpha = if (isPlaying) 0.28f else 0.14f),
+                        Color.White.copy(alpha = 0.05f)
+                    )
+                )
+            )
+            .border(
+                width = 1.dp,
+                color = if (isPlaying) Color(0xFF1DB954) else Color.White.copy(alpha = 0.1f),
+                shape = RoundedCornerShape(16.dp)
+            )
+            .clickable(onClick = onClick)
+            .padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(RoundedCornerShape(12.dp))
+        ) {
+            if (!track.artworkUri.isNullOrBlank()) {
+                AsyncImage(
+                    model = track.artworkUri,
+                    contentDescription = track.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                SpotifyArtistAvatar(
+                    artistName = track.artist,
+                    size = 56.dp,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "پیشنهاد ابری تلگرام",
+                color = Color(0xFF1DB954),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = track.title,
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = track.artist,
+                color = Color.White.copy(alpha = 0.65f),
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Icon(
+            imageVector = if (isPlaying) Icons.Default.Equalizer else Icons.Default.PlayCircleFilled,
+            contentDescription = null,
+            tint = Color(0xFF1DB954),
+            modifier = Modifier.size(30.dp)
+        )
+    }
+}
+
+@Composable
+private fun SpotifyCompactTrackRow(
+    track: Track,
+    isPlaying: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (isPlaying) Color(0xFF1DB954).copy(alpha = 0.14f) else Color.White.copy(alpha = 0.03f))
+            .clickable(onClick = onClick)
+            .padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(10.dp))
+        ) {
+            if (!track.artworkUri.isNullOrBlank()) {
+                AsyncImage(
+                    model = track.artworkUri,
+                    contentDescription = track.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                SpotifyArtistAvatar(
+                    artistName = track.artist,
+                    size = 48.dp,
+                    shape = RoundedCornerShape(10.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = track.title,
+                color = if (isPlaying) Color(0xFF1DB954) else Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "${track.artist} • ${track.album}",
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Icon(
+            imageVector = if (isPlaying) Icons.Default.GraphicEq else Icons.Default.PlayArrow,
+            contentDescription = null,
+            tint = if (isPlaying) Color(0xFF1DB954) else Color.White.copy(alpha = 0.7f)
+        )
+    }
+}
+
+/**
+ * صفحه اختصاصی پروفایل خواننده به سبک Spotify
+ */
+@Composable
+private fun SpotifyArtistDetailView(
+    artist: CloudArtistGroup,
+    currentPlayingTrack: Track?,
+    onBack: () -> Unit,
+    onAlbumClick: (CloudAlbumGroup) -> Unit,
+    onPlayTrack: (Track, List<Track>) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 120.dp)
+    ) {
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color(0xFF1DB954).copy(alpha = 0.3f), Color(0xFF090B10))
+                        )
+                    )
+                    .padding(16.dp)
+            ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.align(Alignment.TopStart)
+                ) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "بازگشت", tint = Color.White)
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    SpotifyArtistAvatar(
+                        artistName = artist.name,
+                        size = 132.dp,
+                        shape = CircleShape
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = artist.name,
+                        color = Color.White,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = "${artist.tracks.size} آهنگ • ${artist.albums.size} آلبوم در آرشیو کلادفلر",
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 13.sp
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Button(
+                        onClick = {
+                            if (artist.tracks.isNotEmpty()) {
+                                onPlayTrack(artist.tracks.first(), artist.tracks)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954)),
+                        shape = RoundedCornerShape(50)
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("پخش همه آثار ${artist.name}", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        if (artist.albums.isNotEmpty()) {
+            item {
+                SectionHeaderRow(title = "آلبوم‌های ${artist.name}")
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    items(artist.albums, key = { it.title }) { album ->
+                        SpotifyAlbumCard(album = album, onClick = { onAlbumClick(album) })
+                    }
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+            }
+        }
+
+        item {
+            SectionHeaderRow(title = "محبوب‌ترین آهنگ‌ها")
+        }
+
+        items(artist.tracks, key = { it.id }) { track ->
+            SpotifyCompactTrackRow(
+                track = track,
+                isPlaying = currentPlayingTrack?.id == track.id,
+                onClick = { onPlayTrack(track, artist.tracks) }
+            )
+        }
+    }
+}
+
+/**
+ * صفحه نمایش آهنگ‌های داخل یک آلبوم در کنار هم
+ */
+@Composable
+private fun SpotifyAlbumDetailView(
+    album: CloudAlbumGroup,
+    currentPlayingTrack: Track?,
+    onBack: () -> Unit,
+    onPlayTrack: (Track, List<Track>) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 120.dp)
+    ) {
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color(0xFF2B3240), Color(0xFF090B10))
+                        )
+                    )
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "بازگشت", tint = Color.White)
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .size(160.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                ) {
+                    if (!album.coverUri.isNullOrBlank()) {
+                        AsyncImage(
+                            model = album.coverUri,
+                            contentDescription = album.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        SpotifyArtistAvatar(
+                            artistName = album.title,
+                            size = 160.dp,
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = album.title,
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = "${album.artist} • ${album.tracks.size} قطعه",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        if (album.tracks.isNotEmpty()) {
+                            onPlayTrack(album.tracks.first(), album.tracks)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954)),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("پخش کامل آلبوم", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        items(album.tracks, key = { it.id }) { track ->
+            SpotifyCompactTrackRow(
+                track = track,
+                isPlaying = currentPlayingTrack?.id == track.id,
+                onClick = { onPlayTrack(track, album.tracks) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun AllArtistsDirectoryView(
+    artists: List<CloudArtistGroup>,
+    onBack: () -> Unit,
+    onArtistClick: (CloudArtistGroup) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp, 16.dp, 16.dp, 120.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "بازگشت", tint = Color.White)
+                }
+                Text(
+                    text = "همه هنرمندان آرشیو (${artists.size})",
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+        }
+
+        items(artists, key = { it.name }) { artist ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.White.copy(alpha = 0.05f))
+                    .clickable { onArtistClick(artist) }
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SpotifyArtistAvatar(artistName = artist.name, size = 56.dp)
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = artist.name,
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "${artist.tracks.size} آهنگ • ${artist.albums.size} آلبوم",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 12.sp
+                    )
+                }
+                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.White.copy(alpha = 0.5f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionHeaderRow(
+    title: String,
+    subtitle: String? = null,
+    actionText: String? = null,
+    onActionClick: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    text = subtitle,
+                    color = Color.White.copy(alpha = 0.55f),
+                    fontSize = 12.sp
+                )
+            }
+        }
+        if (!actionText.isNullOrBlank() && onActionClick != null) {
+            TextButton(onClick = onActionClick) {
+                Text(text = actionText, color = Color(0xFF1DB954), fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+۳. مسیر فایل: app/src/main/java/com/example/ui/screens/HomeScreen.kt
+(رفع مشکل جعبه نوری چرخان بالای صفحه که دیگر آهنگ را بر اساس حروف الفبا یا اسم فارسی ثابت نمی‌گذارد + اضافه شدن بخش پیشنهاد ویژه از آرشیو کلادفلر/تلگرام در صفحه اصلی)
+> Instruction for Google AI Studio for HomeScreen.kt:
+> In app/src/main/java/com/example/ui/screens/HomeScreen.kt, replace the Hero / Rotating Glow Box track selection logic and add the Cloudflare Archive Suggestion section using the code below:
+> 
+package com.example.ui.screens
+
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.example.CloudflareArchiveCache
+import com.example.data.model.Track
+import com.example.ui.components.SpotifyArtistAvatar
+
+/**
+ * انتخاب هوشمند آهنگ داخل جعبه نوری چرخان بالای صفحه اصلی (Hero Box)
+ * دیگر هرگز بر اساس حروف الفبا (یا اولین/آخرین اسم فارسی) آهنگ را ثابت انتخاب نمی‌کند!
+ * اولویت ۱: آهنگی که همین الان در حال پخش است
+ * اولویت ۲: آخرین آهنگی که کاربر گوش داده است
+ * اولویت ۳: انتخاب تصادفی هوشمند از ترکیب آهنگ‌های کاربر و پیشنهادهای کلادفلر در هر بار ورود
+ */
+@Composable
+fun rememberSmartHeroTrack(
+    currentPlayingTrack: Track?,
+    recentlyPlayedTracks: List<Track>,
+    localTracks: List<Track>,
+    cloudflareTracks: List<Track> = CloudflareArchiveCache.cachedTracks
+): Track? {
+    val sessionRandomTrack = remember(localTracks.size, cloudflareTracks.size) {
+        val combinedPool = (cloudflareTracks.take(50) + localTracks)
+        combinedPool.shuffled().firstOrNull()
+    }
+
+    return currentPlayingTrack
+        ?: recentlyPlayedTracks.firstOrNull()
+        ?: sessionRandomTrack
+}
+
+/**
+ * جعبه نوری چرخان بالای صفحه اصلی با قابلیت تعویض تصادفی آهنگ پیشنهادی
+ */
+@Composable
+fun RotatingGlowHeroBox(
+    heroTrack: Track?,
+    isPlayingCurrent: Boolean,
+    onPlayHeroTrack: (Track) -> Unit,
+    onShuffleAnotherHero: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (heroTrack == null) return
+
+    val infiniteTransition = rememberInfiniteTransition(label = "RotatingGlowBorder")
+    val angle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 4500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "BorderRotationAngle"
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .drawWithContent {
+                drawContent()
+            }
+            .border(
+                width = 2.dp,
+                brush = Brush.sweepGradient(
+                    listOf(
+                        Color(0xFF1DB954),
+                        Color(0xFF00E5FF),
+                        Color(0xFF7B2CBF),
+                        Color(0xFF1DB954)
+                    )
+                ),
+                shape = RoundedCornerShape(24.dp)
+            )
+            .background(
+                Brush.linearGradient(
+                    listOf(Color(0xFF141E30), Color(0xFF090B10))
+                )
+            )
+            .clickable { onPlayHeroTrack(heroTrack) }
+            .padding(16.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(76.dp)
+                    .clip(RoundedCornerShape(16.dp))
+            ) {
+                if (!heroTrack.artworkUri.isNullOrBlank()) {
+                    AsyncImage(
+                        model = heroTrack.artworkUri,
+                        contentDescription = heroTrack.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    SpotifyArtistAvatar(
+                        artistName = heroTrack.artist,
+                        size = 76.dp,
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (isPlayingCurrent) "در حال پخش" else "پیشنهاد هوشمند برای شما",
+                    color = Color(0xFF1DB954),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = heroTrack.title,
+                    color = Color.White,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = heroTrack.artist,
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            IconButton(onClick = onShuffleAnotherHero) {
+                Icon(
+                    imageVector = Icons.Default.Shuffle,
+                    contentDescription = "پیشنهاد دیگر",
+                    tint = Color.White.copy(alpha = 0.75f)
+                )
+            }
+
+            FilledIconButton(
+                onClick = { onPlayHeroTrack(heroTrack) },
+                colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF1DB954))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "پخش",
+                    tint = Color.Black
+                )
+            }
+        }
+    }
+}
+
+/**
+ * ویجت مانور روی آرشیو کلادفلر و تلگرام داخل صفحه اصلی (HomeScreen)
+ * تا کاربر بلافاصله متوجه وجود آرشیو آنلاین و امکان سرچ و پخش آن بشود
+ */
+@Composable
+fun HomeCloudflareSpotlightSection(
+    cloudflareTracks: List<Track> = CloudflareArchiveCache.cachedTracks,
+    onPlayTrack: (Track, List<Track>) -> Unit,
+    onNavigateToOnlineTab: () -> Unit
+) {
+    LaunchedEffect(Unit) {
+        CloudflareArchiveCache.ensureLoaded()
+    }
+
+    val spotlightTracks = remember(cloudflareTracks) {
+        cloudflareTracks.shuffled().take(12)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.CloudQueue,
+                    contentDescription = null,
+                    tint = Color(0xFF1DB954)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "کشف در آرشیو تلگرام (Cloudflare)",
+                        color = Color.White,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = "هزاران آهنگ آنلاین آماده پخش و جستجو",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            TextButton(onClick = onNavigateToOnlineTab) {
+                Text("ورود به آرشیو", color = Color(0xFF1DB954), fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        if (spotlightTracks.isNotEmpty()) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(spotlightTracks, key = { "home_cf_${it.id}" }) { track ->
+                    Column(
+                        modifier = Modifier
+                            .width(136.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.White.copy(alpha = 0.05f))
+                            .clickable { onPlayTrack(track, spotlightTracks) }
+                            .padding(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(116.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                        ) {
+                            if (!track.artworkUri.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = track.artworkUri,
+                                    contentDescription = track.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                SpotifyArtistAvatar(
+                                    artistName = track.artist,
+                                    size = 116.dp,
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = track.title,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = track.artist,
+                            color = Color(0xFF1DB954),
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+۴. مسیر فایل: app/src/main/java/com/example/ui/screens/SearchScreen.kt
+(جستجوی یکپارچه هم در گوشی و هم در آرشیو کلادفلر/تلگرام + نمایش پروفایل مدرن آرتیست‌ها با عکس واقعی یا تایپوگرافی اسم خواننده به جای کاور آهنگ)
+package com.example.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.CloudflareArchiveCache
+import com.example.data.model.Track
+import com.example.ui.components.SpotifyArtistAvatar
+
+@Composable
+fun SearchScreen(
+    localTracks: List<Track>,
+    onlineTracks: List<Track> = CloudflareArchiveCache.cachedTracks,
+    onPlayTrack: (Track, List<Track>) -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    var selectedArtistFilter by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        CloudflareArchiveCache.ensureLoaded()
+    }
+
+    val allCombinedTracks = remember(localTracks, onlineTracks) {
+        (localTracks + onlineTracks).distinctBy { "${it.title}_${it.artist}" }
+    }
+
+    val matchedArtists = remember(allCombinedTracks, query) {
+        val grouped = allCombinedTracks.groupBy { it.artist.trim().ifBlank { "خواننده ناشناس" } }
+        if (query.isBlank()) {
+            grouped.entries.sortedByDescending { it.value.size }.take(20)
+        } else {
+            grouped.entries.filter { it.key.contains(query.trim(), ignoreCase = true) }
+        }
+    }
+
+    val matchedLocalTracks = remember(localTracks, query, selectedArtistFilter) {
+        localTracks.filter { track ->
+            val matchesArtist = selectedArtistFilter == null || track.artist.equals(selectedArtistFilter, ignoreCase = true)
+            val matchesQuery = query.isBlank() ||
+                track.title.contains(query, ignoreCase = true) ||
+                track.artist.contains(query, ignoreCase = true)
+            matchesArtist && matchesQuery
+        }.take(40)
+    }
+
+    val matchedCloudTracks = remember(onlineTracks, query, selectedArtistFilter) {
+        onlineTracks.filter { track ->
+            val matchesArtist = selectedArtistFilter == null || track.artist.equals(selectedArtistFilter, ignoreCase = true)
+            val matchesQuery = query.isBlank() ||
+                track.title.contains(query, ignoreCase = true) ||
+                track.artist.contains(query, ignoreCase = true) ||
+                track.album.contains(query, ignoreCase = true)
+            matchesArtist && matchesQuery
+        }.take(50)
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF090B10)),
+        contentPadding = PaddingValues(bottom = 120.dp)
+    ) {
+        item {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "جستجوی هوشمند (گوشی + آرشیو تلگرام)",
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = {
+                        query = it
+                        selectedArtistFilter = null
+                    },
+                    placeholder = {
+                        Text(
+                            text = "جستجوی آهنگ، خواننده یا آلبوم در گوشی و کلادفلر...",
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontSize = 13.sp
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF1DB954))
+                    },
+                    trailingIcon = {
+                        if (query.isNotEmpty() || selectedArtistFilter != null) {
+                            IconButton(onClick = {
+                                query = ""
+                                selectedArtistFilter = null
+                            }) {
+                                Icon(Icons.Default.Clear, contentDescription = null, tint = Color.White)
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.White.copy(alpha = 0.08f),
+                        unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
+                        focusedBorderColor = Color(0xFF1DB954),
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        // پروفایل خواننده‌ها (با عکس واقعی از API یا تایپوگرافی مدرن اسم خواننده - بدون کاور آهنگ)
+        if (matchedArtists.isNotEmpty()) {
+            item {
+                Text(
+                    text = if (query.isBlank()) "هنرمندان پیشنهادی" else "پروفایل خوانندگان",
+                    color = Color.White,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    items(matchedArtists, key = { it.key }) { (artistName, tracks) ->
+                        val isSelected = selectedArtistFilter == artistName
+                        Column(
+                            modifier = Modifier
+                                .width(96.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    if (isSelected) Color(0xFF1DB954).copy(alpha = 0.2f)
+                                    else Color.Transparent
+                                )
+                                .clickable {
+                                    selectedArtistFilter = if (isSelected) null else artistName
+                                }
+                                .padding(6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            SpotifyArtistAvatar(
+                                artistName = artistName,
+                                size = 80.dp,
+                                shape = CircleShape
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = artistName,
+                                color = if (isSelected) Color(0xFF1DB954) else Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                text = "${tracks.size} ترک",
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+
+        // نتایج آرشیو ابری تلگرام / کلادفلر
+        if (matchedCloudTracks.isNotEmpty()) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudDone,
+                        contentDescription = null,
+                        tint = Color(0xFF1DB954),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (query.isBlank() && selectedArtistFilter == null)
+                            "پیشنهاد از آرشیو تلگرام (Cloudflare)"
+                        else
+                            "یافت‌شده در آرشیو تلگرام (${matchedCloudTracks.size})",
+                        color = Color.White,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+            }
+
+            items(matchedCloudTracks, key = { "search_cf_${it.id}" }) { track ->
+                SearchTrackItemRow(
+                    track = track,
+                    badgeText = "آرشیو ابری",
+                    onClick = { onPlayTrack(track, matchedCloudTracks) }
+                )
+            }
+        }
+
+        // نتایج داخل حافظه گوشی
+        if (matchedLocalTracks.isNotEmpty()) {
+            item {
+                Text(
+                    text = "آهنگ‌های داخل دستگاه (${matchedLocalTracks.size})",
+                    color = Color.White,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                )
+            }
+
+            items(matchedLocalTracks, key = { "search_loc_${it.id}" }) { track ->
+                SearchTrackItemRow(
+                    track = track,
+                    badgeText = "حافظه گوشی",
+                    onClick = { onPlayTrack(track, matchedLocalTracks) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchTrackItemRow(
+    track: Track,
+    badgeText: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White.copy(alpha = 0.04f))
+            .clickable(onClick = onClick)
+            .padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        SpotifyArtistAvatar(
+            artistName = track.artist,
+            size = 46.dp,
+            shape = RoundedCornerShape(10.dp),
+            explicitArtistImageUrl = track.artworkUri
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = track.title,
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = track.artist,
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Surface(
+            color = Color(0xFF1DB954).copy(alpha = 0.15f),
+            shape = RoundedCornerShape(50)
+        ) {
+            Text(
+                text = badgeText,
+                color = Color(0xFF1DB954),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+        }
+    }
+}
+

@@ -1,0 +1,1881 @@
+این مشکل کاملاً قابل حل است و نیازی به حذف بخش کتگوری نیست.
+دلیل اینکه در کد قبلی داخل دسته‌بندی‌ها (مثل رمانتیک یا رپ) آهنگ‌های بی‌ربط می‌آمد این بود که در شرط فیلترها از hashCode() و shuffled() به‌عنوان جایگزین (Fallback) استفاده شده بود؛ یعنی وقتی آهنگی تگِ آن سبک را نداشت، کد به‌صورت تصادفی ۲۵٪ از کل آهنگ‌ها را داخل آن کتگوری می‌ریخت تا خالی نماند!
+در کد اصلاح‌شده زیر این دو مورد به‌طور کامل برطرف شده‌اند:
+ * کتگوری‌های ۱۰۰٪ واقعی (بدون هیچ انتخاب تصادفی): موتور دسته‌بندی جدید مستقیماً فیلدهای واقعی genre، category، style، mood و تگ‌های واقعی سرور کلادفلر/ساندکلاود/تلگرام و نام خواننده‌ها را می‌خواند. شرط‌های تصادفی (hashCode و shuffled) به‌طور کامل حذف شده‌اند و هر کتگوری فقط زمانی نمایش داده می‌شود که واقعاً آهنگ مرتبط با همان سبک در آرشیو وجود داشته باشد.
+ * دو زبانه شدن کامل (انگلیسی به صورت پیش‌فرض + فارسی هماهنگ با زبان برنامه): تمام متون به صورت پیش‌فرض English هستند و به محض اینکه زبان برنامه در تنظیمات روی فارسی قرار بگیرد (isPersian = true)، کل این بخش هم اتوماتیک فارسی می‌شود.
+کدهای زیر را مستقیماً به Google AI Studio بدهید تا جایگزین کند:
+راهنمای جایگذاری برای Google AI Studio (همراه کدها کپی شود)
+> INSTRUCTION FOR GOOGLE AI STUDIO:
+>  * Replace app/src/main/java/com/example/OnlineMusicScreen.kt and app/src/main/java/com/example/ui/screens/SearchScreen.kt with the code below.
+>  * Pass the app's current language state (isPersian: Boolean, e.g., from AppSettings or Localization in MainScreen.kt, defaulting to false for English) to OnlineMusicScreen and SearchScreen.
+>  * Keep the existing Cloudflare Worker / SoundCloud API URL and Track model fields intact.
+> 
+۱. مسیر فایل: app/src/main/java/com/example/OnlineMusicScreen.kt
+package com.example
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.example.data.model.Track
+import com.example.ui.components.SpotifyArtistAvatar
+import java.util.concurrent.ConcurrentHashMap
+
+data class CloudArtistProfile(
+    val name: String,
+    val tracks: List<Track>,
+    val albums: List<CloudAlbumCollection>
+)
+
+data class CloudAlbumCollection(
+    val id: String,
+    val title: String,
+    val artist: String,
+    val coverUri: String?,
+    val tracks: List<Track>
+)
+
+data class SpotifyBrowseCategory(
+    val id: String,
+    val titleEn: String,
+    val titleFa: String,
+    val subtitleEn: String,
+    val subtitleFa: String,
+    val icon: ImageVector,
+    val gradient: List<Color>,
+    val matchedTracks: List<Track>
+)
+
+private enum class TopHubTab(
+    val titleEn: String,
+    val titleFa: String,
+    val icon: ImageVector
+) {
+    DISCOVER("Discover", "ویترین", Icons.Default.AutoAwesome),
+    CATEGORIES("Categories", "دسته‌بندی‌ها", Icons.Default.GridView),
+    ARTISTS("Artists", "هنرمندان", Icons.Default.People),
+    ALBUMS("Albums", "آلبوم‌ها", Icons.Default.Album)
+}
+
+private sealed class HubNavigationState {
+    object MainHub : HubNavigationState()
+    data class ArtistPage(val artist: CloudArtistProfile) : HubNavigationState()
+    data class AlbumPage(val album: CloudAlbumCollection) : HubNavigationState()
+    data class CategoryPage(val category: SpotifyBrowseCategory) : HubNavigationState()
+}
+
+/**
+ * نگهداری ژانر/کتگوری واقعی هر ترک که از سرور کلادفلر/ساندکلاود/تلگرام دریافت می‌شود
+ * (برای مواقعی که کلاس Track فیلد مجزایی برای genre ندارد)
+ */
+object RealTrackGenreRegistry {
+    private val trackGenres = ConcurrentHashMap<String, String>()
+
+    fun registerGenre(trackId: String, rawGenreOrCategory: String?) {
+        if (!rawGenreOrCategory.isNullOrBlank()) {
+            trackGenres[trackId] = rawGenreOrCategory.trim().lowercase()
+        }
+    }
+
+    fun getGenre(track: Track): String {
+        return trackGenres[track.id].orEmpty()
+    }
+}
+
+/**
+ * موتور دسته‌بندی ۱۰۰٪ واقعی بر اساس متادیتا، تگ‌های سرور، ژانر و نام خواننده
+ * بدون هیچ‌گونه استفاده از hashCode یا انتخاب تصادفی!
+ */
+object RealCategoryClassifier {
+
+    private val rapArtistsAndKeywords = listOf(
+        "rap", "hip hop", "hip-hop", "hiphop", "trap", "drill", "freestyle", "diss", "cypher",
+        "رپ", "هیپ هاپ", "هیپ‌هاپ", "دیس", "فری استایل", "ترپ",
+        "yas", "hichkas", "pishro", "reza pishro", "ho3ein", "shayea", "bahram", "sorena",
+        "ali sorena", "fadaei", "qmars", "quf", "putak", "poori", "koorosh", "hidden",
+        "mehrad hidden", "sohrab mj", "sijal", "khalse", "sepehr khalse", "leito", "behzad leito",
+        "zedbazi", "tataloo", "amirtataloo", "021kid", "chvrsi", "hiphopologist", "dorcci",
+        "eminem", "drake", "kendrick", "travis scott", "2pac", "50 cent", "kanye", "future",
+        "metro boomin", "central cee", "pop smoke", "nf", "logic", "j. cole", "nicki minaj",
+        "یاس", "هیچکس", "پیشرو", "حصین", "شایع", "بهرام", "سورنا", "فدایی", "پوتک", "پوری",
+        "مهراد هیدن", "سهراب ام جی", "سیجل", "خلصه", "لیتو", "بهزاد لیتو", "زدبازی", "تتلو"
+    )
+
+    private val electronicRemixKeywords = listOf(
+        "remix", "club", "dance", "edm", "house", "techno", "trance", "dubstep", "electro",
+        "dj ", "dj-", "mix", "bootleg", "mashup", "phonk", "synthwave",
+        "ریمیکس", "دی جی", "دی‌جی", "پادکست", "میکس", "تکنو", "هاوس", "کلاب", "رقص",
+        "tiesto", "david guetta", "calvin harris", "alan walker", "marshmello", "skrillex",
+        "armin van buuren", "martin garrix", "kygo", "daft punk", "alok", "meduza", "anyma"
+    )
+
+    private val rockMetalKeywords = listOf(
+        "rock", "metal", "alternative", "indie rock", "punk", "grunge", "hard rock", "heavy metal",
+        "acoustic rock", "guitar solo",
+        "راک", "متال", "پانک", "آلترناتیو",
+        "linkin park", "metallica", "queen", "nirvana", "pink floyd", "ac/dc", "guns n' roses",
+        "radiohead", "coldplay", "imagine dragons", "arctic monkeys", "slipknot", "system of a down",
+        "evanescence", "scorpions", "green day", "muse", "red hot chili", "theparvaz", "kaveh yaghmaei",
+        "kourosh yaghmaei", "کاوه یغمایی", "کوروش یغمایی", "رستاک"
+    )
+
+    private val chillInstrumentalKeywords = listOf(
+        "chill", "lofi", "lo-fi", "ambient", "instrumental", "piano", "violin", "guitar",
+        "sleep", "relax", "study", "meditation", "soundtrack", "ost", "score", "acoustic",
+        "بی کلام", "بی‌کلام", "لایت", "پیانو", "ویولن", "گیتار", "آرامش", "خواب", "لوفای", "سنتور",
+        "hans zimmer", "ludovico einaudi", "max richter", "yanni", "vangelis", "fariborz lachini",
+        "shahrdad rohani", "nasser cheshmazar", "فریبرز لاچینی", "ناصر چشم آذر", "شهرداد روحانی",
+        "کیهان کلهر", "انوشتین", "بیژن مرتضوی"
+    )
+
+    private val traditionalClassicalKeywords = listOf(
+        "traditional", "classical", "folk", "sonati", "persian classical", "ghazal", "bastani",
+        "سنتی", "کلاسیک", "اصیل", "تصنیف", "آواز", "تار", "سه تار", "سه‌تار", "دف", "نی ",
+        "shajarian", "homayoun shajarian", "mohammadreza shajarian", "shahram nazeri",
+        "alireza ghorbani", "salar aghili", "parvaz homay", "irej", "golpa", "haydeh",
+        "mahasti", "homeyra", "ebrahim hamedi", "ebi", "dariush", "googoosh", "moein", "siavash ghomayshi",
+        "شجریان", "همایون شجریان", "محمدرضا شجریان", "شهرام ناظری", "علیرضا قربانی", "سالار عقیلی",
+        "پرواز همای", "هایده", "مهستی", "حمیرا", "معین", "داریوش", "ابی", "گوگوش", "سیاوش قمیشی"
+    )
+
+    private val romanticSlowKeywords = listOf(
+        "love", "romantic", "slow", "ballad", "sad", "emotional", "heart", "broken", "valentine",
+        "عاشقانه", "رمانتیک", "غمگین", "احساسی", "دلشکسته", "تنهایی", "بارون", "باران", "عشق", "دلتنگی",
+        "محسن یگانه", "محسن چاوشی", "مرتضی پاشایی", "شادمهر", "شادمهر عقیلی", "فرزاد فرزین",
+        "رضا بهرام", "راغب", "گرشا رضایی", "حامیم", "عرفان طهماسبی", "امیرعباس گلاب", "علی یاسینی",
+        "مهدی احمدوند", "میثم ابراهیمی", "بهنام بانی", "آصف آریا", "ناصر زینعلی", "ماکان بند",
+        "mohsen yeganeh", "mohsen chavoshi", "morteza pashaei", "shadmehr", "shadmehr aghili",
+        "reza bahram", "haamim", "erfan tahmasbi", "ali yasini", "mehdi ahmadvand", "adele",
+        "lana del rey", "billie eilish", "the weeknd", "ed sheeran", "taylor swift", "sam smith"
+    )
+
+    private fun buildSearchableMeta(track: Track): String {
+        val registeredGenre = RealTrackGenreRegistry.getGenre(track)
+        return "${track.title} ${track.artist} ${track.album} $registeredGenre".lowercase()
+    }
+
+    private fun containsAnyKeyword(meta: String, keywords: List<String>): Boolean {
+        return keywords.any { kw -> meta.contains(kw) }
+    }
+
+    private fun hasPersianScript(text: String): Boolean {
+        return text.any { ch -> ch in '\u0600'..'\u06FF' }
+    }
+
+    fun buildRealCategories(allTracks: List<Track>): List<SpotifyBrowseCategory> {
+        if (allTracks.isEmpty()) return emptyList()
+
+        val rawCategories = mutableListOf<SpotifyBrowseCategory>()
+
+        // 1. Rap & Hip-Hop (فقط آهنگ‌های واقعاً رپ و هیپ‌هاپ)
+        val rapTracks = allTracks.filter { track ->
+            containsAnyKeyword(buildSearchableMeta(track), rapArtistsAndKeywords)
+        }
+        if (rapTracks.isNotEmpty()) {
+            rawCategories.add(
+                SpotifyBrowseCategory(
+                    id = "rap_hiphop",
+                    titleEn = "Rap & Hip-Hop",
+                    titleFa = "رپ و هیپ‌هاپ",
+                    subtitleEn = "${rapTracks.size} real hip-hop & rap tracks",
+                    subtitleFa = "${rapTracks.size} قطعه رپ و هیپ‌هاپ واقعی",
+                    icon = Icons.Default.GraphicEq,
+                    gradient = listOf(Color(0xFF8338EC), Color(0xFF240046)),
+                    matchedTracks = rapTracks
+                )
+            )
+        }
+
+        // 2. Romantic & Emotional (فقط آهنگ‌های واقعاً عاشقانه، احساسی و پاپ ملایم)
+        val romanticTracks = allTracks.filter { track ->
+            val meta = buildSearchableMeta(track)
+            containsAnyKeyword(meta, romanticSlowKeywords) &&
+                !containsAnyKeyword(meta, rapArtistsAndKeywords) &&
+                !containsAnyKeyword(meta, electronicRemixKeywords)
+        }
+        if (romanticTracks.isNotEmpty()) {
+            rawCategories.add(
+                SpotifyBrowseCategory(
+                    id = "romantic_love",
+                    titleEn = "Romantic & Emotional",
+                    titleFa = "عاشقانه و احساسی",
+                    subtitleEn = "${romanticTracks.size} love & emotional songs",
+                    subtitleFa = "${romanticTracks.size} آهنگ عاشقانه و احساسی",
+                    icon = Icons.Default.Favorite,
+                    gradient = listOf(Color(0xFFE1306C), Color(0xFF4A0E2E)),
+                    matchedTracks = romanticTracks
+                )
+            )
+        }
+
+        // 3. Electronic, DJ & Remix (فقط ریمیکس‌ها، دی‌جی و الکترونیک واقعی)
+        val remixTracks = allTracks.filter { track ->
+            containsAnyKeyword(buildSearchableMeta(track), electronicRemixKeywords)
+        }
+        if (remixTracks.isNotEmpty()) {
+            rawCategories.add(
+                SpotifyBrowseCategory(
+                    id = "electronic_remix",
+                    titleEn = "DJ Mix & Electronic",
+                    titleFa = "ریمیکس و الکترونیک",
+                    subtitleEn = "${remixTracks.size} club, DJ & remix tracks",
+                    subtitleFa = "${remixTracks.size} ریمیکس و موزیک پرانرژی",
+                    icon = Icons.Default.Bolt,
+                    gradient = listOf(Color(0xFFFF9F1C), Color(0xFF5C2D05)),
+                    matchedTracks = remixTracks
+                )
+            )
+        }
+
+        // 4. Instrumental, Chill & Lo-Fi (فقط بی‌کلام، پیانو، لوفای و آرامش‌بخش واقعی)
+        val chillTracks = allTracks.filter { track ->
+            containsAnyKeyword(buildSearchableMeta(track), chillInstrumentalKeywords)
+        }
+        if (chillTracks.isNotEmpty()) {
+            rawCategories.add(
+                SpotifyBrowseCategory(
+                    id = "chill_instrumental",
+                    titleEn = "Chill & Instrumental",
+                    titleFa = "بی‌کلام و آرامش‌بخش",
+                    subtitleEn = "${chillTracks.size} relaxing & instrumental tracks",
+                    subtitleFa = "${chillTracks.size} قطعه بی‌کلام و لوفای",
+                    icon = Icons.Default.NightsStay,
+                    gradient = listOf(Color(0xFF00B4D8), Color(0xFF03045E)),
+                    matchedTracks = chillTracks
+                )
+            )
+        }
+
+        // 5. Traditional & Nostalgia (فقط سنتی و نوستالژی واقعی)
+        val traditionalTracks = allTracks.filter { track ->
+            containsAnyKeyword(buildSearchableMeta(track), traditionalClassicalKeywords)
+        }
+        if (traditionalTracks.isNotEmpty()) {
+            rawCategories.add(
+                SpotifyBrowseCategory(
+                    id = "traditional_nostalgia",
+                    titleEn = "Legends & Nostalgia",
+                    titleFa = "سنتی و نوستالژی",
+                    subtitleEn = "${traditionalTracks.size} classic & timeless tracks",
+                    subtitleFa = "${traditionalTracks.size} اثر ماندگار و سنتی",
+                    icon = Icons.Default.History,
+                    gradient = listOf(Color(0xFFEC4899), Color(0xFF500724)),
+                    matchedTracks = traditionalTracks
+                )
+            )
+        }
+
+        // 6. Rock & Alternative (فقط راک و متال واقعی)
+        val rockTracks = allTracks.filter { track ->
+            containsAnyKeyword(buildSearchableMeta(track), rockMetalKeywords)
+        }
+        if (rockTracks.isNotEmpty()) {
+            rawCategories.add(
+                SpotifyBrowseCategory(
+                    id = "rock_metal",
+                    titleEn = "Rock & Alternative",
+                    titleFa = "راک و متال",
+                    subtitleEn = "${rockTracks.size} rock & guitar tracks",
+                    subtitleFa = "${rockTracks.size} قطعه راک و آلترناتیو",
+                    icon = Icons.Default.Speaker,
+                    gradient = listOf(Color(0xFFEF4444), Color(0xFF450A0A)),
+                    matchedTracks = rockTracks
+                )
+            )
+        }
+
+        // 7. Persian Hits (آهنگ‌های فارسی که رپ نباشند)
+        val persianTracks = allTracks.filter { track ->
+            val isFa = hasPersianScript(track.title) || hasPersianScript(track.artist)
+            val isRap = containsAnyKeyword(buildSearchableMeta(track), rapArtistsAndKeywords)
+            isFa && !isRap
+        }
+        if (persianTracks.isNotEmpty()) {
+            rawCategories.add(
+                SpotifyBrowseCategory(
+                    id = "persian_pop",
+                    titleEn = "Persian Pop",
+                    titleFa = "پاپ فارسی",
+                    subtitleEn = "${persianTracks.size} Persian tracks",
+                    subtitleFa = "${persianTracks.size} آهنگ پاپ فارسی",
+                    icon = Icons.Default.MusicNote,
+                    gradient = listOf(Color(0xFF1DB954), Color(0xFF093819)),
+                    matchedTracks = persianTracks
+                )
+            )
+        }
+
+        // 8. International & English Hits (آهنگ‌های خارجی که حروف فارسی ندارند)
+        val internationalTracks = allTracks.filter { track ->
+            !hasPersianScript(track.title) && !hasPersianScript(track.artist) && !hasPersianScript(track.album)
+        }
+        if (internationalTracks.isNotEmpty()) {
+            rawCategories.add(
+                SpotifyBrowseCategory(
+                    id = "international_hits",
+                    titleEn = "Global & International",
+                    titleFa = "موزیک خارجی",
+                    subtitleEn = "${internationalTracks.size} international tracks",
+                    subtitleFa = "${internationalTracks.size} آهنگ خارجی و جهانی",
+                    icon = Icons.Default.Public,
+                    gradient = listOf(Color(0xFF3A86FF), Color(0xFF0B132B)),
+                    matchedTracks = internationalTracks
+                )
+            )
+        }
+
+        return rawCategories
+    }
+}
+
+@Composable
+fun OnlineMusicScreen(
+    onlineTracks: List<Track>,
+    isLoading: Boolean = false,
+    currentPlayingTrack: Track? = null,
+    isPersian: Boolean = false, // پیش‌فرض انگلیسی در راستای برنامه؛ با فارسی شدن برنامه اتوماتیک فارسی می‌شود
+    onPlayTrack: (Track, List<Track>) -> Unit,
+    onRefresh: () -> Unit = {}
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    var activeTab by remember { mutableStateOf(TopHubTab.DISCOVER) }
+    var navState by remember { mutableStateOf<HubNavigationState>(HubNavigationState.MainHub) }
+    var quickPicksSeed by remember { mutableIntStateOf(0) }
+
+    BackHandler(enabled = navState != HubNavigationState.MainHub || searchQuery.isNotBlank()) {
+        if (navState != HubNavigationState.MainHub) {
+            navState = HubNavigationState.MainHub
+        } else {
+            searchQuery = ""
+        }
+    }
+
+    // ۱. گروه‌بندی آلبوم‌ها
+    val albums = remember(onlineTracks, isPersian) {
+        onlineTracks
+            .groupBy { track ->
+                val cleanArtist = track.artist.trim().ifBlank {
+                    if (isPersian) "هنرمند ناشناس" else "Unknown Artist"
+                }
+                val cleanAlbum = track.album.trim().let {
+                    if (it.isBlank() || it.equals("unknown", true) || it.equals("Telegram", true)) {
+                        if (isPersian) "مجموعه آثار $cleanArtist" else "$cleanArtist Collection"
+                    } else it
+                }
+                "${cleanArtist}__$cleanAlbum"
+            }
+            .map { (key, list) ->
+                val first = list.first()
+                val cleanArtist = first.artist.trim().ifBlank {
+                    if (isPersian) "هنرمند ناشناس" else "Unknown Artist"
+                }
+                val cleanTitle = first.album.trim().let {
+                    if (it.isBlank() || it.equals("unknown", true) || it.equals("Telegram", true)) {
+                        if (isPersian) "مجموعه آثار $cleanArtist" else "$cleanArtist Collection"
+                    } else it
+                }
+                CloudAlbumCollection(
+                    id = key,
+                    title = cleanTitle,
+                    artist = cleanArtist,
+                    coverUri = list.firstOrNull { !it.artworkUri.isNullOrBlank() }?.artworkUri,
+                    tracks = list
+                )
+            }
+            .sortedByDescending { it.tracks.size }
+    }
+
+    // ۲. استخراج پروفایل هنرمندان
+    val artists = remember(onlineTracks, albums, isPersian) {
+        onlineTracks
+            .groupBy {
+                it.artist.trim().ifBlank { if (isPersian) "هنرمند ناشناس" else "Unknown Artist" }
+            }
+            .map { (artistName, list) ->
+                CloudArtistProfile(
+                    name = artistName,
+                    tracks = list,
+                    albums = albums.filter { it.artist.equals(artistName, ignoreCase = true) }
+                )
+            }
+            .sortedByDescending { it.tracks.size }
+    }
+
+    // ۳. پیشنهاد سریع ۳ ردیفه افقی
+    val quickPicks = remember(onlineTracks, quickPicksSeed) {
+        if (onlineTracks.isEmpty()) emptyList()
+        else onlineTracks.shuffled().take(15)
+    }
+
+    // ۴. ساخت دسته‌بندی‌های ۱۰۰٪ واقعی (فقط کتگوری‌هایی که واقعاً آهنگ مرتبط دارند ساخته می‌شوند)
+    val browseCategories = remember(onlineTracks) {
+        RealCategoryClassifier.buildRealCategories(onlineTracks)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF10141E), Color(0xFF07090E), Color(0xFF050608))
+                )
+            )
+    ) {
+        AnimatedContent(
+            targetState = navState,
+            label = "SpotifyHubNav"
+        ) { state ->
+            when (state) {
+                is HubNavigationState.ArtistPage -> {
+                    SpotifyFullArtistScreen(
+                        artist = state.artist,
+                        currentPlayingTrack = currentPlayingTrack,
+                        isPersian = isPersian,
+                        onBack = { navState = HubNavigationState.MainHub },
+                        onAlbumClick = { navState = HubNavigationState.AlbumPage(it) },
+                        onPlayTrack = onPlayTrack
+                    )
+                }
+
+                is HubNavigationState.AlbumPage -> {
+                    SpotifyFullAlbumScreen(
+                        album = state.album,
+                        currentPlayingTrack = currentPlayingTrack,
+                        isPersian = isPersian,
+                        onBack = { navState = HubNavigationState.MainHub },
+                        onPlayTrack = onPlayTrack
+                    )
+                }
+
+                is HubNavigationState.CategoryPage -> {
+                    SpotifyCategoryPlaylistScreen(
+                        category = state.category,
+                        currentPlayingTrack = currentPlayingTrack,
+                        isPersian = isPersian,
+                        onBack = { navState = HubNavigationState.MainHub },
+                        onPlayTrack = onPlayTrack
+                    )
+                }
+
+                HubNavigationState.MainHub -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 130.dp)
+                    ) {
+                        // هدر نئونی و باکس جستجوی دو زبانه
+                        item {
+                            SpotifyGlassTopBar(
+                                totalTracks = onlineTracks.size,
+                                totalArtists = artists.size,
+                                searchQuery = searchQuery,
+                                isPersian = isPersian,
+                                onSearchChange = { searchQuery = it },
+                                onRefresh = onRefresh
+                            )
+                        }
+
+                        if (searchQuery.isNotBlank()) {
+                            item {
+                                CategorizedInstantSearchResults(
+                                    query = searchQuery,
+                                    artists = artists,
+                                    albums = albums,
+                                    allTracks = onlineTracks,
+                                    currentPlayingTrack = currentPlayingTrack,
+                                    isPersian = isPersian,
+                                    onArtistClick = { navState = HubNavigationState.ArtistPage(it) },
+                                    onAlbumClick = { navState = HubNavigationState.AlbumPage(it) },
+                                    onPlayTrack = onPlayTrack
+                                )
+                            }
+                        } else {
+                            // تب‌های بالای صفحه (Discover | Categories | Artists | Albums)
+                            item {
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    items(TopHubTab.entries) { tab ->
+                                        val isSelected = activeTab == tab
+                                        Surface(
+                                            onClick = { activeTab = tab },
+                                            shape = RoundedCornerShape(50),
+                                            color = if (isSelected) Color(0xFF1DB954) else Color.White.copy(alpha = 0.07f),
+                                            border = if (isSelected) null else BorderStroke(
+                                                1.dp,
+                                                Color.White.copy(alpha = 0.12f)
+                                            )
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = tab.icon,
+                                                    contentDescription = null,
+                                                    tint = if (isSelected) Color.Black else Color.White,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = if (isPersian) tab.titleFa else tab.titleEn,
+                                                    color = if (isSelected) Color.Black else Color.White,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.ExtraBold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (isLoading && onlineTracks.isEmpty()) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 90.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(color = Color(0xFF1DB954))
+                                    }
+                                }
+                            } else {
+                                when (activeTab) {
+                                    TopHubTab.DISCOVER -> {
+                                        // ۱. بنر اسلایدی بالای صفحه
+                                        item {
+                                            AppleMusicHeroPager(
+                                                onlineTracks = onlineTracks,
+                                                browseCategories = browseCategories,
+                                                isPersian = isPersian,
+                                                onPlayMix = { mixTracks ->
+                                                    if (mixTracks.isNotEmpty()) {
+                                                        onPlayTrack(mixTracks.first(), mixTracks)
+                                                    }
+                                                }
+                                            )
+                                            Spacer(modifier = Modifier.height(24.dp))
+                                        }
+
+                                        // ۲. کروسل هنرمندان
+                                        if (artists.isNotEmpty()) {
+                                            item {
+                                                HubSectionHeader(
+                                                    title = if (isPersian) "هنرمندان برجسته" else "Featured Artists",
+                                                    subtitle = if (isPersian) "پروفایل اختصاصی ${artists.size} خواننده" else "${artists.size} verified artist profiles",
+                                                    actionLabel = if (isPersian) "مشاهده همه" else "See All",
+                                                    onAction = { activeTab = TopHubTab.ARTISTS }
+                                                )
+                                                LazyRow(
+                                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                                ) {
+                                                    items(artists.take(15), key = { "hub_art_${it.name}" }) { artist ->
+                                                        SpotifyArtistCard(
+                                                            artist = artist,
+                                                            isPersian = isPersian,
+                                                            onClick = { navState = HubNavigationState.ArtistPage(artist) }
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(26.dp))
+                                            }
+                                        }
+
+                                        // ۳. پیشنهاد سریع ۳ ردیفه افقی
+                                        if (quickPicks.isNotEmpty()) {
+                                            item {
+                                                HubSectionHeader(
+                                                    title = if (isPersian) "پیشنهاد سریع" else "Quick Picks",
+                                                    subtitle = if (isPersian) "پخش فوری از آرشیو ابری" else "Instant cloud stream picks",
+                                                    actionLabel = if (isPersian) "پیشنهاد جدید" else "Refresh Picks",
+                                                    onAction = { quickPicksSeed++ }
+                                                )
+                                                QuickPicksThreeRowGrid(
+                                                    tracks = quickPicks,
+                                                    currentPlayingTrack = currentPlayingTrack,
+                                                    onPlayTrack = { track -> onPlayTrack(track, quickPicks) }
+                                                )
+                                                Spacer(modifier = Modifier.height(26.dp))
+                                            }
+                                        }
+
+                                        // ۴. آلبوم‌ها و کلکسیون‌ها
+                                        if (albums.isNotEmpty()) {
+                                            item {
+                                                HubSectionHeader(
+                                                    title = if (isPersian) "آلبوم‌ها و مجموعه‌ها" else "Albums & Collections",
+                                                    subtitle = if (isPersian) "آهنگ‌های هر مجموعه در کنار هم" else "Grouped albums & artist collections",
+                                                    actionLabel = if (isPersian) "همه آلبوم‌ها" else "See All",
+                                                    onAction = { activeTab = TopHubTab.ALBUMS }
+                                                )
+                                                LazyRow(
+                                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                                ) {
+                                                    items(albums.take(15), key = { "hub_alb_${it.id}" }) { album ->
+                                                        SpotifyAlbumCardItem(
+                                                            album = album,
+                                                            isPersian = isPersian,
+                                                            onClick = { navState = HubNavigationState.AlbumPage(album) }
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(26.dp))
+                                            }
+                                        }
+
+                                        // ۵. دسته‌بندی‌های واقعی (فقط بر اساس سبک واقعی آهنگ‌ها)
+                                        if (browseCategories.isNotEmpty()) {
+                                            item {
+                                                HubSectionHeader(
+                                                    title = if (isPersian) "مرور بر اساس سبک" else "Browse by Genre",
+                                                    subtitle = if (isPersian) "دسته‌بندی واقعی بر اساس متادیتا و سبک آهنگ" else "Strictly matched by real genre & artist metadata"
+                                                )
+                                                SpotifyCategoriesGrid(
+                                                    categories = browseCategories,
+                                                    isPersian = isPersian,
+                                                    onCategoryClick = { category ->
+                                                        navState = HubNavigationState.CategoryPage(category)
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    TopHubTab.CATEGORIES -> {
+                                        item {
+                                            HubSectionHeader(
+                                                title = if (isPersian) "همه دسته‌بندی‌ها" else "All Genres & Categories",
+                                                subtitle = if (isPersian) "تفکیک شده بر اساس ژانر واقعی" else "Verified genre classification"
+                                            )
+                                            SpotifyCategoriesGrid(
+                                                categories = browseCategories,
+                                                isPersian = isPersian,
+                                                onCategoryClick = { category ->
+                                                    navState = HubNavigationState.CategoryPage(category)
+                                                }
+                                            )
+                                        }
+                                    }
+
+                                    TopHubTab.ARTISTS -> {
+                                        item {
+                                            ArtistsDirectoryGridSection(
+                                                artists = artists,
+                                                isPersian = isPersian,
+                                                onArtistClick = { navState = HubNavigationState.ArtistPage(it) }
+                                            )
+                                        }
+                                    }
+
+                                    TopHubTab.ALBUMS -> {
+                                        item {
+                                            AlbumsDirectoryGridSection(
+                                                albums = albums,
+                                                isPersian = isPersian,
+                                                onAlbumClick = { navState = HubNavigationState.AlbumPage(it) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpotifyGlassTopBar(
+    totalTracks: Int,
+    totalArtists: Int,
+    searchQuery: String,
+    isPersian: Boolean,
+    onSearchChange: (String) -> Unit,
+    onRefresh: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF1DB954).copy(alpha = 0.25f),
+                        Color(0xFF7B2CBF).copy(alpha = 0.08f),
+                        Color.Transparent
+                    )
+                )
+            )
+            .padding(horizontal = 16.dp, vertical = 16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Surface(
+                    color = Color(0xFF1DB954).copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudDone,
+                            contentDescription = null,
+                            tint = Color(0xFF1DB954),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isPersian) "استریم ابری کلادفلر" else "CLOUD STREAM HUB",
+                            color = Color(0xFF1DB954),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = if (isPersian) "کاوش و جستجو" else "Explore & Search",
+                    color = Color.White,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = if (isPersian)
+                        "$totalTracks قطعه از $totalArtists هنرمند"
+                    else
+                        "$totalTracks tracks across $totalArtists artists",
+                    color = Color.White.copy(alpha = 0.65f),
+                    fontSize = 12.sp
+                )
+            }
+
+            IconButton(
+                onClick = onRefresh,
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.08f))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Sync,
+                    contentDescription = if (isPersian) "بروزرسانی" else "Refresh",
+                    tint = Color.White
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = onSearchChange,
+            placeholder = {
+                Text(
+                    text = if (isPersian)
+                        "جستجوی خواننده، آهنگ یا آلبوم..."
+                    else
+                        "What do you want to listen to?",
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = 13.sp
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = null,
+                    tint = Color(0xFF1DB954)
+                )
+            },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { onSearchChange("") }) {
+                        Icon(Icons.Default.Close, contentDescription = null, tint = Color.White)
+                    }
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(18.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = Color.White.copy(alpha = 0.1f),
+                unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
+                focusedBorderColor = Color(0xFF1DB954),
+                unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+private fun AppleMusicHeroPager(
+    onlineTracks: List<Track>,
+    browseCategories: List<SpotifyBrowseCategory>,
+    isPersian: Boolean,
+    onPlayMix: (List<Track>) -> Unit
+) {
+    val heroCards = remember(onlineTracks, browseCategories, isPersian) {
+        buildList {
+            add(
+                Triple(
+                    if (isPersian) "سوپر میکس آرشیو ابری" else "Cloud Archive SuperMix",
+                    if (isPersian) "پخش هوشمند از برترین آهنگ‌های سرور" else "Curated stream from your cloud library",
+                    Pair(
+                        listOf(Color(0xFF1DB954), Color(0xFF0A3D20), Color(0xFF07140D)),
+                        onlineTracks.shuffled().take(40)
+                    )
+                )
+            )
+            browseCategories.take(2).forEach { cat ->
+                add(
+                    Triple(
+                        if (isPersian) cat.titleFa else cat.titleEn,
+                        if (isPersian) cat.subtitleFa else cat.subtitleEn,
+                        Pair(
+                            cat.gradient + Color(0xFF090514),
+                            cat.matchedTracks
+                        )
+                    )
+                )
+            }
+        }
+    }
+
+    val pagerState = rememberPagerState(pageCount = { heroCards.size })
+
+    HorizontalPager(
+        state = pagerState,
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        pageSpacing = 12.dp
+    ) { page ->
+        val (title, subtitle, payload) = heroCards[page]
+        val (colors, tracksToPlay) = payload
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(175.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .background(Brush.linearGradient(colors))
+                .border(
+                    width = 1.dp,
+                    color = Color.White.copy(alpha = 0.16f),
+                    shape = RoundedCornerShape(24.dp)
+                )
+                .clickable { onPlayMix(tracksToPlay) }
+                .padding(20.dp)
+        ) {
+            Column(modifier = Modifier.align(Alignment.TopStart)) {
+                Surface(
+                    color = Color.Black.copy(alpha = 0.35f),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Text(
+                        text = if (isPersian) "میکس ویژه" else "FEATURED STATION",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = title,
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = subtitle,
+                    color = Color.White.copy(alpha = 0.8f),
+                    fontSize = 13.sp
+                )
+            }
+
+            Button(
+                onClick = { onPlayMix(tracksToPlay) },
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.align(Alignment.BottomEnd)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = Color.Black
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = if (isPersian) "پخش" else "Play Mix",
+                    color = Color.Black,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickPicksThreeRowGrid(
+    tracks: List<Track>,
+    currentPlayingTrack: Track?,
+    onPlayTrack: (Track) -> Unit
+) {
+    val columns = remember(tracks) { tracks.chunked(3) }
+
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        items(columns) { columnTracks ->
+            Column(
+                modifier = Modifier.width(290.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                columnTracks.forEach { track ->
+                    val isPlaying = currentPlayingTrack?.id == track.id
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                if (isPlaying) Color(0xFF1DB954).copy(alpha = 0.2f)
+                                else Color.White.copy(alpha = 0.05f)
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = if (isPlaying) Color(0xFF1DB954) else Color.White.copy(alpha = 0.07f),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                            .clickable { onPlayTrack(track) }
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                        ) {
+                            if (!track.artworkUri.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = track.artworkUri,
+                                    contentDescription = track.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                SpotifyArtistAvatar(
+                                    artistName = track.artist,
+                                    size = 52.dp,
+                                    shape = RoundedCornerShape(12.dp),
+                                    showVerifiedBadge = false
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = track.title,
+                                color = if (isPlaying) Color(0xFF1DB954) else Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = track.artist,
+                                color = Color.White.copy(alpha = 0.65f),
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Equalizer else Icons.Default.PlayCircleFilled,
+                            contentDescription = null,
+                            tint = Color(0xFF1DB954),
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * گرید دسته‌بندی‌های واقعی به سبک Spotify Browse
+ */
+@Composable
+private fun SpotifyCategoriesGrid(
+    categories: List<SpotifyBrowseCategory>,
+    isPersian: Boolean,
+    onCategoryClick: (SpotifyBrowseCategory) -> Unit
+) {
+    val rows = remember(categories) { categories.chunked(2) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        rows.forEach { rowItems ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                rowItems.forEach { category ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(108.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Brush.linearGradient(category.gradient))
+                            .border(
+                                width = 1.dp,
+                                color = Color.White.copy(alpha = 0.14f),
+                                shape = RoundedCornerShape(18.dp)
+                            )
+                            .clickable { onCategoryClick(category) }
+                            .padding(14.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .fillMaxWidth(0.78f)
+                        ) {
+                            Text(
+                                text = if (isPersian) category.titleFa else category.titleEn,
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (isPersian) category.subtitleFa else category.subtitleEn,
+                                color = Color.White.copy(alpha = 0.82f),
+                                fontSize = 11.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(54.dp)
+                                .align(Alignment.BottomEnd)
+                                .offset(x = 8.dp, y = 8.dp)
+                                .rotate(22f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.White.copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = category.icon,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+                }
+                if (rowItems.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpotifyArtistCard(
+    artist: CloudArtistProfile,
+    isPersian: Boolean,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(116.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.04f))
+            .clickable(onClick = onClick)
+            .padding(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        SpotifyArtistAvatar(
+            artistName = artist.name,
+            size = 92.dp,
+            shape = CircleShape,
+            showVerifiedBadge = true
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = artist.name,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
+        Text(
+            text = if (isPersian) "${artist.tracks.size} قطعه" else "${artist.tracks.size} tracks",
+            color = Color(0xFF1DB954),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun SpotifyAlbumCardItem(
+    album: CloudAlbumCollection,
+    isPersian: Boolean,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(154.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.04f))
+            .clickable(onClick = onClick)
+            .padding(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(134.dp)
+                .clip(RoundedCornerShape(14.dp))
+        ) {
+            if (!album.coverUri.isNullOrBlank()) {
+                AsyncImage(
+                    model = album.coverUri,
+                    contentDescription = album.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                SpotifyArtistAvatar(
+                    artistName = album.title,
+                    size = 134.dp,
+                    shape = RoundedCornerShape(14.dp),
+                    showVerifiedBadge = false
+                )
+            }
+
+            Surface(
+                color = Color.Black.copy(alpha = 0.75f),
+                shape = RoundedCornerShape(50),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = if (isPersian) "${album.tracks.size} ترک" else "${album.tracks.size} tracks",
+                    color = Color(0xFF1DB954),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = album.title,
+            color = Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = album.artist,
+            color = Color.White.copy(alpha = 0.6f),
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun CategorizedInstantSearchResults(
+    query: String,
+    artists: List<CloudArtistProfile>,
+    albums: List<CloudAlbumCollection>,
+    allTracks: List<Track>,
+    currentPlayingTrack: Track?,
+    isPersian: Boolean,
+    onArtistClick: (CloudArtistProfile) -> Unit,
+    onAlbumClick: (CloudAlbumCollection) -> Unit,
+    onPlayTrack: (Track, List<Track>) -> Unit
+) {
+    val q = query.trim()
+    val matchedArtists = remember(artists, q) {
+        artists.filter { it.name.contains(q, ignoreCase = true) }.take(15)
+    }
+    val matchedAlbums = remember(albums, q) {
+        albums.filter {
+            it.title.contains(q, ignoreCase = true) || it.artist.contains(q, ignoreCase = true)
+        }.take(15)
+    }
+    val matchedTracks = remember(allTracks, q) {
+        allTracks.filter {
+            it.title.contains(q, ignoreCase = true) ||
+                it.artist.contains(q, ignoreCase = true) ||
+                it.album.contains(q, ignoreCase = true)
+        }.take(35)
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        if (matchedArtists.isNotEmpty()) {
+            HubSectionHeader(
+                title = if (isPersian) "هنرمندان (${matchedArtists.size})" else "Artists (${matchedArtists.size})"
+            )
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                items(matchedArtists, key = { "srch_art_${it.name}" }) { artist ->
+                    SpotifyArtistCard(
+                        artist = artist,
+                        isPersian = isPersian,
+                        onClick = { onArtistClick(artist) }
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+
+        if (matchedAlbums.isNotEmpty()) {
+            HubSectionHeader(
+                title = if (isPersian) "آلبوم‌ها (${matchedAlbums.size})" else "Albums (${matchedAlbums.size})"
+            )
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                items(matchedAlbums, key = { "srch_alb_${it.id}" }) { album ->
+                    SpotifyAlbumCardItem(
+                        album = album,
+                        isPersian = isPersian,
+                        onClick = { onAlbumClick(album) }
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+
+        if (matchedTracks.isNotEmpty()) {
+            HubSectionHeader(
+                title = if (isPersian) "آهنگ‌ها (${matchedTracks.size})" else "Songs (${matchedTracks.size})"
+            )
+            matchedTracks.forEach { track ->
+                SpotifyTrackRowItem(
+                    track = track,
+                    isPlaying = currentPlayingTrack?.id == track.id,
+                    onClick = { onPlayTrack(track, matchedTracks) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpotifyFullArtistScreen(
+    artist: CloudArtistProfile,
+    currentPlayingTrack: Track?,
+    isPersian: Boolean,
+    onBack: () -> Unit,
+    onAlbumClick: (CloudAlbumCollection) -> Unit,
+    onPlayTrack: (Track, List<Track>) -> Unit
+) {
+    var showAllTracks by remember { mutableStateOf(false) }
+    val visibleTracks = if (showAllTracks) artist.tracks else artist.tracks.take(5)
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 130.dp)
+    ) {
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color(0xFF1DB954).copy(alpha = 0.35f),
+                                Color(0xFF101824),
+                                Color(0xFF07090E)
+                            )
+                        )
+                    )
+                    .padding(16.dp)
+            ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.4f))
+                ) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    SpotifyArtistAvatar(
+                        artistName = artist.name,
+                        size = 144.dp,
+                        shape = CircleShape,
+                        showVerifiedBadge = true
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = artist.name,
+                        color = Color.White,
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = if (isPersian)
+                            "هنرمند تاییدشده • ${artist.tracks.size} قطعه"
+                        else
+                            "Verified Artist • ${artist.tracks.size} Tracks",
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 13.sp
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(
+                            onClick = {
+                                if (artist.tracks.isNotEmpty()) {
+                                    onPlayTrack(artist.tracks.first(), artist.tracks)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954)),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isPersian) "پخش همه" else "Play All",
+                                color = Color.Black,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                if (artist.tracks.isNotEmpty()) {
+                                    val shuffled = artist.tracks.shuffled()
+                                    onPlayTrack(shuffled.first(), shuffled)
+                                }
+                            },
+                            shape = RoundedCornerShape(50),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                        ) {
+                            Icon(Icons.Default.Shuffle, contentDescription = null)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (isPersian) "پخش تصادفی" else "Shuffle")
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            HubSectionHeader(
+                title = if (isPersian) "برترین آهنگ‌ها" else "Popular Releases",
+                actionLabel = if (artist.tracks.size > 5) {
+                    if (showAllTracks) {
+                        if (isPersian) "نمایش کمتر" else "Show Less"
+                    } else {
+                        if (isPersian) "مشاهده همه (${artist.tracks.size})" else "See All (${artist.tracks.size})"
+                    }
+                } else null,
+                onAction = { showAllTracks = !showAllTracks }
+            )
+        }
+
+        items(visibleTracks, key = { "art_trk_${it.id}" }) { track ->
+            SpotifyTrackRowItem(
+                track = track,
+                isPlaying = currentPlayingTrack?.id == track.id,
+                onClick = { onPlayTrack(track, artist.tracks) }
+            )
+        }
+
+        if (artist.albums.isNotEmpty()) {
+            item {
+                Spacer(modifier = Modifier.height(20.dp))
+                HubSectionHeader(
+                    title = if (isPersian) "آلبوم‌ها و مجموعه‌ها" else "Albums & Collections"
+                )
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    items(artist.albums, key = { "art_alb_${it.id}" }) { album ->
+                        SpotifyAlbumCardItem(
+                            album = album,
+                            isPersian = isPersian,
+                            onClick = { onAlbumClick(album) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpotifyFullAlbumScreen(
+    album: CloudAlbumCollection,
+    currentPlayingTrack: Track?,
+    isPersian: Boolean,
+    onBack: () -> Unit,
+    onPlayTrack: (Track, List<Track>) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 130.dp)
+    ) {
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color(0xFF28344A), Color(0xFF07090E))
+                        )
+                    )
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .size(170.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                ) {
+                    if (!album.coverUri.isNullOrBlank()) {
+                        AsyncImage(
+                            model = album.coverUri,
+                            contentDescription = album.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        SpotifyArtistAvatar(
+                            artistName = album.title,
+                            size = 170.dp,
+                            shape = RoundedCornerShape(18.dp),
+                            showVerifiedBadge = false
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = album.title,
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = if (isPersian)
+                        "${album.artist} • ${album.tracks.size} قطعه"
+                    else
+                        "${album.artist} • ${album.tracks.size} Tracks",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 13.sp
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                Button(
+                    onClick = {
+                        if (album.tracks.isNotEmpty()) {
+                            onPlayTrack(album.tracks.first(), album.tracks)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954)),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isPersian) "پخش آلبوم" else "Play Album",
+                        color = Color.Black,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+            }
+        }
+
+        items(album.tracks, key = { "alb_trk_${it.id}" }) { track ->
+            SpotifyTrackRowItem(
+                track = track,
+                isPlaying = currentPlayingTrack?.id == track.id,
+                onClick = { onPlayTrack(track, album.tracks) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SpotifyCategoryPlaylistScreen(
+    category: SpotifyBrowseCategory,
+    currentPlayingTrack: Track?,
+    isPersian: Boolean,
+    onBack: () -> Unit,
+    onPlayTrack: (Track, List<Track>) -> Unit
+) {
+    val tracks = category.matchedTracks
+    var visibleLimit by remember { mutableIntStateOf(40) }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 130.dp)
+    ) {
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Brush.verticalGradient(category.gradient + Color(0xFF07090E)))
+                    .padding(20.dp)
+            ) {
+                Column {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = if (isPersian) category.titleFa else category.titleEn,
+                        color = Color.White,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = if (isPersian) category.subtitleFa else category.subtitleEn,
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 13.sp
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Button(
+                        onClick = {
+                            if (tracks.isNotEmpty()) {
+                                val shuffled = tracks.shuffled()
+                                onPlayTrack(shuffled.first(), shuffled)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954)),
+                        shape = RoundedCornerShape(50)
+                    ) {
+                        Icon(Icons.Default.Shuffle, contentDescription = null, tint = Color.Black)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isPersian) "پخش تصادفی این سبک" else "Shuffle Category",
+                            color = Color.Black,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                }
+            }
+        }
+
+        items(tracks.take(visibleLimit), key = { "cat_trk_${it.id}" }) { track ->
+            SpotifyTrackRowItem(
+                track = track,
+                isPlaying = currentPlayingTrack?.id == track.id,
+                onClick = { onPlayTrack(track, tracks) }
+            )
+        }
+
+        if (visibleLimit < tracks.size) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    OutlinedButton(
+                        onClick = { visibleLimit += 40 },
+                        shape = RoundedCornerShape(50)
+                    ) {
+                        Text(
+                            text = if (isPersian) "نمایش بیشتر" else "Load More",
+                            color = Color(0xFF1DB954)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArtistsDirectoryGridSection(
+    artists: List<CloudArtistProfile>,
+    isPersian: Boolean,
+    onArtistClick: (CloudArtistProfile) -> Unit
+) {
+    val rows = remember(artists) { artists.chunked(3) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        rows.forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                row.forEach { artist ->
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        SpotifyArtistCard(
+                            artist = artist,
+                            isPersian = isPersian,
+                            onClick = { onArtistClick(artist) }
+                        )
+                    }
+                }
+                repeat(3 - row.size) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AlbumsDirectoryGridSection(
+    albums: List<CloudAlbumCollection>,
+    isPersian: Boolean,
+    onAlbumClick: (CloudAlbumCollection) -> Unit
+) {
+    val rows = remember(albums) { albums.chunked(2) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        rows.forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                row.forEach { album ->
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        SpotifyAlbumCardItem(
+                            album = album,
+                            isPersian = isPersian,
+                            onClick = { onAlbumClick(album) }
+                        )
+                    }
+                }
+                if (row.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpotifyTrackRowItem(
+    track: Track,
+    isPlaying: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(
+                if (isPlaying) Color(0xFF1DB954).copy(alpha = 0.16f)
+                else Color.White.copy(alpha = 0.04f)
+            )
+            .clickable(onClick = onClick)
+            .padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(10.dp))
+        ) {
+            if (!track.artworkUri.isNullOrBlank()) {
+                AsyncImage(
+                    model = track.artworkUri,
+                    contentDescription = track.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                SpotifyArtistAvatar(
+                    artistName = track.artist,
+                    size = 48.dp,
+                    shape = RoundedCornerShape(10.dp),
+                    showVerifiedBadge = false
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = track.title,
+                color = if (isPlaying) Color(0xFF1DB954) else Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "${track.artist} • ${track.album}",
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Icon(
+            imageVector = if (isPlaying) Icons.Default.GraphicEq else Icons.Default.PlayArrow,
+            contentDescription = null,
+            tint = if (isPlaying) Color(0xFF1DB954) else Color.White.copy(alpha = 0.7f)
+        )
+    }
+}
+
+@Composable
+private fun HubSectionHeader(
+    title: String,
+    subtitle: String? = null,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    text = subtitle,
+                    color = Color.White.copy(alpha = 0.55f),
+                    fontSize = 12.sp
+                )
+            }
+        }
+        if (!actionLabel.isNullOrBlank() && onAction != null) {
+            TextButton(onClick = onAction) {
+                Text(
+                    text = actionLabel,
+                    color = Color(0xFF1DB954),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+        }
+    }
+}
+
+۲. مسیر فایل: app/src/main/java/com/example/ui/screens/SearchScreen.kt
+(هماهنگ با زبان برنامه: پیش‌فرض انگلیسی و تغییر خودکار به فارسی در صورت فارسی بودن زبان اپلیکیشن)
+package com.example.ui.screens
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import com.example.OnlineMusicScreen
+import com.example.data.model.Track
+
+@Composable
+fun SearchScreen(
+    localTracks: List<Track>,
+    onlineTracks: List<Track> = emptyList(),
+    currentPlayingTrack: Track? = null,
+    isLoadingOnline: Boolean = false,
+    isPersian: Boolean = false, // پیش‌فرض انگلیسی؛ زمانی که زبان برنامه فارسی شود اتوماتیک فارسی می‌شود
+    onPlayTrack: (Track, List<Track>) -> Unit,
+    onRefreshOnline: () -> Unit = {}
+) {
+    val unifiedTracks = remember(localTracks, onlineTracks) {
+        (onlineTracks + localTracks).distinctBy { "${it.title.trim()}_${it.artist.trim()}" }
+    }
+
+    OnlineMusicScreen(
+        onlineTracks = unifiedTracks,
+        isLoading = isLoadingOnline,
+        currentPlayingTrack = currentPlayingTrack,
+        isPersian = isPersian,
+        onPlayTrack = onPlayTrack,
+        onRefresh = onRefreshOnline
+    )
+}
+

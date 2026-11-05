@@ -52,6 +52,7 @@ import com.example.OnlineTasteEngine
 import com.example.audio.AmbientPalette
 import com.example.data.model.*
 import com.example.ui.components.MusicArtworkPlaceholder
+import com.example.ui.components.SpotifyArtistAvatar
 import com.example.ui.components.TrackArtworkThumbnail
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
@@ -113,6 +114,18 @@ fun HomeScreen(
         in 17..21 -> if (isFa) "وایب عصر 🌆" else "Evening Vibe 🌆"
         else -> if (isFa) "وایب شب 🌙" else "Late Night 🌙"
     }
+
+    var userShuffledHeroTrack by remember { mutableStateOf<Track?>(null) }
+    val sessionRandomTrack = remember(allTracks.size, onlineRecentTracks.size) {
+        val pool = (allTracks + onlineRecentTracks).ifEmpty { favoriteTracks }
+        pool.shuffled().firstOrNull()
+    }
+    val heroTrack = userShuffledHeroTrack
+        ?: playbackState.currentTrack
+        ?: mergedRecentlyPlayed.firstOrNull()
+        ?: sessionRandomTrack
+        ?: favoriteTracks.firstOrNull()
+        ?: allTracks.firstOrNull()
 
     LazyColumn(
         modifier = modifier
@@ -203,10 +216,6 @@ fun HomeScreen(
         }
 
         // Section 1.1: Elevated Ambient Top Now Playing Card (Shows dynamic playing/featured track)
-        val heroTrack = playbackState.currentTrack
-            ?: mergedRecentlyPlayed.firstOrNull()
-            ?: favoriteTracks.firstOrNull()
-            ?: allTracks.firstOrNull()
         if (heroTrack != null) {
             item {
                 HeroQuickPlayCard(
@@ -224,6 +233,12 @@ fun HomeScreen(
                             onTogglePlay()
                         } else {
                             onPlayTrack(heroTrack, mergedRecentlyPlayed.ifEmpty { allTracks.ifEmpty { listOf(heroTrack) } })
+                        }
+                    },
+                    onShuffleNextHero = {
+                        val pool = (allTracks + onlineRecentTracks + mergedRecentlyPlayed + favoriteTracks).distinctBy { it.id }
+                        if (pool.size > 1) {
+                            userShuffledHeroTrack = pool.filter { it.id != heroTrack.id }.shuffled().firstOrNull()
                         }
                     },
                     onExpandNowPlaying = onExpandNowPlaying
@@ -382,6 +397,13 @@ fun HomeScreen(
             }
         }
 
+        // بخش کشف در آرشیو تلگرام و سرور کلادفلر
+        item {
+            HomeCloudflareSpotlightSection(
+                onPlayTrack = onPlayTrack
+            )
+        }
+
         // Favorites
         item {
             Row(
@@ -511,6 +533,7 @@ private fun HeroQuickPlayCard(
     onSeekTo: (Long) -> Unit,
     onPlayTrack: (Track, List<Track>) -> Unit,
     onTogglePlay: () -> Unit,
+    onShuffleNextHero: () -> Unit = {},
     onExpandNowPlaying: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -786,7 +809,21 @@ private fun HeroQuickPlayCard(
                     )
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+
+                IconButton(
+                    onClick = onShuffleNextHero,
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Shuffle,
+                        contentDescription = "Shuffle another track",
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
 
                 // Compact refined play button
                 Box(
@@ -829,4 +866,138 @@ private fun formatHeroDuration(ms: Long): String {
     val min = totalSec / 60
     val sec = totalSec % 60
     return "%d:%02d".format(min, sec)
+}
+
+/**
+ * ویجت پیشنهاد هوشمند از آرشیو تلگرام و کلادفلر در صفحه اصلی
+ */
+@Composable
+fun HomeCloudflareSpotlightSection(
+    cloudflareTracks: List<Track> = emptyList(),
+    onPlayTrack: (Track, List<Track>) -> Unit
+) {
+    var loadedOnlineTracks by remember { mutableStateOf<List<Track>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        if (loadedOnlineTracks.isEmpty()) {
+            isLoading = true
+            try {
+                val resp = OnlineMusicRepository.fetchFromWorker()
+                if (resp.tracks.isNotEmpty()) {
+                    loadedOnlineTracks = resp.tracks.map { it.toAppTrack(it.resolvedStreamUrl()) }
+                }
+            } catch (_: Exception) {}
+            isLoading = false
+        }
+    }
+
+    val displayPool = if (cloudflareTracks.isNotEmpty()) cloudflareTracks else loadedOnlineTracks
+    val spotlightTracks = remember(displayPool) {
+        displayPool.shuffled().take(12)
+    }
+
+    if (spotlightTracks.isNotEmpty()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.CloudQueue,
+                        contentDescription = null,
+                        tint = Color(0xFF1DB954),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "کشف در آرشیو تلگرام (Cloudflare)",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Text(
+                            text = "پیشنهادهای هوشمند آماده پخش",
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                items(spotlightTracks, key = { "home_cf_${it.id}" }) { track ->
+                    Box(
+                        modifier = Modifier
+                            .width(148.dp)
+                            .liquidGlass(
+                                shape = RoundedCornerShape(20.dp),
+                                thickness = GlassThickness.REGULAR,
+                                tintColor = Color(0xFF1DB954),
+                                tintAlpha = 0.16f,
+                                borderWidth = 1.dp
+                            )
+                            .clickable { onPlayTrack(track, spotlightTracks) }
+                            .padding(12.dp)
+                    ) {
+                        Column {
+                            Box(
+                                modifier = Modifier
+                                    .size(124.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xFF141322)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (!track.artworkUri.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = track.artworkUri,
+                                        contentDescription = track.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    SpotifyArtistAvatar(
+                                        artistName = track.artist,
+                                        size = 124.dp,
+                                        shape = RoundedCornerShape(14.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = track.title,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = track.artist,
+                                style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF1DB954), fontSize = 12.sp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

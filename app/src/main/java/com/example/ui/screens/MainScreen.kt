@@ -378,7 +378,7 @@ fun MainScreen(
                             onDownloadTrack = { viewModel.downloadTrackToDeviceLibrary(it) },
                             onPauseOfflinePlayer = { viewModel.pause() },
                             bottomPadding = bottomBarPadding,
-                            modifier = Modifier.statusBarsPadding()
+                            modifier = Modifier.fillMaxSize()
                         )
                     }
                     MainTab.LIBRARY -> {
