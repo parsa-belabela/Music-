@@ -1487,15 +1487,21 @@ object OnlineMusicRepository {
     ): WorkerTracksResponse = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
         try {
+            val deviceId = try {
+                EntitlementManager.getHardwareUserId(AuraApplication.instance)
+            } catch (_: Throwable) {
+                "unknown"
+            }
             val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
             val encodedArtist = URLEncoder.encode(artist.trim(), "UTF-8")
-            val endpoint = "$BASE_URL/tracks?q=$encodedQuery&artist=$encodedArtist"
+            val endpoint = "$BASE_URL/tracks?q=$encodedQuery&artist=$encodedArtist&deviceId=$deviceId"
             connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
                 requestMethod = "GET"
                 connectTimeout = 12000
                 readTimeout = 12000
                 setRequestProperty("Accept", "application/json")
+                setRequestProperty("X-Device-Id", deviceId)
                 setRequestProperty("User-Agent", "Mozilla/5.0")
             }
 
@@ -1528,9 +1534,14 @@ object OnlineMusicRepository {
     }
 
     private fun parseWorkerTracksJson(jsonString: String): WorkerTracksResponse {
-        if (jsonString.isBlank()) return WorkerTracksResponse(artists = lastKnownArtists)
+        val trimmed = jsonString.trim()
+        if (trimmed.isBlank()) return WorkerTracksResponse(artists = lastKnownArtists)
         return try {
-            val root = JSONObject(jsonString)
+            val root = if (trimmed.startsWith("[")) {
+                JSONObject().apply { put("tracks", JSONArray(trimmed)) }
+            } else {
+                JSONObject(trimmed)
+            }
 
             // ۱. پارس کردن آرایه خواننده‌ها و ادغام هوشمند نام‌های فیت در خواننده اصلی
             val mergedArtistsMap = LinkedHashMap<String, ArchiveArtistItem>()
@@ -1634,7 +1645,11 @@ object OnlineMusicRepository {
             }
 
             val tracksList = mutableListOf<OnlineTrack>()
-            val dataArray = root.optJSONArray("data") ?: root.optJSONArray("tracks")
+            val dataArray = root.optJSONArray("tracks")
+                ?: root.optJSONArray("data")
+                ?: root.optJSONArray("results")
+                ?: root.optJSONArray("songs")
+                ?: root.optJSONArray("items")
             if (dataArray != null) {
                 for (i in 0 until dataArray.length()) {
                     val obj = dataArray.optJSONObject(i) ?: continue
@@ -2404,10 +2419,26 @@ fun OnlineMusicScreen(
     var paywallMessage by remember { mutableStateOf<String?>(null) }
     var paywallError by remember { mutableStateOf(false) }
     var showSongRequestSheet by remember { mutableStateOf(false) }
+    var showMyketThankYouDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         EntitlementManager.init(context)
         EntitlementManager.fetchRemoteConfig(context)
+    }
+
+    LaunchedEffect(isPremium) {
+        if (isPremium) {
+            onRefresh()
+        }
+    }
+
+    if (showMyketThankYouDialog) {
+        com.example.ui.components.MyketThankYouDialog(
+            onConfirm = {
+                showMyketThankYouDialog = false
+                onRefresh()
+            }
+        )
     }
 
     val myketLauncher = rememberLauncherForActivityResult(
@@ -2415,21 +2446,25 @@ fun OnlineMusicScreen(
     ) { res ->
         scope.launch {
             paywallLoading = true
-            when (val r = EntitlementManager.handleMyketActivityResult(context, res.resultCode, res.data)) {
-                is PurchaseResult.Success -> {
-                    paywallError = false
-                    paywallMessage = "🎉 اشتراک پریمیوم مادام‌العمر فعال شد!"
+            try {
+                when (val r = EntitlementManager.handleMyketActivityResult(context, res.resultCode, res.data)) {
+                    is PurchaseResult.Success -> {
+                        paywallError = false
+                        paywallMessage = "🎉 اشتراک پریمیوم مادام‌العمر فعال شد!"
+                        showMyketThankYouDialog = true
+                    }
+                    is PurchaseResult.Error -> {
+                        paywallError = true
+                        paywallMessage = r.message
+                    }
+                    is PurchaseResult.Cancelled -> {
+                        paywallError = false
+                        paywallMessage = "پرداخت لغو شد."
+                    }
                 }
-                is PurchaseResult.Error -> {
-                    paywallError = true
-                    paywallMessage = r.message
-                }
-                is PurchaseResult.Cancelled -> {
-                    paywallError = false
-                    paywallMessage = "پرداخت لغو شد."
-                }
+            } finally {
+                paywallLoading = false
             }
-            paywallLoading = false
         }
     }
 
@@ -2451,40 +2486,61 @@ fun OnlineMusicScreen(
                     scope.launch {
                         paywallLoading = true
                         paywallMessage = null
-                        EntitlementManager.createMyketBuyIntent(context)
-                            .onSuccess { pi ->
-                                myketLauncher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+                        try {
+                            val intentRes = withTimeoutOrNull(6000L) {
+                                EntitlementManager.createMyketBuyIntent(context)
                             }
-                            .onFailure { err ->
-                                if (err.message == "ALREADY_OWNED_AND_RESTORED") {
-                                    paywallError = false
-                                    paywallMessage = "✅ اشتراک شما بازیابی و فعال شد!"
-                                } else {
-                                    paywallError = true
-                                    paywallMessage = err.message
-                                }
+                            if (intentRes == null) {
+                                paywallError = true
+                                paywallMessage = "پاسخی از سرور مایکت دریافت نشد. دوباره تلاش کنید یا از کد تخفیف استفاده نمایید."
+                            } else {
+                                intentRes
+                                    .onSuccess { pi ->
+                                        myketLauncher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+                                    }
+                                    .onFailure { err ->
+                                        if (err.message == "ALREADY_OWNED_AND_RESTORED") {
+                                            paywallError = false
+                                            paywallMessage = "✅ اشتراک شما بازیابی و فعال شد!"
+                                            showMyketThankYouDialog = true
+                                        } else {
+                                            paywallError = true
+                                            paywallMessage = err.message
+                                        }
+                                    }
                             }
-                        paywallLoading = false
+                        } catch (e: Exception) {
+                            paywallError = true
+                            paywallMessage = "خطا در اتصال به مایکت: دوباره تلاش کنید"
+                        } finally {
+                            paywallLoading = false
+                        }
                     }
                 },
                 onRestoreClick = {
                     scope.launch {
                         paywallLoading = true
-                        when (val r = EntitlementManager.restorePurchaseFromMyket(context)) {
-                            is PurchaseResult.Success -> {
-                                paywallError = false
-                                paywallMessage = "✅ اشتراک شما با موفقیت بازیابی شد!"
+                        try {
+                            when (val r = EntitlementManager.restorePurchaseFromMyket(context)) {
+                                is PurchaseResult.Success -> {
+                                    paywallError = false
+                                    paywallMessage = "✅ اشتراک شما با موفقیت بازیابی شد!"
+                                    showMyketThankYouDialog = true
+                                }
+                                is PurchaseResult.Error -> {
+                                    paywallError = true
+                                    paywallMessage = r.message
+                                }
+                                else -> {}
                             }
-                            is PurchaseResult.Error -> {
-                                paywallError = true
-                                paywallMessage = r.message
-                            }
-                            else -> {}
+                        } finally {
+                            paywallLoading = false
                         }
-                        paywallLoading = false
                     }
                 },
-                onPromoSuccess = {}
+                onPromoSuccess = {
+                    onRefresh()
+                }
             )
         }
         return

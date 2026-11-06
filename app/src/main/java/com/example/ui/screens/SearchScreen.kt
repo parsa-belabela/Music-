@@ -14,12 +14,13 @@ import com.example.data.model.AppSettings
 import com.example.data.model.PlaybackState
 import com.example.data.model.Playlist
 import com.example.data.model.Track
+import com.example.monetization.EntitlementManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
  * تب سرچ و کاوش اصلی که بدون هیچ‌گونه مکث یا فریز روی ترد اصلی (Main Thread) باز می‌شود
- * و از کش خصوصی داخلی برای بارگذاری فوری کاتالوگ، کاورهای تلگرام و عکس‌های هنرمندان استفاده می‌کند.
+ * و به محض فعال شدن اشتراک ویژه (با کد تخفیف 57589188 یا خرید مایکت) لیست کامل آهنگ‌های کلودفلر را بارگذاری می‌کند.
  */
 @Composable
 fun SearchScreen(
@@ -43,17 +44,17 @@ fun SearchScreen(
     bottomPadding: Dp = 120.dp,
     modifier: Modifier = Modifier
 ) {
-    // خواندن فوری از حافظه رم (۰ میلی‌ثانیه روی ترد اصلی، بدون هیچ‌گونه I/O یا پارس JSON در زمان کلیک روی تب سرچ)
+    val isPremium by EntitlementManager.isPremium.collectAsState()
+
     var onlineTracks by remember {
         mutableStateOf(OnlineMusicRepository.getMemoryCachedAppTracks())
     }
     var isLoadingOnline by remember { mutableStateOf(onlineTracks.isEmpty()) }
     var refreshTrigger by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(refreshTrigger) {
+    LaunchedEffect(refreshTrigger, isPremium) {
         if (onlineTracks.isEmpty()) {
             isLoadingOnline = true
-            // ۱. بارگذاری کش دیسک روی ترد پس‌زمینه (IO) بدون قفل کردن رابط کاربری
             val diskTracks = OnlineMusicRepository.loadCachedAppTracksAsync()
             if (diskTracks.isNotEmpty()) {
                 onlineTracks = diskTracks
@@ -61,7 +62,6 @@ fun SearchScreen(
             }
         }
         try {
-            // ۲. دریافت آخرین وضعیت از سرور کلادفلر در پس‌زمینه
             val response = OnlineMusicRepository.fetchFromWorker()
             if (response.tracks.isNotEmpty()) {
                 val mapped = withContext(Dispatchers.Default) {
