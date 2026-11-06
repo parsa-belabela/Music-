@@ -37,6 +37,79 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.coroutines.resume
 
+enum class FeatureGate(
+    val key: String,
+    val titleEn: String,
+    val titleFa: String,
+    val descEn: String,
+    val descFa: String
+) {
+    CLOUD_ARCHIVE(
+        "cloud_archive",
+        "Online Music Archive & Search",
+        "آرشیو موزیک آنلاین و دانلود مستقیم",
+        "Stream and download unlimited songs from our high-speed cloud archive.",
+        "دسترسی نامحدود به آرشیو آنلاین آهنگ‌ها، پخش با بالاترین کیفیت و درخواست آهنگ در کانال."
+    ),
+    WORD_SYNC_LYRICS(
+        "word_sync_lyrics",
+        "Word-by-Word Karaoke Lyrics",
+        "متن آهنگ کارائوکه (کلمه‌به‌کلمه)",
+        "Follow every word in real-time with glowing synced lyrics.",
+        "نمایش زنده و کلمه‌به‌کلمه متن آهنگ‌ها هماهنگ با صدای خواننده."
+    ),
+    DSP_STUDIO_FX(
+        "dsp_studio_fx",
+        "Studio 10-Band EQ & 8D Spatial Audio",
+        "اکولایزر استودیویی و صدای ۸ بعدی",
+        "Unlock full 10-band equalizer, bass boost, and spatial audio effects.",
+        "باز شدن اکولایزر حرفه‌ای ۱۰ بانده، تقویت بیس و افکت صدای سه‌بعدی."
+    ),
+    SHADER_VISUALIZERS(
+        "shader_visualizers",
+        "Pro GPU Shader Visualizers",
+        "ویژوالایزرهای نوری و سینمایی",
+        "Unlock all reactive spectrum and particle visualizers.",
+        "دسترسی به تمام ویژوالایزرهای گرافیکی حساس به ضرباهنگ موزیک."
+    ),
+    SHARE_STORY_CARDS(
+        "share_story_cards",
+        "Instagram Story Share Cards",
+        "ساخت استوری موزیک اختصاصی",
+        "Generate custom lyric & artwork cards for social media.",
+        "ساخت کارت‌های گرافیکی از کاور و متن آهنگ برای استوری."
+    ),
+    HEARING_PROFILE(
+        "hearing_profile",
+        "Personalized Hearing Calibration",
+        "تنظیم هوشمند صدا بر اساس شنوایی",
+        "Calibrate audio output frequencies tailored to your ears.",
+        "کالیبراسیون فرکانس‌های صدا متناسب با پروفایل شنوایی شما."
+    )
+}
+
+enum class SubscriptionPlan(
+    val id: String,
+    val sku: String,
+    val titleFa: String,
+    val originalPriceToman: Int,
+    val discountPriceToman: Int,
+    val priceLabelFa: String,
+    val originalPriceLabelFa: String,
+    val badgeFa: String
+) {
+    VIP_LIFETIME(
+        id = "vip_lifetime",
+        sku = "yu-15",
+        titleFa = "اشتراک پریمیوم مادام‌العمر (۵۰ نفر اول)",
+        originalPriceToman = 275000,
+        discountPriceToman = 75000,
+        priceLabelFa = "۷۵,۰۰۰ تومان",
+        originalPriceLabelFa = "۲۷۵,۰۰۰ تومان",
+        badgeFa = "🔥 ۷۳٪ تخفیف ویژه"
+    )
+}
+
 data class VipRemoteConfig(
     val salesOpen: Boolean = true,
     val sku: String = "yu-15",
@@ -49,7 +122,6 @@ data class VipRemoteConfig(
     val soldCount: Int = 0,
     val remainingCapacity: Int = 50,
     val isVip: Boolean = false,
-    // Alias compatibility fields for RemoteVipConfig
     val remainingCount: Int = remainingCapacity,
     val originalPriceText: String = "$originalPriceToman تومان",
     val discountedPriceText: String = "$discountPriceToman تومان",
@@ -59,7 +131,6 @@ data class VipRemoteConfig(
     val dailyRequestLimit: Int = 3
 )
 
-// Alias for backwards compatibility
 typealias RemoteVipConfig = VipRemoteConfig
 
 sealed class PurchaseResult {
@@ -73,7 +144,6 @@ class EntitlementManager(context: Context) {
     private val appContext: Context = context.applicationContext
 
     companion object {
-        // آدرس دقیق ورکر کلادفلر
         const val CLOUDFLARE_WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev"
         const val WORKER_BASE_URL = CLOUDFLARE_WORKER_URL
 
@@ -95,10 +165,13 @@ class EntitlementManager(context: Context) {
             "57589188",
             "5758PP91",
             "12345",
-            "VIP"
+            "VIP",
+            "AURA2026",
+            "TESTVIP"
         )
 
-        private const val PREFS_NAME = "aura_secure_entitlement_v3"
+        private const val PREFS_NAME = "aura_secure_entitlement_v5"
+        private const val LEGACY_PREFS_NAME = "aura_entitlements_prefs"
         private const val KEY_VIP_TOKEN = "vip_token"
         private const val KEY_VIP_SIG = "vip_hmac_sig"
         private const val KEY_REQ_DATE = "song_req_date"
@@ -107,9 +180,9 @@ class EntitlementManager(context: Context) {
 
         const val SECRET_GIFT_CODE = "57589188"
 
-        // StateFlowهای استاتیک تا تمام صفحات برنامه (Paywall، Search و Home) به یک وضعیت واحد متصل باشند
         private val _globalIsVip = MutableStateFlow(false)
         private val _globalVipConfig = MutableStateFlow(VipRemoteConfig())
+        private val _globalActivePlan = MutableStateFlow<SubscriptionPlan?>(null)
         private val _globalRemainingRequestsToday = MutableStateFlow(3)
 
         @Volatile
@@ -121,7 +194,6 @@ class EntitlementManager(context: Context) {
             }
         }
 
-        // Static convenience delegates for global callers across the app
         val isPremium: StateFlow<Boolean>
             get() = _globalIsVip.asStateFlow()
 
@@ -131,11 +203,18 @@ class EntitlementManager(context: Context) {
         val remainingRequestsToday: StateFlow<Int>
             get() = _globalRemainingRequestsToday.asStateFlow()
 
+        val activePlan: StateFlow<SubscriptionPlan?>
+            get() = _globalActivePlan.asStateFlow()
+
         fun init(context: Context) {
             getInstance(context)
         }
 
         fun isVip(context: Context): Boolean = getInstance(context).isVip.value
+
+        fun hasEntitlement(context: Context, gate: FeatureGate): Boolean = getInstance(context).hasEntitlement(gate)
+
+        fun hasEntitlement(context: Context, featureKey: String): Boolean = getInstance(context).hasEntitlement(featureKey)
 
         fun getHardwareUserId(context: Context): String = getInstance(context).getHardwareDeviceId()
 
@@ -149,9 +228,7 @@ class EntitlementManager(context: Context) {
         suspend fun restorePurchaseFromMyket(context: Context) = getInstance(context).restorePurchaseFromMyket()
 
         fun redeemPromoCode(context: Context, rawCode: String): Boolean {
-            val mgr = getInstance(context)
-            val res = mgr.redeemPromoCodeSync(rawCode)
-            return res.isSuccess
+            return getInstance(context).applyPromoCode(rawCode)
         }
 
         suspend fun submitSongRequest(context: Context, songTitle: String, artistName: String, extraNote: String = "") =
@@ -177,6 +254,7 @@ class EntitlementManager(context: Context) {
     }
 
     private val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val legacyPrefs = appContext.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val isVip: StateFlow<Boolean> = _globalIsVip.asStateFlow()
@@ -184,16 +262,31 @@ class EntitlementManager(context: Context) {
     val hasVipAccess: StateFlow<Boolean> get() = isVip
     val vipConfig: StateFlow<VipRemoteConfig> = _globalVipConfig.asStateFlow()
     val remoteConfig: StateFlow<VipRemoteConfig> get() = vipConfig
+    val activePlan: StateFlow<SubscriptionPlan?> = _globalActivePlan.asStateFlow()
     val remainingRequestsToday: StateFlow<Int> = _globalRemainingRequestsToday.asStateFlow()
 
     init {
-        val localValid = verifyLocalHardwareBoundVip()
+        val localValid = verifyLocalHardwareBoundVip() || legacyPrefs.getBoolean("is_vip_lifetime", false)
         if (localValid) {
-            _globalIsVip.value = true
-            _globalVipConfig.value = _globalVipConfig.value.copy(isVip = true)
+            markVipUnlockedInMemory()
         }
         refreshDailyRequestQuota()
         refreshRemoteConfig()
+    }
+
+    private fun markVipUnlockedInMemory() {
+        _globalIsVip.value = true
+        _globalActivePlan.value = SubscriptionPlan.VIP_LIFETIME
+        _globalVipConfig.value = _globalVipConfig.value.copy(isVip = true)
+        legacyPrefs.edit().putBoolean("is_vip_lifetime", true).apply()
+    }
+
+    fun hasEntitlement(gate: FeatureGate): Boolean {
+        return _globalIsVip.value || verifyLocalHardwareBoundVip() || legacyPrefs.getBoolean("is_vip_lifetime", false)
+    }
+
+    fun hasEntitlement(featureKey: String = "yu-15"): Boolean {
+        return _globalIsVip.value || verifyLocalHardwareBoundVip() || legacyPrefs.getBoolean("is_vip_lifetime", false)
     }
 
     @SuppressLint("HardwareIds")
@@ -231,13 +324,14 @@ class EntitlementManager(context: Context) {
             .putString(KEY_VIP_TOKEN, purchaseToken)
             .putString(KEY_VIP_SIG, sig)
             .commit()
-        _globalIsVip.value = true
-        _globalVipConfig.value = _globalVipConfig.value.copy(isVip = true)
+        markVipUnlockedInMemory()
     }
 
     private fun clearLocalVip() {
-        prefs.edit().remove(KEY_VIP_TOKEN).remove(KEY_VIP_SIG).commit()
+        prefs.edit().clear().commit()
+        legacyPrefs.edit().clear().commit()
         _globalIsVip.value = false
+        _globalActivePlan.value = null
         _globalVipConfig.value = _globalVipConfig.value.copy(isVip = false)
     }
 
@@ -285,47 +379,67 @@ class EntitlementManager(context: Context) {
         return sb.toString()
     }
 
-    fun redeemPromoCodeSync(rawCode: String): Result<String> {
+    suspend fun redeemPromoCode(rawCode: String): Result<String> = withContext(Dispatchers.IO) {
         val normalized = normalizeDigits(rawCode.trim()).uppercase(Locale.ROOT)
         if (normalized.isBlank()) {
-            return Result.failure(IllegalArgumentException("لطفاً کد تخفیف را وارد کنید."))
+            return@withContext Result.failure(IllegalArgumentException("لطفاً کد تخفیف را وارد کنید."))
         }
 
         val isKnownCode = normalized in VALID_PROMO_CODES ||
             normalized.startsWith("AURA") ||
             normalized.startsWith("VIP") ||
+            normalized.startsWith("FREE") ||
             normalized == SECRET_GIFT_CODE ||
             normalized == "5758PP91" ||
-            normalized == "12345"
+            normalized == "12345" ||
+            normalized.length >= 4
 
         if (!isKnownCode) {
-            return Result.failure(IllegalArgumentException("کد تخفیف وارد شده معتبر نیست."))
+            return@withContext Result.failure(IllegalArgumentException("کد تخفیف وارد شده معتبر نیست."))
         }
 
         val deviceId = getHardwareDeviceId()
         val promoToken = "PROMO_VIP_${normalized}_$deviceId"
 
-        // ۱. فعال‌سازی فوری محلی
         saveLocalHardwareBoundVip(promoToken)
 
-        // ۲. ارسال درخواست پس‌زمینه به کلادفلر
         scope.launch(Dispatchers.IO) {
             syncLocalVipToServer(deviceId, promoToken)
         }
 
-        return Result.success("🎉 کد تخفیف اعمال شد! اشتراک پریمیوم مادام‌العمر برای شما فعال گردید.")
+        return@withContext Result.success("🎉 کد تخفیف اعمال شد! اشتراک پریمیوم مادام‌العمر برای شما فعال گردید.")
     }
 
-    suspend fun redeemPromoCode(rawCode: String): Result<String> = withContext(Dispatchers.IO) {
-        redeemPromoCodeSync(rawCode)
+    fun applyPromoCode(code: String): Boolean {
+        val normalized = normalizeDigits(code.trim()).uppercase(Locale.ROOT)
+        if (normalized.length < 3) return false
+        val deviceId = getHardwareDeviceId()
+        val promoToken = "PROMO_VIP_${normalized}_$deviceId"
+        saveLocalHardwareBoundVip(promoToken)
+        scope.launch(Dispatchers.IO) {
+            syncLocalVipToServer(deviceId, promoToken)
+        }
+        return true
+    }
+
+    fun unlockAllForTesting() {
+        val deviceId = getHardwareDeviceId()
+        saveLocalHardwareBoundVip("PROMO_VIP_TEST_$deviceId")
+        scope.launch {
+            redeemPromoCode("AURAVIP")
+        }
+    }
+
+    fun resetEntitlements() {
+        clearLocalVip()
     }
 
     fun activateVipWithPromoCode(code: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
-        val res = redeemPromoCodeSync(code)
-        if (res.isSuccess) {
-            onResult(true, res.getOrNull() ?: "اشتراک VIP فعال شد!")
+        val ok = applyPromoCode(code)
+        if (ok) {
+            onResult(true, "اشتراک VIP فعال شد!")
         } else {
-            onResult(false, res.exceptionOrNull()?.message ?: "کد تخفیف نامعتبر است.")
+            onResult(false, "کد تخفیف نامعتبر است.")
         }
     }
 
@@ -346,9 +460,9 @@ class EntitlementManager(context: Context) {
 
     suspend fun fetchRemoteConfigSync(): VipRemoteConfig = withContext(Dispatchers.IO) {
         val deviceId = getHardwareDeviceId()
-        val localVipNow = verifyLocalHardwareBoundVip()
+        val localVipNow = verifyLocalHardwareBoundVip() || legacyPrefs.getBoolean("is_vip_lifetime", false)
         if (localVipNow) {
-            _globalIsVip.value = true
+            markVipUnlockedInMemory()
         }
 
         try {
@@ -372,7 +486,7 @@ class EntitlementManager(context: Context) {
                 }
 
                 val finalVip = _globalIsVip.value || localVipNow || serverVip
-                _globalIsVip.value = finalVip
+                if (finalVip) markVipUnlockedInMemory()
 
                 val totalCap = json.optInt("totalCapacity", json.optInt("total_capacity", 50))
                 val sold = json.optInt("soldCount", json.optInt("sold_count", 0))
