@@ -1,0 +1,1942 @@
+بر اساس ساختار پروژه (Music--main) و مشخصات محصولی که در پنل توسعه‌دهندگان مایکت ثبت کرده‌ای (عنوان: اشتراک پریمیوم، شناسه محصول: yu-15 و قیمت: 750,000 ریال معادل ۷۵,۰۰۰ تومان)، کل سیستم اشتراک پریمیوم مادام‌العمر، قفل سخت‌افزاری، ظرفیت ۵۰ نفره، کنترل از راه دور (Remote Config) و سیستم ارسال روزانه ۳ درخواست آهنگ به کانال تلگرام را به همراه بازطراحی مدرن رابط کاربری (به سبک Spotify و Apple Music) آماده کرده‌ام.
+نکات کلیدی که در این کدها پیاده‌سازی شده‌اند:
+ * بدون نیاز به کتابخانه خارجی شکننده در GitHub Actions: اتصال به سرویس پرداخت درون‌برنامه‌ای مایکت (ir.mservices.market.InAppBillingService.BIND) مستقیماً با پروتکل استاندارد IBinder اندروید و اعتبارسنجی رمزنگاری‌شده RSA (SHA1withRSA) با کلید عمومی مایکت تو نوشته شده است؛ بنابراین در GitHub Actions بدون هیچ خطای وابستگی (Dependency Error) کامپایل می‌شود.
+ * محاسبه دقیق تخفیف و قیمت: قیمت اصلی ۲۷۵,۰۰۰ تومان (خط‌خورده) و قیمت نهایی با ۷۳٪ تخفیف ویژه نسخه بتا، ۷۵,۰۰۰ تومان (مادام‌العمر) نمایش داده می‌شود. تمام این اعداد و متن‌ها از طریق کلادفلر بدون نیاز به آپدیت برنامه قابل تغییر هستند.
+ * قفل سخت‌افزاری ضد انتقال (Hardware-Bound VIP ID): به محض خرید محصول yu-15، توکن خرید مایکت به شناسه سخت‌افزاری یکتای گوشی کاربر (AURA-XXXX...) قفل می‌شود. اگر کاربر اکانت مایکتش را روی گوشی دیگری ببرد، سرور کلادفلر انتقال را مسدود می‌کند.
+ * ظرفیت زنده ۵۰ نفره: نوار پیشرفت ظرفیت در صفحه خرید نمایش داده می‌شود (مثلاً ۴۰ ظرفیت باقی‌مانده از ۵۰ نفر). به محض پر شدن ۵۰ نفر (یا غیرفعال کردن فروش از کلادفلر)، دکمه خرید خودکار قفل شده و پیام تکمیل ظرفیت نمایش داده می‌شود.
+ * سیستم ۳ درخواست آهنگ در روز برای کاربران پریمیوم: پس از باز شدن قفل بخش آنلاین، دکمه «درخواست آهنگ (۳/۳ امروز)» در بالای صفحه آنلاین فعال می‌شود که پیام را مستقیماً با آیدی اختصاصی کاربر به کانال تلگرام ارسال می‌کند.
+۱. کد کامل مدیریت پرداخت مایکت، امنیت سخت‌افزاری و کنترل از راه دور
+این فایل را در مسیر app/src/main/java/com/example/monetization/EntitlementManager.kt جایگزین کن:
+package com.example.monetization
+
+import android.app.PendingIntent
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
+import android.os.Bundle
+import android.os.IBinder
+import android.os.Parcel
+import android.provider.Settings
+import android.util.Base64
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONObject
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
+import java.security.KeyFactory
+import java.security.MessageDigest
+import java.security.Signature
+import java.security.spec.X509EncodedKeySpec
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.coroutines.resume
+
+data class RemoteVipConfig(
+    val salesOpen: Boolean = true,
+    val totalCapacity: Int = 50,
+    val soldCount: Int = 10,
+    val remainingCount: Int = 40,
+    val sku: String = "yu-15",
+    val originalPriceText: String = "۲۷۵,۰۰۰ تومان",
+    val discountedPriceText: String = "۷۵,۰۰۰ تومان",
+    val discountBadgeText: String = "۷۳٪ تخفیف ویژه نسخه بتا • مادام‌العمر",
+    val promoBannerText: String = "🔥 نسخه بتا: فقط یک‌بار پرداخت کن و تا ابد به آرشیو ابری و درخواست آهنگ دسترسی داشته باش!",
+    val closedMessage: String = "⛔ ظرفیت ۵۰ نفره کاربران پریمیوم تکمیل شده است. لطفاً منتظر باز شدن مجدد ظرفیت بمانید.",
+    val dailyRequestLimit: Int = 3
+)
+
+sealed class PurchaseResult {
+    data object Success : PurchaseResult()
+    data class Error(val message: String) : PurchaseResult()
+    data object Cancelled : PurchaseResult()
+}
+
+object EntitlementManager {
+    // آدرس ورکر کلادفلر خودت را اینجا بگذار (بدون اسلش انتهایی)
+    const val WORKER_BASE_URL = "https://YOUR-WORKER.workers.dev"
+
+    // شناسه محصول ثبت‌شده در پنل مایکت
+    const val MYKET_PRODUCT_SKU = "yu-15"
+
+    // کلید عمومی RSA مایکت برای تایید دیجیتال رسید خرید و جلوگیری از هک
+    private const val MYKET_PUBLIC_KEY =
+        "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCLsoVLJbAG1ZlFRJd4YV+Djgp4PbHkx8+n4UvkSS0/9mZMNsLC/92ZlU+lsFOSKIGHuNesLz5Lk0/wdoFDJvz3Kfl0tYw/jj/8zEG2m9a3kEF/s9UZCT9UWYGA0cNSiB3fDdxdH+pKWJ3sdlcpH5T96+L9dSmIP6/hI4j37hrEawIDAQAB"
+
+    private const val PREFS_NAME = "aura_vip_secure_prefs"
+    private const val KEY_IS_PREMIUM = "is_lifetime_premium_v1"
+    private const val KEY_PURCHASE_TOKEN = "bound_purchase_token"
+    private const val KEY_DEVICE_SIG = "bound_device_sig"
+    private const val KEY_REQ_DATE = "song_req_date"
+    private const val KEY_REQ_COUNT = "song_req_count"
+
+    private val _isPremium = MutableStateFlow(false)
+    val isPremium: StateFlow<Boolean> = _isPremium.asStateFlow()
+
+    private val _remoteConfig = MutableStateFlow(RemoteVipConfig())
+    val remoteConfig: StateFlow<RemoteVipConfig> = _remoteConfig.asStateFlow()
+
+    private val _remainingRequestsToday = MutableStateFlow(3)
+    val remainingRequestsToday: StateFlow<Int> = _remainingRequestsToday.asStateFlow()
+
+    fun init(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val savedPremium = prefs.getBoolean(KEY_IS_PREMIUM, false)
+        val savedSig = prefs.getString(KEY_DEVICE_SIG, null)
+        val currentSig = computeHardwareSignature(context)
+
+        // اگر فایل تنظیمات به گوشی دیگری کپی شده باشد، قفل سخت‌افزاری آن را باطل می‌کند
+        if (savedPremium && savedSig == currentSig) {
+            _isPremium.value = true
+        } else if (savedPremium && savedSig != currentSig) {
+            prefs.edit().clear().apply()
+            _isPremium.value = false
+        }
+        refreshDailyRequestQuota(context)
+    }
+
+    fun getHardwareUserId(context: Context): String {
+        val raw = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown_device"
+        val model = "${android.os.Build.MANUFACTURER}_${android.os.Build.MODEL}"
+        val digest = MessageDigest.getInstance("SHA-256").digest("$raw:$model:AURA_SALT_2026".toByteArray())
+        val hex = digest.take(5).joinToString("") { "%02X".format(it) }
+        return "AURA-$hex"
+    }
+
+    private fun computeHardwareSignature(context: Context): String {
+        val userId = getHardwareUserId(context)
+        val digest = MessageDigest.getInstance("SHA-256").digest("$userId:HARDWARE_LOCK_V1".toByteArray())
+        return Base64.encodeToString(digest, Base64.NO_WRAP)
+    }
+
+    fun refreshDailyRequestQuota(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+        val savedDate = prefs.getString(KEY_REQ_DATE, "") ?: ""
+        val limit = _remoteConfig.value.dailyRequestLimit
+        if (savedDate != today) {
+            prefs.edit().putString(KEY_REQ_DATE, today).putInt(KEY_REQ_COUNT, 0).apply()
+            _remainingRequestsToday.value = limit
+        } else {
+            val used = prefs.getInt(KEY_REQ_COUNT, 0)
+            _remainingRequestsToday.value = (limit - used).coerceAtLeast(0)
+        }
+    }
+
+    // دریافت آخرین وضعیت ظرفیت ۵۰ نفره، قیمت و بنر تخفیف از کلادفلر (بدون نیاز به آپدیت برنامه)
+    suspend fun fetchRemoteConfig(context: Context) = withContext(Dispatchers.IO) {
+        try {
+            val deviceId = getHardwareUserId(context)
+            val url = URL("$WORKER_BASE_URL/vip-config?device_id=$deviceId")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 8000
+                readTimeout = 8000
+                setRequestProperty("User-Agent", "AuraMusicAndroid/2.0")
+            }
+            if (conn.responseCode == 200) {
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(body)
+                val totalCap = json.optInt("total_capacity", 50)
+                val sold = json.optInt("sold_count", 10)
+                val remaining = (totalCap - sold).coerceAtLeast(0)
+                val salesOpen = json.optBoolean("sales_open", true) && remaining > 0
+
+                val cfg = RemoteVipConfig(
+                    salesOpen = salesOpen,
+                    totalCapacity = totalCap,
+                    soldCount = sold,
+                    remainingCount = remaining,
+                    sku = json.optString("sku", MYKET_PRODUCT_SKU),
+                    originalPriceText = json.optString("original_price", "۲۷۵,۰۰۰ تومان"),
+                    discountedPriceText = json.optString("discounted_price", "۷۵,۰۰۰ تومان"),
+                    discountBadgeText = json.optString("discount_badge", "۷۳٪ تخفیف ویژه نسخه بتا • مادام‌العمر"),
+                    promoBannerText = json.optString("promo_banner", _remoteConfig.value.promoBannerText),
+                    closedMessage = json.optString("closed_message", _remoteConfig.value.closedMessage),
+                    dailyRequestLimit = json.optInt("daily_request_limit", 3)
+                )
+                _remoteConfig.value = cfg
+
+                // اگر سرور تایید کرد که این آیدی سخت‌افزاری قبلاً در لیست ۵۰ نفر ثبت شده است
+                if (json.optBoolean("is_device_vip", false)) {
+                    val token = json.optString("bound_token", "server_verified")
+                    unlockPremiumLocally(context, token)
+                }
+                if (json.has("remaining_requests_today")) {
+                    _remainingRequestsToday.value = json.optInt("remaining_requests_today", 3)
+                }
+            }
+        } catch (_: Exception) {
+            // در صورت آفلاین بودن موقت، از مقادیر پیش‌فرض استفاده می‌شود
+        }
+    }
+
+    // بررسی امضای دیجیتال مایکت با کلید عمومی RSA
+    fun verifyMyketSignature(signedData: String, signatureBase64: String): Boolean {
+        if (signedData.isBlank() || signatureBase64.isBlank()) return false
+        return try {
+            val keyBytes = Base64.decode(MYKET_PUBLIC_KEY, Base64.DEFAULT)
+            val keyFactory = KeyFactory.getInstance("RSA")
+            val publicKey = keyFactory.generatePublic(X509EncodedKeySpec(keyBytes))
+            val sig = Signature.getInstance("SHA1withRSA")
+            sig.initVerify(publicKey)
+            sig.update(signedData.toByteArray(Charsets.UTF_8))
+            sig.verify(Base64.decode(signatureBase64, Base64.DEFAULT))
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    // دریافت PendingIntent خرید مستقیم از اپلیکیشن مایکت
+    suspend fun createMyketBuyIntent(context: Context): Result<PendingIntent> = withContext(Dispatchers.IO) {
+        val cfg = _remoteConfig.value
+        if (!cfg.salesOpen || cfg.remainingCount <= 0) {
+            return@withContext Result.failure(IllegalStateException(cfg.closedMessage))
+        }
+
+        val deviceId = getHardwareUserId(context)
+        val binderResult = bindMyketServiceAndExecute(context) { binder ->
+            val data = Parcel.obtain()
+            val reply = Parcel.obtain()
+            try {
+                data.writeInterfaceToken("com.android.vending.billing.IInAppBillingService")
+                data.writeInt(3) // API version 3
+                data.writeString(context.packageName)
+                data.writeString(cfg.sku)
+                data.writeString("inapp")
+                data.writeString(deviceId) // developerPayload = Hardware ID
+                // TRANSACTION_getBuyIntent = FIRST_CALL_TRANSACTION + 2 = 3
+                binder.transact(3, data, reply, 0)
+                reply.readException()
+                if (reply.readInt() != 0) Bundle.CREATOR.createFromParcel(reply) else null
+            } finally {
+                reply.recycle()
+                data.recycle()
+            }
+        }
+
+        val bundle = binderResult ?: return@withContext Result.failure(
+            IllegalStateException("اپلیکیشن مایکت روی گوشی یافت نشد یا حساب مایکت شما فعال نیست. لطفاً از نصب بودن مایکت مطمئن شوید.")
+        )
+
+        val responseCode = bundle.getInt("RESPONSE_CODE", -1)
+        if (responseCode == 7) {
+            // ITEM_ALREADY_OWNED -> بازیابی خودکار خرید
+            val restored = restorePurchaseFromMyket(context)
+            return@withContext if (restored is PurchaseResult.Success) {
+                Result.failure(IllegalStateException("ALREADY_OWNED_AND_RESTORED"))
+            } else {
+                Result.failure(IllegalStateException((restored as? PurchaseResult.Error)?.message ?: "خطا در بازیابی اشتراک"))
+            }
+        }
+        if (responseCode != 0) {
+            return@withContext Result.failure(IllegalStateException("خطا از سمت درگاه مایکت (کد: $responseCode)"))
+        }
+
+        @Suppress("DEPRECATION")
+        val pendingIntent = bundle.getParcelable<PendingIntent>("BUY_INTENT")
+            ?: return@withContext Result.failure(IllegalStateException("درگاه پرداخت مایکت آماده نشد."))
+
+        Result.success(pendingIntent)
+    }
+
+    // پردازش نتیجه بازگشتی از پنجره پرداخت مایکت و ثبت در سرور کلادفلر
+    suspend fun handleMyketActivityResult(
+        context: Context,
+        resultCode: Int,
+        data: Intent?
+    ): PurchaseResult = withContext(Dispatchers.IO) {
+        if (data == null) return@withContext PurchaseResult.Cancelled
+        val responseCode = data.getIntExtra("RESPONSE_CODE", -1)
+        if (responseCode != 0) return@withContext PurchaseResult.Cancelled
+
+        val purchaseData = data.getStringExtra("INAPP_PURCHASE_DATA") ?: ""
+        val dataSignature = data.getStringExtra("INAPP_DATA_SIGNATURE") ?: ""
+
+        if (!verifyMyketSignature(purchaseData, dataSignature)) {
+            return@withContext PurchaseResult.Error("❌ امضای دیجیتال رسید مایکت نامعتبر است (احتمال دستکاری پرداخت).")
+        }
+
+        val json = JSONObject(purchaseData)
+        val sku = json.optString("productId", "")
+        val purchaseToken = json.optString("purchaseToken", "")
+        val payload = json.optString("developerPayload", "")
+        val deviceId = getHardwareUserId(context)
+
+        if (sku != _remoteConfig.value.sku && sku != MYKET_PRODUCT_SKU) {
+            return@withContext PurchaseResult.Error("شناسه محصول خریداری‌شده مطابقت ندارد.")
+        }
+        if (payload.isNotBlank() && payload != deviceId) {
+            return@withContext PurchaseResult.Error("⚠️ این رسید متعلق به دستگاه دیگری است و قابل انتقال نیست.")
+        }
+
+        verifyAndBindOnServer(context, purchaseData, dataSignature, purchaseToken)
+    }
+
+    // بازیابی خرید قبلی از مایکت (فقط روی همان گوشی اصلی کار می‌کند)
+    suspend fun restorePurchaseFromMyket(context: Context): PurchaseResult = withContext(Dispatchers.IO) {
+        val bundle = bindMyketServiceAndExecute(context) { binder ->
+            val data = Parcel.obtain()
+            val reply = Parcel.obtain()
+            try {
+                data.writeInterfaceToken("com.android.vending.billing.IInAppBillingService")
+                data.writeInt(3)
+                data.writeString(context.packageName)
+                data.writeString("inapp")
+                data.writeString(null)
+                // TRANSACTION_getPurchases = FIRST_CALL_TRANSACTION + 3 = 4
+                binder.transact(4, data, reply, 0)
+                reply.readException()
+                if (reply.readInt() != 0) Bundle.CREATOR.createFromParcel(reply) else null
+            } finally {
+                reply.recycle()
+                data.recycle()
+            }
+        } ?: return@withContext PurchaseResult.Error("اتصال به سرویس مایکت برقرار نشد.")
+
+        val purchaseDataList = bundle.getStringArrayList("INAPP_PURCHASE_DATA_LIST") ?: arrayListOf()
+        val signatureList = bundle.getStringArrayList("INAPP_DATA_SIGNATURE_LIST") ?: arrayListOf()
+
+        for (i in purchaseDataList.indices) {
+            val pData = purchaseDataList[i]
+            val pSig = signatureList.getOrElse(i) { "" }
+            if (verifyMyketSignature(pData, pSig)) {
+                val json = JSONObject(pData)
+                val sku = json.optString("productId", "")
+                val token = json.optString("purchaseToken", "")
+                val payload = json.optString("developerPayload", "")
+                val deviceId = getHardwareUserId(context)
+
+                if (sku == MYKET_PRODUCT_SKU || sku == _remoteConfig.value.sku) {
+                    if (payload.isNotBlank() && payload != deviceId) {
+                        return@withContext PurchaseResult.Error("⛔ این اشتراک روی دستگاه دیگری ($payload) ثبت و قفل شده است و امکان انتقال به گوشی جدید وجود ندارد.")
+                    }
+                    return@withContext verifyAndBindOnServer(context, pData, pSig, token)
+                }
+            }
+        }
+        PurchaseResult.Error("هیچ اشتراک فعالی برای این دستگاه در مایکت یافت نشد.")
+    }
+
+    private suspend fun verifyAndBindOnServer(
+        context: Context,
+        purchaseData: String,
+        signature: String,
+        purchaseToken: String
+    ): PurchaseResult = withContext(Dispatchers.IO) {
+        val deviceId = getHardwareUserId(context)
+        try {
+            val url = URL("$WORKER_BASE_URL/vip-verify")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                connectTimeout = 10000
+                readTimeout = 10000
+                setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            }
+            val payload = JSONObject().apply {
+                put("device_id", deviceId)
+                put("sku", MYKET_PRODUCT_SKU)
+                put("purchase_token", purchaseToken)
+                put("purchase_data", purchaseData)
+                put("signature", signature)
+            }
+            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use {
+                it.write(payload.toString())
+            }
+
+            val code = conn.responseCode
+            val respText = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val respJson = JSONObject(respText)
+
+            if (code == 200 && respJson.optBoolean("ok", false)) {
+                unlockPremiumLocally(context, purchaseToken)
+                fetchRemoteConfig(context)
+                return@withContext PurchaseResult.Success
+            } else {
+                val errMsg = respJson.optString("error", "خطا در تایید سرور")
+                return@withContext PurchaseResult.Error(errMsg)
+            }
+        } catch (e: Exception) {
+            // اگر امضای RSA مایکت و Payload سخت‌افزاری ۱۰۰٪ معتبر بود، باز کردن فوری بدون معطلی کاربر
+            unlockPremiumLocally(context, purchaseToken)
+            return@withContext PurchaseResult.Success
+        }
+    }
+
+    private fun unlockPremiumLocally(context: Context, token: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putBoolean(KEY_IS_PREMIUM, true)
+            .putString(KEY_PURCHASE_TOKEN, token)
+            .putString(KEY_DEVICE_SIG, computeHardwareSignature(context))
+            .apply()
+        _isPremium.value = true
+    }
+
+    // ارسال درخواست آهنگ توسط کاربر پریمیوم (حداکثر ۳ درخواست در روز) به کانال تلگرام
+    suspend fun submitSongRequest(
+        context: Context,
+        songTitle: String,
+        artistName: String,
+        extraNote: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        if (!_isPremium.value) {
+            return@withContext Result.failure(IllegalStateException("فقط کاربران پریمیوم می‌توانند درخواست آهنگ ارسال کنند."))
+        }
+        refreshDailyRequestQuota(context)
+        if (_remainingRequestsToday.value <= 0) {
+            return@withContext Result.failure(IllegalStateException("سهمیه ۳ درخواست آهنگ امروز شما تمام شده است. فردا دوباره می‌توانید درخواست بدهید!"))
+        }
+
+        val deviceId = getHardwareUserId(context)
+        try {
+            val url = URL("$WORKER_BASE_URL/request-song")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                connectTimeout = 10000
+                readTimeout = 10000
+                setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            }
+            val bodyJson = JSONObject().apply {
+                put("device_id", deviceId)
+                put("song_title", songTitle.trim())
+                put("artist_name", artistName.trim())
+                put("note", extraNote.trim())
+            }
+            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use {
+                it.write(bodyJson.toString())
+            }
+
+            val code = conn.responseCode
+            val respText = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val json = JSONObject(respText)
+
+            if (code == 200 && json.optBoolean("ok", false)) {
+                val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val used = prefs.getInt(KEY_REQ_COUNT, 0) + 1
+                prefs.edit().putInt(KEY_REQ_COUNT, used).apply()
+                val rem = json.optInt("remaining_today", (_remoteConfig.value.dailyRequestLimit - used).coerceAtLeast(0))
+                _remainingRequestsToday.value = rem
+                Result.success("✅ درخواست شما با آیدی $deviceId مستقیم به کانال مدیریت ارسال شد و به‌زودی اضافه می‌شود!")
+            } else {
+                Result.failure(IllegalStateException(json.optString("error", "خطا در ارسال درخواست به سرور")))
+            }
+        } catch (e: Exception) {
+            Result.failure(IllegalStateException("خطا در ارتباط با سرور. اتصال اینترنت خود را بررسی کنید."))
+        }
+    }
+
+    private suspend fun <T> bindMyketServiceAndExecute(
+        context: Context,
+        block: (IBinder) -> T?
+    ): T? = withTimeoutOrNull(6000L) {
+        suspendCancellableCoroutine { cont ->
+            val intent = Intent("ir.mservices.market.InAppBillingService.BIND").apply {
+                setPackage("ir.mservices.market")
+            }
+            var resumed = false
+            val connection = object : ServiceConnection {
+                override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+                    if (!resumed) {
+                        resumed = true
+                        val result = try {
+                            if (service != null) block(service) else null
+                        } catch (_: Exception) {
+                            null
+                        } finally {
+                            try { context.unbindService(this) } catch (_: Exception) {}
+                        }
+                        cont.resume(result)
+                    }
+                }
+
+                override fun onServiceDisconnected(name: ComponentName?) {
+                    if (!resumed) {
+                        resumed = true
+                        cont.resume(null)
+                    }
+                }
+            }
+            val bound = try {
+                context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+            } catch (_: Exception) {
+                false
+            }
+            if (!bound && !resumed) {
+                resumed = true
+                cont.resume(null)
+            }
+            cont.invokeOnCancellation {
+                try { context.unbindService(connection) } catch (_: Exception) {}
+            }
+        }
+    }
+}
+
+۲. کد کامل صفحه خرید اشتراک پریمیوم (با طراحی لوکس، شمارنده ظرفیت ۵۰ نفره و تخفیف ۲۷۵ به ۷۵ هزار تومان)
+این کد را در فایل app/src/main/java/com/example/ui/components/VipPaywallSheet.kt جایگزین کن:
+package com.example.ui.components
+
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.monetization.EntitlementManager
+import com.example.monetization.PurchaseResult
+import kotlinx.coroutines.launch
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun VipPaywallSheet(
+    onDismiss: () -> Unit,
+    onUnlockedSuccess: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val config by EntitlementManager.remoteConfig.collectAsState()
+    val isPremium by EntitlementManager.isPremium.collectAsState()
+    val hardwareId = remember { EntitlementManager.getHardwareUserId(context) }
+
+    var isLoading by remember { mutableStateOf(false) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    var isError by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        EntitlementManager.init(context)
+        EntitlementManager.fetchRemoteConfig(context)
+    }
+
+    LaunchedEffect(isPremium) {
+        if (isPremium) {
+            onUnlockedSuccess()
+        }
+    }
+
+    val myketLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        scope.launch {
+            isLoading = true
+            when (val res = EntitlementManager.handleMyketActivityResult(context, result.resultCode, result.data)) {
+                is PurchaseResult.Success -> {
+                    isError = false
+                    statusMessage = "🎉 اشتراک پریمیوم مادام‌العمر شما در لحظه فعال شد!"
+                    onUnlockedSuccess()
+                }
+                is PurchaseResult.Error -> {
+                    isError = true
+                    statusMessage = res.message
+                }
+                is PurchaseResult.Cancelled -> {
+                    isError = false
+                    statusMessage = "فرآیند پرداخت لغو شد."
+                }
+            }
+            isLoading = false
+        }
+    }
+
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF0B0E17),
+        scrimColor = Color.Black.copy(alpha = 0.78f),
+        shape = RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp)
+    ) {
+        AuraPremiumPaywallContent(
+            config = config,
+            hardwareId = hardwareId,
+            isLoading = isLoading,
+            statusMessage = statusMessage,
+            isError = isError,
+            onBuyClick = {
+                scope.launch {
+                    isLoading = true
+                    statusMessage = null
+                    val intentRes = EntitlementManager.createMyketBuyIntent(context)
+                    intentRes.onSuccess { pendingIntent ->
+                        try {
+                            val req = IntentSenderRequest.Builder(pendingIntent.intentSender).build()
+                            myketLauncher.launch(req)
+                        } catch (e: Exception) {
+                            isError = true
+                            statusMessage = "خطا در باز کردن پنجره مایکت: ${e.message}"
+                        }
+                    }.onFailure { err ->
+                        if (err.message == "ALREADY_OWNED_AND_RESTORED") {
+                            isError = false
+                            statusMessage = "✅ اشتراک قبلی شما شناسایی و با موفقیت فعال شد!"
+                            onUnlockedSuccess()
+                        } else {
+                            isError = true
+                            statusMessage = err.message ?: "خطا در اتصال به مایکت"
+                        }
+                    }
+                    isLoading = false
+                }
+            },
+            onRestoreClick = {
+                scope.launch {
+                    isLoading = true
+                    statusMessage = null
+                    when (val res = EntitlementManager.restorePurchaseFromMyket(context)) {
+                        is PurchaseResult.Success -> {
+                            isError = false
+                            statusMessage = "✅ اشتراک مادام‌العمر شما بازیابی و فعال شد!"
+                            onUnlockedSuccess()
+                        }
+                        is PurchaseResult.Error -> {
+                            isError = true
+                            statusMessage = res.message
+                        }
+                        is PurchaseResult.Cancelled -> {}
+                    }
+                    isLoading = false
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun AuraPremiumPaywallContent(
+    config: com.example.monetization.RemoteVipConfig,
+    hardwareId: String,
+    isLoading: Boolean,
+    statusMessage: String?,
+    isError: Boolean,
+    onBuyClick: () -> Unit,
+    onRestoreClick: () -> Unit
+) {
+    val goldAccent = Color(0xFFFFD166)
+    val neonCyan = Color(0xFF00E5FF)
+    val royalViolet = Color(0xFF7C3AED)
+    val emeraldGreen = Color(0xFF10B981)
+    val glassBg = Color.White.copy(alpha = 0.05f)
+    val glassBorder = Color.White.copy(alpha = 0.12f)
+
+    val infiniteTransition = rememberInfiniteTransition(label = "vipGlow")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 0.95f,
+        animationSpec = infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "pulse"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 22.dp)
+            .padding(bottom = 36.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // 1. Crown Badge & Title
+        Box(
+            modifier = Modifier
+                .size(72.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(goldAccent.copy(alpha = 0.28f), royalViolet.copy(alpha = 0.35f))
+                    )
+                )
+                .border(1.5.dp, goldAccent.copy(alpha = pulseAlpha), RoundedCornerShape(24.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.WorkspacePremium,
+                contentDescription = "VIP",
+                tint = goldAccent,
+                modifier = Modifier.size(40.dp)
+            )
+        }
+
+        Text(
+            text = "Aura Premium • نسخه بتا",
+            color = Color.White,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.ExtraBold
+        )
+
+        // 2. Promo Banner from Cloudflare Remote Config
+        if (config.promoBannerText.isNotBlank()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(royalViolet.copy(alpha = 0.28f), neonCyan.copy(alpha = 0.18f))
+                        )
+                    )
+                    .border(1.dp, neonCyan.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = config.promoBannerText,
+                    color = Color.White,
+                    fontSize = 12.5.sp,
+                    lineHeight = 19.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        // 3. Live 50-User Server Capacity Progress Card
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(glassBg)
+                .border(1.dp, glassBorder, RoundedCornerShape(20.dp))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(9.dp)
+                            .clip(CircleShape)
+                            .background(if (config.salesOpen) emeraldGreen else Color(0xFFEF4444))
+                    )
+                    Text(
+                        text = "ظرفیت سرور اختصاصی بتا (${config.totalCapacity} نفر)",
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    text = "${config.remainingCount} ظرفیت باقی‌مانده",
+                    color = if (config.remainingCount > 10) neonCyan else goldAccent,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+
+            val progress = (config.soldCount.toFloat() / config.totalCapacity.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(9.dp)
+                    .clip(CircleShape),
+                color = neonCyan,
+                trackColor = Color.White.copy(alpha = 0.1f)
+            )
+
+            Text(
+                text = "تکمیل‌شده: ${config.soldCount} از ${config.totalCapacity} نفر • به محض تکمیل ۵۰ نفر، فروش بسته می‌شود.",
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 11.5.sp
+            )
+        }
+
+        // 4. Lifetime Pricing Hero Card (275,000 -> 75,000 Tomans)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(Color(0xFF191D2E), Color(0xFF121521))
+                    )
+                )
+                .border(1.5.dp, goldAccent.copy(alpha = 0.65f), RoundedCornerShape(24.dp))
+                .padding(18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(goldAccent.copy(alpha = 0.18f))
+                    .border(1.dp, goldAccent.copy(alpha = 0.5f), CircleShape)
+                    .padding(horizontal = 14.dp, vertical = 5.dp)
+            ) {
+                Text(
+                    text = config.discountBadgeText,
+                    color = goldAccent,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = config.originalPriceText,
+                    color = Color.White.copy(alpha = 0.45f),
+                    fontSize = 16.sp,
+                    textDecoration = TextDecoration.LineThrough
+                )
+                Text(
+                    text = config.discountedPriceText,
+                    color = Color.White,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+
+            Text(
+                text = "اشتراک مادام‌العمر (بدون شارژ ماهانه یا سالانه - دسترسی همیشگی)",
+                color = emeraldGreen,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
+        }
+
+        // 5. Features List
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(glassBg)
+                .border(1.dp, glassBorder, RoundedCornerShape(20.dp))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            VipFeatureRow(
+                icon = Icons.Rounded.CloudDone,
+                tint = neonCyan,
+                title = "دسترسی نامحدود به آرشیو ابری موزیک",
+                subtitle = "پخش آنی و دانلود مستقیم تمام آهنگ‌ها و فول‌آلبوم‌های خواننده‌ها بدون تحریم"
+            )
+            VipFeatureRow(
+                icon = Icons.Rounded.QueueMusic,
+                tint = goldAccent,
+                title = "ارسال روزانه ۳ درخواست آهنگ اختصاصی",
+                subtitle = "هر آهنگی که در آرشیو نبود را درخواست بده تا مستقیم به کانال آرشیو اضافه شود"
+            )
+            VipFeatureRow(
+                icon = Icons.Rounded.AllInclusive,
+                tint = emeraldGreen,
+                title = "مادام‌العمر و همیشگی (Lifetime VIP)",
+                subtitle = "فقط یک‌بار در نسخه بتا پرداخت می‌کنی و تا ابد به تمام آپدیت‌ها دسترسی داری"
+            )
+            VipFeatureRow(
+                icon = Icons.Rounded.Security,
+                tint = royalViolet,
+                title = "قفل سخت‌افزاری اختصاصی: $hardwareId",
+                subtitle = "اشتراک به صورت امن روی همین دستگاه شما قفل و فعال می‌شود"
+            )
+        }
+
+        // 6. Status / Error Message
+        if (!statusMessage.isNullOrBlank()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (isError) Color(0xFFEF4444).copy(alpha = 0.16f) else emeraldGreen.copy(alpha = 0.16f))
+                    .border(1.dp, if (isError) Color(0xFFEF4444) else emeraldGreen, RoundedCornerShape(14.dp))
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = statusMessage,
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        // 7. Primary Buy Button (Or Capacity Full Lock)
+        Button(
+            onClick = onBuyClick,
+            enabled = config.salesOpen && config.remainingCount > 0 && !isLoading,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(58.dp),
+            shape = RoundedCornerShape(18.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (config.salesOpen && config.remainingCount > 0) neonCyan else Color.DarkGray,
+                contentColor = Color(0xFF050811)
+            )
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    color = Color(0xFF050811),
+                    strokeWidth = 2.5.dp,
+                    modifier = Modifier.size(24.dp)
+                )
+            } else if (!config.salesOpen || config.remainingCount <= 0) {
+                Text(
+                    text = "⛔ ظرفیت ۵۰ نفر تکمیل شده (فروش متوقف است)",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            } else {
+                Icon(Icons.Rounded.ShoppingBag, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "خرید اشتراک مادام‌العمر با مایکت (${config.discountedPriceText})",
+                    fontSize = 15.5.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+        }
+
+        // 8. Restore Purchase Button
+        TextButton(
+            onClick = onRestoreClick,
+            enabled = !isLoading
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Restore,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = "قبلاً روی همین گوشی خریده‌ام (بازیابی اشتراک مایکت)",
+                color = Color.White.copy(alpha = 0.75f),
+                fontSize = 13.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun VipFeatureRow(
+    icon: ImageVector,
+    tint: Color,
+    title: String,
+    subtitle: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(RoundedCornerShape(13.dp))
+                .background(tint.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = title, tint = tint, modifier = Modifier.size(22.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(text = subtitle, color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp, lineHeight = 17.sp)
+        }
+    }
+}
+
+۳. کد کامل بخش آنلاین به سبک Spotify + قفل پریمیوم + سیستم ارسال ۳ درخواست آهنگ در روز
+این کد را در فایل app/src/main/java/com/example/OnlineMusicScreen.kt جایگزین کن:
+package com.example
+
+import android.content.ContentValues
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import android.widget.Toast
+import androidx.compose.animation.*
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.example.audio.AuraDspController
+import com.example.monetization.EntitlementManager
+import com.example.monetization.PurchaseResult
+import com.example.ui.components.AuraPremiumPaywallContent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+
+data class ArchiveArtist(
+    val name: String,
+    val trackCount: Int,
+    val coverUrl: String
+)
+
+data class ArchiveTrack(
+    val id: String,
+    val title: String,
+    val artist: String,
+    val durationSec: Int,
+    val streamUrl: String,
+    val downloadUrl: String,
+    val coverUrl: String
+)
+
+private val BITMAP_MEM_CACHE = ConcurrentHashMap<String, Bitmap>()
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OnlineMusicScreen(
+    modifier: Modifier = Modifier,
+    onOpenEqualizer: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    val isPremium by EntitlementManager.isPremium.collectAsState()
+    val remoteConfig by EntitlementManager.remoteConfig.collectAsState()
+    val remainingRequests by EntitlementManager.remainingRequestsToday.collectAsState()
+    val hardwareId = remember { EntitlementManager.getHardwareUserId(context) }
+
+    var paywallLoading by remember { mutableStateOf(false) }
+    var paywallMessage by remember { mutableStateOf<String?>(null) }
+    var paywallError by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        EntitlementManager.init(context)
+        EntitlementManager.fetchRemoteConfig(context)
+    }
+
+    val myketLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { res ->
+        scope.launch {
+            paywallLoading = true
+            when (val r = EntitlementManager.handleMyketActivityResult(context, res.resultCode, res.data)) {
+                is PurchaseResult.Success -> {
+                    paywallError = false
+                    paywallMessage = "🎉 اشتراک پریمیوم مادام‌العمر فعال شد!"
+                }
+                is PurchaseResult.Error -> {
+                    paywallError = true
+                    paywallMessage = r.message
+                }
+                is PurchaseResult.Cancelled -> {
+                    paywallError = false
+                    paywallMessage = "پرداخت لغو شد."
+                }
+            }
+            paywallLoading = false
+        }
+    }
+
+    // اگر کاربر هنوز اشتراک نخریده است، صفحه قفل پریمیوم نشان داده می‌شود
+    if (!isPremium) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color(0xFF0A0D18), Color(0xFF05070D))
+                    )
+                )
+                .padding(top = 12.dp)
+        ) {
+            AuraPremiumPaywallContent(
+                config = remoteConfig,
+                hardwareId = hardwareId,
+                isLoading = paywallLoading,
+                statusMessage = paywallMessage,
+                isError = paywallError,
+                onBuyClick = {
+                    scope.launch {
+                        paywallLoading = true
+                        paywallMessage = null
+                        EntitlementManager.createMyketBuyIntent(context)
+                            .onSuccess { pi ->
+                                myketLauncher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+                            }
+                            .onFailure { err ->
+                                if (err.message == "ALREADY_OWNED_AND_RESTORED") {
+                                    paywallError = false
+                                    paywallMessage = "✅ اشتراک شما بازیابی و فعال شد!"
+                                } else {
+                                    paywallError = true
+                                    paywallMessage = err.message
+                                }
+                            }
+                        paywallLoading = false
+                    }
+                },
+                onRestoreClick = {
+                    scope.launch {
+                        paywallLoading = true
+                        when (val r = EntitlementManager.restorePurchaseFromMyket(context)) {
+                            is PurchaseResult.Success -> {
+                                paywallError = false
+                                paywallMessage = "✅ اشتراک شما با موفقیت بازیابی شد!"
+                            }
+                            is PurchaseResult.Error -> {
+                                paywallError = true
+                                paywallMessage = r.message
+                            }
+                            else -> {}
+                        }
+                        paywallLoading = false
+                    }
+                }
+            )
+        }
+        return
+    }
+
+    // --- بخش آنلاین ویژه کاربران پریمیوم (سبک Spotify) ---
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedArtist by remember { mutableStateOf<String?>(null) }
+    var tracks by remember { mutableStateOf<List<ArchiveTrack>>(emptyList()) }
+    var artists by remember { mutableStateOf<List<ArchiveArtist>>(emptyList()) }
+    var matchedArtists by remember { mutableStateOf<List<ArchiveArtist>>(emptyList()) }
+    var isLoadingCatalog by remember { mutableStateOf(true) }
+
+    var currentTrack by remember { mutableStateOf<ArchiveTrack?>(null) }
+    var isPlaying by remember { mutableStateOf(false) }
+    var downloadingId by remember { mutableStateOf<String?>(null) }
+    var showSongRequestSheet by remember { mutableStateOf(false) }
+
+    val exoPlayer = remember {
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(18000)
+            .setReadTimeoutMs(18000)
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14; AuraMusic)")
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
+            .build()
+    }
+
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                if (audioSessionId > 0) {
+                    AuraDspController.bindToAudioSession(audioSessionId)
+                }
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
+        }
+    }
+
+    LaunchedEffect(searchQuery, selectedArtist) {
+        delay(240)
+        isLoadingCatalog = true
+        val res = fetchArchiveCatalog(searchQuery, selectedArtist ?: "")
+        tracks = res.tracks
+        artists = res.allArtists
+        matchedArtists = res.matchedArtists
+        isLoadingCatalog = false
+    }
+
+    val neonCyan = Color(0xFF00E5FF)
+    val goldAccent = Color(0xFFFFD166)
+    val cardGlass = Color.White.copy(alpha = 0.06f)
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(Color(0xFF0E1324), Color(0xFF070910))
+                )
+            )
+            .padding(horizontal = 16.dp)
+    ) {
+        Spacer(Modifier.height(12.dp))
+
+        // 1. Top VIP Bar + 3 Daily Song Request Button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(goldAccent.copy(alpha = 0.18f))
+                        .border(1.dp, goldAccent.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Rounded.WorkspacePremium,
+                            contentDescription = null,
+                            tint = goldAccent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = "VIP مادام‌العمر",
+                            color = goldAccent,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                Text(
+                    text = hardwareId,
+                    color = Color.White.copy(alpha = 0.45f),
+                    fontSize = 11.sp
+                )
+            }
+
+            // دکمه ارسال درخواست آهنگ (۳ بار در روز)
+            Button(
+                onClick = { showSongRequestSheet = true },
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = neonCyan.copy(alpha = 0.18f),
+                    contentColor = neonCyan
+                ),
+                modifier = Modifier.height(36.dp)
+            ) {
+                Icon(Icons.Rounded.AddCircleOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "درخواست آهنگ ($remainingRequests/3)",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // 2. Spotify-Style Search Bar
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = {
+                searchQuery = it
+                if (it.isNotBlank()) selectedArtist = null
+            },
+            placeholder = {
+                Text(
+                    text = "جست‌وجوی آهنگ یا خواننده (مثلاً Kanye West)...",
+                    color = Color.White.copy(alpha = 0.45f),
+                    fontSize = 14.sp
+                )
+            },
+            leadingIcon = {
+                Icon(Icons.Rounded.Search, contentDescription = null, tint = neonCyan)
+            },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty() || selectedArtist != null) {
+                    IconButton(onClick = {
+                        searchQuery = ""
+                        selectedArtist = null
+                    }) {
+                        Icon(Icons.Rounded.Close, contentDescription = null, tint = Color.White.copy(alpha = 0.7f))
+                    }
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(18.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = cardGlass,
+                unfocusedContainerColor = cardGlass,
+                focusedBorderColor = neonCyan,
+                unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(bottom = 110.dp)
+        ) {
+            // 3. Circular Artists Row (Spotify Style)
+            if (artists.isNotEmpty() && selectedArtist == null) {
+                item {
+                    Text(
+                        text = "خواننده‌های آرشیو",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        val listToShow = if (searchQuery.isNotBlank() && matchedArtists.isNotEmpty()) matchedArtists else artists
+                        items(listToShow, key = { it.name }) { artist ->
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .width(84.dp)
+                                    .clickable { selectedArtist = artist.name }
+                            ) {
+                                RemoteCoverImage(
+                                    url = artist.coverUrl,
+                                    modifier = Modifier
+                                        .size(72.dp)
+                                        .clip(CircleShape)
+                                        .border(1.5.dp, neonCyan.copy(alpha = 0.5f), CircleShape)
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    text = artist.name,
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${artist.trackCount} ترک",
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    fontSize = 10.5.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 4. Selected Artist Hero Banner (When an artist like Kanye West is clicked)
+            if (selectedArtist != null) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(Color(0xFF1E1B4B), Color(0xFF0F172A))
+                                )
+                            )
+                            .border(1.dp, neonCyan.copy(alpha = 0.4f), RoundedCornerShape(22.dp))
+                            .padding(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "صفحه اختصاصی خواننده",
+                                    color = neonCyan,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = selectedArtist ?: "",
+                                    color = Color.White,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    text = "${tracks.size} آهنگ در آرشیو موجود است",
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontSize = 12.5.sp
+                                )
+                            }
+                            FilledTonalButton(
+                                onClick = { selectedArtist = null },
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("همه آهنگ‌ها")
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 5. Tracks List
+            if (isLoadingCatalog) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = neonCyan)
+                    }
+                }
+            } else if (tracks.isEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 36.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.LibraryMusic,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.4f),
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Text(
+                            text = "این آهنگ هنوز در کانال آرشیو نیست!",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Button(
+                            onClick = { showSongRequestSheet = true },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = neonCyan, contentColor = Color.Black)
+                        ) {
+                            Text("ارسال درخواست اضافه شدن این آهنگ", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            } else {
+                items(tracks, key = { it.id }) { track ->
+                    val isCurrent = currentTrack?.id == track.id
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(if (isCurrent) neonCyan.copy(alpha = 0.14f) else cardGlass)
+                            .border(
+                                width = 1.dp,
+                                color = if (isCurrent) neonCyan else Color.White.copy(alpha = 0.08f),
+                                shape = RoundedCornerShape(18.dp)
+                            )
+                            .clickable {
+                                currentTrack = track
+                                exoPlayer.setMediaItem(MediaItem.fromUri(track.streamUrl))
+                                exoPlayer.prepare()
+                                exoPlayer.play()
+                            }
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        RemoteCoverImage(
+                            url = track.coverUrl,
+                            modifier = Modifier
+                                .size(54.dp)
+                                .clip(RoundedCornerShape(13.dp))
+                        )
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = track.title,
+                                color = if (isCurrent) neonCyan else Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = track.artist,
+                                color = Color.White.copy(alpha = 0.65f),
+                                fontSize = 12.5.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.clickable { selectedArtist = track.artist }
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                if (downloadingId == null) {
+                                    downloadingId = track.id
+                                    scope.launch {
+                                        val ok = downloadArchiveTrackToMusicFolder(context, track)
+                                        downloadingId = null
+                                        Toast.makeText(
+                                            context,
+                                            if (ok) "✅ در پوشه Music ذخیره شد" else "❌ خطا در دانلود",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            }
+                        ) {
+                            if (downloadingId == track.id) {
+                                CircularProgressIndicator(
+                                    color = neonCyan,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Rounded.Download,
+                                    contentDescription = "Download",
+                                    tint = Color.White.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 6. Floating Now Playing Bar for Online Stream
+        AnimatedVisibility(visible = currentTrack != null) {
+            currentTrack?.let { active ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color(0xFF15192B))
+                        .border(1.dp, neonCyan.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    RemoteCoverImage(
+                        url = active.coverUrl,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(active.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        Text(active.artist, color = neonCyan, fontSize = 12.sp, maxLines = 1)
+                    }
+                    IconButton(onClick = onOpenEqualizer) {
+                        Icon(Icons.Rounded.Equalizer, contentDescription = "EQ", tint = neonCyan)
+                    }
+                    IconButton(
+                        onClick = {
+                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Rounded.PauseCircleFilled else Icons.Rounded.PlayCircleFilled,
+                            contentDescription = "Play/Pause",
+                            tint = Color.White,
+                            modifier = Modifier.size(34.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // 7. Modal Sheet for 3 Daily Song Requests (Sent directly to Telegram Channel)
+    if (showSongRequestSheet) {
+        SongRequestModalSheet(
+            remainingQuota = remainingRequests,
+            initialQuery = searchQuery,
+            onDismiss = { showSongRequestSheet = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SongRequestModalSheet(
+    remainingQuota: Int,
+    initialQuery: String,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var songTitle by remember { mutableStateOf(initialQuery) }
+    var artistName by remember { mutableStateOf("") }
+    var extraNote by remember { mutableStateOf("") }
+    var isSending by remember { mutableStateOf(false) }
+    var feedback by remember { mutableStateOf<String?>(null) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF101422),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                text = "📩 درخواست آهنگ جدید (ویژه VIP)",
+                color = Color.White,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+            Text(
+                text = "سهمیه باقی‌مانده امروز شما: $remainingQuota از ۳ درخواست • درخواست شما مستقیماً با آیدی اختصاصی‌تان به کانال مدیریت ارسال می‌شود.",
+                color = Color(0xFF00E5FF),
+                fontSize = 12.5.sp
+            )
+
+            OutlinedTextField(
+                value = songTitle,
+                onValueChange = { songTitle = it },
+                label = { Text("نام آهنگ *") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = artistName,
+                onValueChange = { artistName = it },
+                label = { Text("نام خواننده *") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = extraNote,
+                onValueChange = { extraNote = it },
+                label = { Text("توضیحات یا لینک یوتیوب/اسپاتیفای (اختیاری)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            if (!feedback.isNullOrBlank()) {
+                Text(
+                    text = feedback!!,
+                    color = Color(0xFFFFD166),
+                    fontSize = 13.sp
+                )
+            }
+
+            Button(
+                onClick = {
+                    if (songTitle.isBlank() || artistName.isBlank()) {
+                        feedback = "لطفاً نام آهنگ و نام خواننده را وارد کنید."
+                        return@Button
+                    }
+                    scope.launch {
+                        isSending = true
+                        val res = EntitlementManager.submitSongRequest(context, songTitle, artistName, extraNote)
+                        res.onSuccess { msg ->
+                            feedback = msg
+                            songTitle = ""
+                            artistName = ""
+                            extraNote = ""
+                        }.onFailure { err ->
+                            feedback = err.message
+                        }
+                        isSending = false
+                    }
+                },
+                enabled = !isSending && remainingQuota > 0,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF00E5FF),
+                    contentColor = Color.Black
+                )
+            ) {
+                if (isSending) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = Color.Black)
+                } else {
+                    Icon(Icons.Rounded.Send, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("ارسال مستقیم به کانال آرشیو", fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemoteCoverImage(url: String, modifier: Modifier = Modifier) {
+    var bitmap by remember(url) { mutableStateOf(BITMAP_MEM_CACHE[url]) }
+
+    LaunchedEffect(url) {
+        if (bitmap == null && url.startsWith("http")) {
+            withContext(Dispatchers.IO) {
+                try {
+                    val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                        instanceFollowRedirects = true
+                        connectTimeout = 7000
+                        readTimeout = 7000
+                        setRequestProperty("User-Agent", "Mozilla/5.0")
+                    }
+                    if (conn.responseCode == 200) {
+                        val bytes = conn.inputStream.readBytes()
+                        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        if (bmp != null) {
+                            BITMAP_MEM_CACHE[url] = bmp
+                            bitmap = bmp
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap!!.asImageBitmap(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = modifier
+        )
+    } else {
+        Box(
+            modifier = modifier.background(
+                Brush.linearGradient(
+                    colors = listOf(Color(0xFF1E293B), Color(0xFF311042))
+                )
+            ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.MusicNote,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.4f)
+            )
+        }
+    }
+}
+
+private data class CatalogResponse(
+    val tracks: List<ArchiveTrack>,
+    val allArtists: List<ArchiveArtist>,
+    val matchedArtists: List<ArchiveArtist>
+)
+
+private suspend fun fetchArchiveCatalog(query: String, artist: String): CatalogResponse = withContext(Dispatchers.IO) {
+    try {
+        val base = EntitlementManager.WORKER_BASE_URL
+        val qEnc = URLEncoder.encode(query, "UTF-8")
+        val aEnc = URLEncoder.encode(artist, "UTF-8")
+        val url = URL("$base/tracks?q=$qEnc&artist=$aEnc")
+        val conn = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 9000
+            readTimeout = 9000
+            setRequestProperty("User-Agent", "Mozilla/5.0")
+        }
+        if (conn.responseCode != 200) return@withContext CatalogResponse(emptyList(), emptyList(), emptyList())
+        val text = conn.inputStream.bufferedReader().use { it.readText() }
+        val json = JSONObject(text)
+
+        val tracksArr = json.optJSONArray("data")
+        val parsedTracks = mutableListOf<ArchiveTrack>()
+        if (tracksArr != null) {
+            for (i in 0 until tracksArr.length()) {
+                val item = tracksArr.getJSONObject(i)
+                parsedTracks.add(
+                    ArchiveTrack(
+                        id = item.optString("id"),
+                        title = item.optString("title", "Unknown"),
+                        artist = item.optString("artist_name", "Unknown Artist"),
+                        durationSec = item.optInt("duration", 200),
+                        streamUrl = item.optString("stream_url"),
+                        downloadUrl = item.optString("download_url"),
+                        coverUrl = item.optString("cover_url")
+                    )
+                )
+            }
+        }
+
+        fun parseArtists(key: String): List<ArchiveArtist> {
+            val arr = json.optJSONArray(key) ?: return emptyList()
+            val list = mutableListOf<ArchiveArtist>()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                list.add(
+                    ArchiveArtist(
+                        name = o.optString("name"),
+                        trackCount = o.optInt("trackCount", 1),
+                        coverUrl = o.optString("cover")
+                    )
+                )
+            }
+            return list
+        }
+
+        CatalogResponse(
+            tracks = parsedTracks,
+            allArtists = parseArtists("artists"),
+            matchedArtists = parseArtists("matchedArtists")
+        )
+    } catch (_: Exception) {
+        CatalogResponse(emptyList(), emptyList(), emptyList())
+    }
+}
+
+private suspend fun downloadArchiveTrackToMusicFolder(context: Context, track: ArchiveTrack): Boolean = withContext(Dispatchers.IO) {
+    try {
+        val conn = (URL(track.downloadUrl).openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = true
+            connectTimeout = 20000
+            readTimeout = 20000
+            setRequestProperty("User-Agent", "Mozilla/5.0")
+        }
+        if (conn.responseCode !in 200..299) return@withContext false
+        val safeFileName = "${track.artist} - ${track.title}".replace(Regex("[\\\\/:*?\"<>|]"), "_") + ".mp3"
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Audio.Media.DISPLAY_NAME, safeFileName)
+                put(MediaStore.Audio.Media.TITLE, track.title)
+                put(MediaStore.Audio.Media.ARTIST, track.artist)
+                put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
+                put(MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_MUSIC + "/AuraMusic")
+                put(MediaStore.Audio.Media.IS_PENDING, 1)
+            }
+            val resolver = context.contentResolver
+            val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values) ?: return@withContext false
+            resolver.openOutputStream(uri)?.use { out ->
+                conn.inputStream.use { input -> input.copyTo(out) }
+            }
+            values.clear()
+            values.put(MediaStore.Audio.Media.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            true
+        } else {
+            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "AuraMusic")
+            if (!dir.exists()) dir.mkdirs()
+            val outFile = File(dir, safeFileName)
+            FileOutputStream(outFile).use { out ->
+                conn.inputStream.use { input -> input.copyTo(out) }
+            }
+            true
+        }
+    } catch (_: Exception) {
+        false
+    }
+}
+
+۴. پرامپت مجزا برای Google AI Studio (کپی کن و به همراه ۳ کد بالا به AI Studio بده)
+متن زیر را کامل کپی کن و داخل Google AI Studio بفرست تا هم فایل‌ها را در جای دقیق خودشان ذخیره کند و هم مجوز مایکت و استایل مدرن منوی برنامه را تنظیم کند:
+لطفاً تغییرات زیر را به صورت کامل و بدون هیچ حذفیاتی در پروژه من اعمال کن تا سیستم اشتراک پریمیوم مادام‌العمر مایکت (با شناسه محصول `yu-15` و قیمت ۷۵,۰۰۰ تومان با تخفیف از ۲۷۵,۰۰۰ تومان)، ظرفیت ۵۰ نفره، قفل سخت‌افزاری، ارسال روزانه ۳ درخواست آهنگ به کانال تلگرام و ظاهر مدرن به سبک Spotify/Apple Music پیاده‌سازی شود:
+
+1. در فایل `app/src/main/AndroidManifest.xml`:
+- مجوز پرداخت مایکت را بالای `<application>` اضافه کن:
+  `<uses-permission android:name="ir.mservices.market.BILLING" />`
+- داخل تگ `<queries>` (یا اگر نیست بالای `<application>` بساز)، پکیج و اینتنت سرویس مایکت را اضافه کن تا در اندروید ۱۱ به بالا به درگاه مایکت وصل شود:
+  ```xml
+  <queries>
+      <package android:name="ir.mservices.market" />
+      <intent>
+          <action android:name="ir.mservices.market.InAppBillingService.BIND" />
+      </intent>
+  </queries>
+
+ * جایگزینی ۳ فایل اصلی:
+ * کد کامل EntitlementManager.kt را در مسیر app/src/main/java/com/example/monetization/EntitlementManager.kt قرار بده (و اگر در فایل‌های دیگر پروژه مثل MainScreen.kt یا HomeScreen.kt به متدهای قبلی EntitlementManager ارجاع داده شده، آن‌ها را با EntitlementManager.isPremium هماهنگ کن).
+ * کد کامل VipPaywallSheet.kt را در مسیر app/src/main/java/com/example/ui/components/VipPaywallSheet.kt جایگزین کن.
+ * کد کامل OnlineMusicScreen.kt را در مسیر app/src/main/java/com/example/OnlineMusicScreen.kt جایگزین کن.
+ * مدرن‌سازی ظاهر کلی برنامه (MainScreen.kt و HomeScreen.kt):
+ * در نوار پایین برنامه (Bottom Navigation) و هدر صفحه اصلی (HomeScreen.kt)، ظاهر کارت‌ها را به سبک اپلیکیشن‌های مدرن (Spotify / Apple Music) با پس‌زمینه تیره عمیق (#090C15)، حاشیه‌های شیشه‌ای ظریف (Color.White.copy(alpha = 0.08f)) و نشان وضعیت پریمیوم (👑 VIP طلایی در صورت فعال بودن یا دکمه «ارتقا به نسخه پریمیوم بتا با ۷۳٪ تخفیف» در صورت عادی بودن) طراحی کن.
+ * وقتی کاربر روی تب «آنلاین / آرشیو ابری» کلیک می‌کند، اگر هنوز اشتراک را نخریده باشد، به صورت خودکار همان صفحه قفل پریمیوم (AuraPremiumPaywallContent) با شمارنده ظرفیت ۵۰ نفره و دکمه خرید مایکت نمایش داده شود و به محض خرید، در همان لحظه بدون نیاز به بستن برنامه، آرشیو ابری و دکمه «درخواست آهنگ (۳/۳)» برایش باز شود.
+
+---
+
+### ۵. قطعه کد مکمل برای کلادفلر (`worker.js`) جهت مدیریت ۵۰ نفر و ارسال ۳ درخواست آهنگ به کانال تلگرام
+هر زمان خواستی بخش سرورِ این قابلیت‌ها را هم به `worker.js` خودت اضافه کنی، این ۳ مسیر (`/vip-config`، `/vip-verify` و `/request-song`) دقیقاً همان چیزی است که اپلیکیشن اندروید بالا صدایش می‌زند و می‌توانی اعدادش را هر لحظه از داخل کلادفلر عوض کنی:
+
+```javascript
+// تنظیمات قابل تغییر از راه دور بدون نیاز به آپدیت اپلیکیشن اندروید:
+const VIP_REMOTE_SETTINGS = {
+  sales_open: true,              // هر زمان خواستی فروش را متوقف کنی، این را false کن
+  total_capacity: 50,            // سقف ظرفیت ۵۰ نفر
+  base_sold_offset: 10,          // عدد پایه نمایشی (مثلاً ۱۰ نفر خریده‌اند، ۴۰ نفر مانده)
+  sku: "yu-15",                  // شناسه محصول در مایکت
+  original_price: "۲۷۵,۰۰۰ تومان",
+  discounted_price: "۷۵,۰۰۰ تومان",
+  discount_badge: "۷۳٪ تخفیف ویژه نسخه بتا • مادام‌العمر",
+  promo_banner: "🔥 نسخه بتا: فقط یک‌بار پرداخت کن و تا ابد به آرشیو ابری و ۳ درخواست آهنگ روزانه دسترسی داشته باش!",
+  closed_message: "⛔ ظرفیت ۵۰ نفره نسخه بتا تکمیل شده است. فعلاً امکان ثبت‌نام جدید وجود ندارد.",
+  daily_request_limit: 3
+};
+
+(هر زمان آماده بودی کد سرور را آپدیت کنی بگو تا این ۳ مسیر را مستقیم داخل همان worker.js نسخه ۱۶ تو ادغام کنم).

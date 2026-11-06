@@ -8,6 +8,12 @@ import android.net.Uri
 import android.os.Environment
 import android.util.LruCache
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import com.example.monetization.EntitlementManager
+import com.example.monetization.PurchaseResult
+import com.example.ui.components.AuraPremiumPaywallContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -1136,35 +1142,39 @@ object OnlineMusicRepository {
                 val preloaderSemaphore = Semaphore(6)
                 val artistJobs = topArtistsToPreload.map { artist ->
                     async(Dispatchers.IO) {
-                        preloaderSemaphore.withPermit {
-                            val url = artist.cover.ifBlank { artist.picture }
-                            ArtistAvatarDiskCache.loadOrDownloadArtistBitmap(
-                                context = appCtx,
-                                artistName = artist.name,
-                                remoteUrl = url
-                            )
-                            val done = completedAssets.incrementAndGet()
-                            val pct = 0.55f + (done.toFloat() / totalAssets.toFloat()) * 0.42f
-                            onProgress(
-                                pct.coerceIn(0.55f, 0.97f),
-                                if (isPersian) "در حال کش کردن کاورها و آرتیست‌ها ($done/$totalAssets)..."
-                                else "Caching covers & artist avatars ($done/$totalAssets)..."
-                            )
-                        }
+                        try {
+                            preloaderSemaphore.withPermit {
+                                val url = artist.cover.ifBlank { artist.picture }
+                                ArtistAvatarDiskCache.loadOrDownloadArtistBitmap(
+                                    context = appCtx,
+                                    artistName = artist.name,
+                                    remoteUrl = url
+                                )
+                                val done = completedAssets.incrementAndGet()
+                                val pct = 0.55f + (done.toFloat() / totalAssets.toFloat()) * 0.42f
+                                onProgress(
+                                    pct.coerceIn(0.55f, 0.97f),
+                                    if (isPersian) "در حال کش کردن کاورها و آرتیست‌ها ($done/$totalAssets)..."
+                                    else "Caching covers & artist avatars ($done/$totalAssets)..."
+                                )
+                            }
+                        } catch (_: Throwable) {}
                     }
                 }
                 val coverJobs = topAlbumCoversToPreload.map { coverUrl ->
                     async(Dispatchers.IO) {
-                        preloaderSemaphore.withPermit {
-                            loadCoverBitmapBlocking(coverUrl)
-                            val done = completedAssets.incrementAndGet()
-                            val pct = 0.55f + (done.toFloat() / totalAssets.toFloat()) * 0.42f
-                            onProgress(
-                                pct.coerceIn(0.55f, 0.97f),
-                                if (isPersian) "در حال کش کردن کاورها و آرتیست‌ها ($done/$totalAssets)..."
-                                else "Caching covers & artist avatars ($done/$totalAssets)..."
-                            )
-                        }
+                        try {
+                            preloaderSemaphore.withPermit {
+                                loadCoverBitmapBlocking(coverUrl)
+                                val done = completedAssets.incrementAndGet()
+                                val pct = 0.55f + (done.toFloat() / totalAssets.toFloat()) * 0.42f
+                                onProgress(
+                                    pct.coerceIn(0.55f, 0.97f),
+                                    if (isPersian) "در حال کش کردن کاورها و آرتیست‌ها ($done/$totalAssets)..."
+                                    else "Caching covers & artist avatars ($done/$totalAssets)..."
+                                )
+                            }
+                        } catch (_: Throwable) {}
                     }
                 }
                 (artistJobs + coverJobs).awaitAll()
@@ -1419,8 +1429,16 @@ object OnlineMusicRepository {
         return try {
             val appCtx = AuraApplication.instance.applicationContext
             val file = File(appCtx.filesDir, PRIVATE_CATALOG_CACHE_FILE)
-            if (file.exists() && file.length() > 64L) {
-                val jsonText = file.readText()
+            if (file.exists() && file.length() > 64L && file.length() <= 16 * 1024 * 1024L) {
+                val jsonText = try {
+                    file.inputStream().use { readStreamSafely(it, 16 * 1024 * 1024) }
+                } catch (_: OutOfMemoryError) {
+                    System.gc()
+                    ""
+                } catch (_: Exception) {
+                    ""
+                }
+                if (jsonText.isBlank()) return null
                 val parsed = parseWorkerTracksJson(jsonText)
                 if (parsed.tracks.isNotEmpty()) {
                     memoryCachedResponse = parsed
@@ -1429,9 +1447,30 @@ object OnlineMusicRepository {
             } else {
                 null
             }
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             null
         }
+    }
+
+    private fun readStreamSafely(inputStream: java.io.InputStream, maxSizeBytes: Int = 12 * 1024 * 1024): String {
+        val reader = java.io.BufferedReader(java.io.InputStreamReader(inputStream, Charsets.UTF_8), 16384)
+        val sb = StringBuilder(8192)
+        val buffer = CharArray(16384)
+        var totalChars = 0
+        val maxChars = maxSizeBytes / 2
+        var charsRead: Int
+        while (reader.read(buffer).also { charsRead = it } != -1) {
+            if (totalChars + charsRead > maxChars) {
+                val allowed = maxChars - totalChars
+                if (allowed > 0) {
+                    sb.append(buffer, 0, allowed)
+                }
+                break
+            }
+            sb.append(buffer, 0, charsRead)
+            totalChars += charsRead
+        }
+        return sb.toString()
     }
 
     private fun saveWorkerCatalogToPrivateDisk(rawJson: String) {
@@ -1439,7 +1478,7 @@ object OnlineMusicRepository {
             val appCtx = AuraApplication.instance.applicationContext
             val file = File(appCtx.filesDir, PRIVATE_CATALOG_CACHE_FILE)
             file.writeText(rawJson)
-        } catch (_: Exception) {}
+        } catch (_: Throwable) {}
     }
 
     suspend fun fetchFromWorker(
@@ -1461,26 +1500,35 @@ object OnlineMusicRepository {
             }
 
             if (connection.responseCode in 200..299) {
-                val body = connection.inputStream.bufferedReader().use { it.readText() }
+                val stream = connection.inputStream
+                val body = try {
+                    readStreamSafely(stream, 12 * 1024 * 1024)
+                } catch (_: OutOfMemoryError) {
+                    System.gc()
+                    ""
+                } catch (_: Exception) {
+                    ""
+                }
                 if (query.isBlank() && artist.isBlank() && body.length > 64) {
                     saveWorkerCatalogToPrivateDisk(body)
                 }
-                val parsed = parseWorkerTracksJson(body)
+                val parsed = if (body.isNotBlank()) parseWorkerTracksJson(body) else WorkerTracksResponse(artists = lastKnownArtists)
                 if (query.isBlank() && artist.isBlank() && parsed.tracks.isNotEmpty()) {
                     memoryCachedResponse = parsed
                     memoryCachedAppTracks = parsed.tracks.map { it.toAppTrack() }
                 }
                 return@withContext parsed
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             e.printStackTrace()
         } finally {
-            connection?.disconnect()
+            try { connection?.disconnect() } catch (_: Throwable) {}
         }
         loadCachedWorkerCatalog() ?: WorkerTracksResponse(artists = lastKnownArtists)
     }
 
     private fun parseWorkerTracksJson(jsonString: String): WorkerTracksResponse {
+        if (jsonString.isBlank()) return WorkerTracksResponse(artists = lastKnownArtists)
         return try {
             val root = JSONObject(jsonString)
 
@@ -2346,6 +2394,102 @@ fun OnlineMusicScreen(
     onDownloadTrack: ((Track) -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val isPremium by EntitlementManager.isPremium.collectAsState()
+    val remoteConfig by EntitlementManager.remoteConfig.collectAsState()
+    val remainingRequests by EntitlementManager.remainingRequestsToday.collectAsState()
+    val hardwareId = remember { EntitlementManager.getHardwareUserId(context) }
+
+    var paywallLoading by remember { mutableStateOf(false) }
+    var paywallMessage by remember { mutableStateOf<String?>(null) }
+    var paywallError by remember { mutableStateOf(false) }
+    var showSongRequestSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        EntitlementManager.init(context)
+        EntitlementManager.fetchRemoteConfig(context)
+    }
+
+    val myketLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { res ->
+        scope.launch {
+            paywallLoading = true
+            when (val r = EntitlementManager.handleMyketActivityResult(context, res.resultCode, res.data)) {
+                is PurchaseResult.Success -> {
+                    paywallError = false
+                    paywallMessage = "🎉 اشتراک پریمیوم مادام‌العمر فعال شد!"
+                }
+                is PurchaseResult.Error -> {
+                    paywallError = true
+                    paywallMessage = r.message
+                }
+                is PurchaseResult.Cancelled -> {
+                    paywallError = false
+                    paywallMessage = "پرداخت لغو شد."
+                }
+            }
+            paywallLoading = false
+        }
+    }
+
+    if (!isPremium) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF070A14))
+                .statusBarsPadding()
+                .padding(bottom = bottomPadding)
+        ) {
+            AuraPremiumPaywallContent(
+                config = remoteConfig,
+                hardwareId = hardwareId,
+                isLoading = paywallLoading,
+                statusMessage = paywallMessage,
+                isError = paywallError,
+                onBuyClick = {
+                    scope.launch {
+                        paywallLoading = true
+                        paywallMessage = null
+                        EntitlementManager.createMyketBuyIntent(context)
+                            .onSuccess { pi ->
+                                myketLauncher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+                            }
+                            .onFailure { err ->
+                                if (err.message == "ALREADY_OWNED_AND_RESTORED") {
+                                    paywallError = false
+                                    paywallMessage = "✅ اشتراک شما بازیابی و فعال شد!"
+                                } else {
+                                    paywallError = true
+                                    paywallMessage = err.message
+                                }
+                            }
+                        paywallLoading = false
+                    }
+                },
+                onRestoreClick = {
+                    scope.launch {
+                        paywallLoading = true
+                        when (val r = EntitlementManager.restorePurchaseFromMyket(context)) {
+                            is PurchaseResult.Success -> {
+                                paywallError = false
+                                paywallMessage = "✅ اشتراک شما با موفقیت بازیابی شد!"
+                            }
+                            is PurchaseResult.Error -> {
+                                paywallError = true
+                                paywallMessage = r.message
+                            }
+                            else -> {}
+                        }
+                        paywallLoading = false
+                    }
+                },
+                onPromoSuccess = {}
+            )
+        }
+        return
+    }
+
     var searchQuery by remember { mutableStateOf("") }
     var activeTab by remember { mutableStateOf(TopHubTab.DISCOVER) }
     var navState by remember { mutableStateOf<HubNavigationState>(HubNavigationState.MainHub) }
@@ -2458,6 +2602,8 @@ fun OnlineMusicScreen(
                             totalArtists = artists.size,
                             searchQuery = searchQuery,
                             isPersian = isPersian,
+                            remainingRequests = remainingRequests,
+                            onRequestSong = { showSongRequestSheet = true },
                             onSearchChange = { searchQuery = it },
                             onRefresh = onRefresh
                         )
@@ -2662,6 +2808,14 @@ fun OnlineMusicScreen(
                 }
             }
         }
+
+        if (showSongRequestSheet) {
+            SongRequestModalSheet(
+                remainingQuota = remainingRequests,
+                initialQuery = searchQuery,
+                onDismiss = { showSongRequestSheet = false }
+            )
+        }
     }
 }
 
@@ -2746,6 +2900,8 @@ private fun SpotifyGlassTopBar(
     totalArtists: Int,
     searchQuery: String,
     isPersian: Boolean,
+    remainingRequests: Int = 3,
+    onRequestSong: () -> Unit = {},
     onSearchChange: (String) -> Unit,
     onRefresh: () -> Unit
 ) {
@@ -2770,28 +2926,55 @@ private fun SpotifyGlassTopBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Surface(
-                    color = Color(0xFF1DB954).copy(alpha = 0.2f),
-                    shape = RoundedCornerShape(50)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Surface(
+                        color = Color(0xFF1DB954).copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(50)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CloudDone,
-                            contentDescription = null,
-                            tint = Color(0xFF1DB954),
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (isPersian) "استریم ابری کلادفلر" else "CLOUD STREAM HUB",
-                            color = Color(0xFF1DB954),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 1.sp
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudDone,
+                                contentDescription = null,
+                                tint = Color(0xFF1DB954),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isPersian) "استریم ابری کلادفلر" else "CLOUD STREAM HUB",
+                                color = Color(0xFF1DB954),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                    }
+
+                    Surface(
+                        color = Color(0xFFFFD166).copy(alpha = 0.18f),
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(1.dp, Color(0xFFFFD166).copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Star,
+                                contentDescription = null,
+                                tint = Color(0xFFFFD166),
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "VIP",
+                                color = Color(0xFFFFD166),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(6.dp))
@@ -2811,18 +2994,48 @@ private fun SpotifyGlassTopBar(
                 )
             }
 
-            IconButton(
-                onClick = onRefresh,
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.08f))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Sync,
-                    contentDescription = if (isPersian) "بروزرسانی" else "Refresh",
-                    tint = Color.White
-                )
+                // دکمه ارسال درخواست آهنگ ویژه کاربران پریمیوم (۳ درخواست در روز)
+                Button(
+                    onClick = onRequestSong,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF00E5FF).copy(alpha = 0.18f),
+                        contentColor = Color(0xFF00E5FF)
+                    ),
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = if (isPersian) "درخواست ($remainingRequests/۳)" else "Request ($remainingRequests/3)",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                IconButton(
+                    onClick = onRefresh,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.08f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Sync,
+                        contentDescription = if (isPersian) "بروزرسانی" else "Refresh",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
 
@@ -4074,15 +4287,23 @@ fun AuraStartupPreloaderWrapper(
 
     LaunchedEffect(Unit) {
         if (!isReady) {
-            OnlineMusicRepository.preloadStartupEverything(
-                context = context,
-                localTracks = localTracks,
-                isPersian = isPersian
-            ) { pct, msg ->
-                progress = pct
-                statusText = msg
+            try {
+                withTimeoutOrNull(5000L) {
+                    OnlineMusicRepository.preloadStartupEverything(
+                        context = context,
+                        localTracks = localTracks,
+                        isPersian = isPersian
+                    ) { pct, msg ->
+                        progress = pct
+                        statusText = msg
+                    }
+                }
+            } catch (e: Throwable) {
+                e.printStackTrace()
+            } finally {
+                progress = 1f
+                isReady = true
             }
-            isReady = true
         }
     }
 
@@ -4184,3 +4405,115 @@ fun AuraStartupPreloaderWrapper(
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SongRequestModalSheet(
+    remainingQuota: Int,
+    initialQuery: String,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var songTitle by remember { mutableStateOf(initialQuery) }
+    var artistName by remember { mutableStateOf("") }
+    var extraNote by remember { mutableStateOf("") }
+    var isSending by remember { mutableStateOf(false) }
+    var feedback by remember { mutableStateOf<String?>(null) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF101422),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                text = "📩 درخواست آهنگ جدید (ویژه VIP)",
+                color = Color.White,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+            Text(
+                text = "سهمیه باقی‌مانده امروز شما: $remainingQuota از ۳ درخواست • درخواست شما مستقیماً با آیدی اختصاصی‌تان به کانال مدیریت ارسال می‌شود.",
+                color = Color(0xFF00E5FF),
+                fontSize = 12.5.sp
+            )
+
+            OutlinedTextField(
+                value = songTitle,
+                onValueChange = { songTitle = it },
+                label = { Text("نام آهنگ *") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = artistName,
+                onValueChange = { artistName = it },
+                label = { Text("نام خواننده *") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = extraNote,
+                onValueChange = { extraNote = it },
+                label = { Text("توضیحات یا لینک یوتیوب/اسپاتیفای (اختیاری)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            if (!feedback.isNullOrBlank()) {
+                Text(
+                    text = feedback!!,
+                    color = Color(0xFFFFD166),
+                    fontSize = 13.sp
+                )
+            }
+
+            Button(
+                onClick = {
+                    if (songTitle.isBlank() || artistName.isBlank()) {
+                        feedback = "لطفاً نام آهنگ و نام خواننده را وارد کنید."
+                        return@Button
+                    }
+                    scope.launch {
+                        isSending = true
+                        val res = EntitlementManager.submitSongRequest(context, songTitle, artistName, extraNote)
+                        res.onSuccess { msg ->
+                            feedback = msg
+                            songTitle = ""
+                            artistName = ""
+                            extraNote = ""
+                        }.onFailure { err ->
+                            feedback = err.message
+                        }
+                        isSending = false
+                    }
+                },
+                enabled = !isSending && remainingQuota > 0,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF00E5FF),
+                    contentColor = Color.Black
+                )
+            ) {
+                if (isSending) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = Color.Black)
+                } else {
+                    Icon(Icons.Default.Send, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("ارسال مستقیم به کانال آرشیو", fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        }
+    }
+}
+

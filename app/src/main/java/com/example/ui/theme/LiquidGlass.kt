@@ -59,7 +59,7 @@ object HardwareGyroscopeManager : SensorEventListener {
                         ?: sm?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
                         ?: sm?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
                     if (sensor != null) {
-                        sm?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)
+                        sm?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_UI)
                     }
                 } catch (_: Exception) {}
             }
@@ -101,8 +101,15 @@ object HardwareGyroscopeManager : SensorEventListener {
         val deltaRoll = (deadzonedRoll * 0.45f).coerceIn(-0.65f, 0.65f)
 
         // فیلتر پایین‌گذر نرم و روان برای حرکتی چشم‌نواز و بدون پرش
-        pitch += (deltaPitch - pitch) * 0.11f
-        roll += (deltaRoll - roll) * 0.11f
+        val targetPitch = pitch + (deltaPitch - pitch) * 0.11f
+        val targetRoll = roll + (deltaRoll - roll) * 0.11f
+
+        if (kotlin.math.abs(targetPitch - pitch) > 0.003f) {
+            pitch = targetPitch
+        }
+        if (kotlin.math.abs(targetRoll - roll) > 0.003f) {
+            roll = targetRoll
+        }
     }
 
     override fun onSensorChanged(event: SensorEvent?) {

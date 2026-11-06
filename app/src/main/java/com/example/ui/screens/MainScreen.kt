@@ -628,7 +628,15 @@ fun MainScreen(
             )
         }
 
-
+        if (showVipPaywallForFeature != null) {
+            com.example.ui.components.VipPaywallSheet(
+                onDismiss = { showVipPaywallForFeature = null },
+                onUnlockedSuccess = {
+                    showVipPaywallForFeature = null
+                    viewModel.refreshUnlockedStyles()
+                }
+            )
+        }
 
         if (showAchievementsDialog) {
             AchievementsDialog(

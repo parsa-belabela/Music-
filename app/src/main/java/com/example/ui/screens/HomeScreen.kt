@@ -555,23 +555,20 @@ private fun HeroQuickPlayCard(
         label = "heroDominantColor"
     )
 
-    // چرخش مداوم و پیوسته: بدون هیچ پرش ناگهانی به زاویه ۰ یا ریست شدن مسیر
-    var continuousHeroAngle by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(isPlaying) {
-        if (!isPlaying) return@LaunchedEffect
-        var lastNanos = 0L
-        while (isActive) {
-            withFrameNanos { now ->
-                if (lastNanos != 0L) {
-                    val dtSec = ((now - lastNanos).coerceAtLeast(0L)) / 1_000_000_000f
-                    // ۹۰ درجه بر ثانیه = چرخش کامل ۴ ثانیه‌ای فوق‌العاده نرم و مداوم
-                    continuousHeroAngle = (continuousHeroAngle + 90f * dtSec) % 360000f
-                }
-                lastNanos = now
-            }
-        }
+    val heroTransition = rememberInfiniteTransition(label = "heroVinylRotation")
+    val rotationAngle by if (isPlaying) {
+        heroTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 4000, easing = LinearEasing),
+                repeatMode = androidx.compose.animation.core.RepeatMode.Restart
+            ),
+            label = "heroRotation"
+        )
+    } else {
+        remember { mutableFloatStateOf(0f) }
     }
-    val rotationAngle = continuousHeroAngle
 
     val beatTransition = rememberInfiniteTransition(label = "heroCoverBeat")
     val beatScale by if (isPlaying) {
