@@ -164,6 +164,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private var activePlayingTrackRef: Track? = null
     private var previousDeviceName: String? = null
 
+    // این متغیر چک می‌کند که آیا تبلیغ برای این آهنگِ در حال پخش شمرده شده است یا خیر
+    private var hasCountedCurrentTrackForAd = false
+
     init {
         _activePalette.value = ArtworkPaletteExtractor.extract(null, _appSettings.value, app)
         applySettingsToEngines(_appSettings.value)
@@ -195,6 +198,26 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         audioEngine.onError = { err ->
             _playbackState.update { it.copy(status = PlayerStatus.ERROR, errorMessage = err) }
             handleTrackError()
+        }
+
+        // بررسی هوشمند شرط «نصف آهنگ» (totalDuration / 2) برای شمارش تبلیغ تپسل
+        viewModelScope.launch {
+            audioEngine.currentPosition.collect { currentPosition ->
+                val totalDuration = _playbackState.value.durationMs.takeIf { it > 0L }
+                    ?: _playbackState.value.currentTrack?.durationMs ?: 0L
+
+                // فقط برای کاربران عادی (غیر VIP) و فقط اگر برای این آهنگ هنوز شمرده نشده باشد
+                if (!com.example.monetization.EntitlementManager.isPremium.value && !hasCountedCurrentTrackForAd) {
+                    // شرط اصلی: آیا طول کل آهنگ مشخص است و کاربر حداقل نصف آن را گوش داده است؟
+                    if (totalDuration > 0L && currentPosition >= (totalDuration / 2)) {
+                        hasCountedCurrentTrackForAd = true
+                        com.example.monetization.TapsellPlus.onTrackPlayed(
+                            context = getApplication(),
+                            zoneId = "" // TODO: Insert Interstitial Zone ID
+                        )
+                    }
+                }
+            }
         }
 
         // Maintain duration and status
@@ -363,41 +386,47 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     /**
      * دانلود انتخابی آهنگ در فضای گوشی و افزودن دائمی به آرشیو آهنگ‌های کاربر
+     * (برای کاربران عادی با فراخوانی تبلیغ جایزه‌دار تپسل و برای کاربران VIP مستقیم)
      */
     fun downloadTrackToDeviceLibrary(track: Track) {
-        OnlineCacheHolder.downloadTrackExplicitly(app, track) { downloadedFile ->
-            if (downloadedFile != null) {
-                viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    val realDurMs = try {
-                        val mmr = android.media.MediaMetadataRetriever()
-                        mmr.setDataSource(downloadedFile.absolutePath)
-                        val d = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
-                        mmr.release()
-                        if (d != null && d > 5_000L) d else track.durationMs
-                    } catch (_: Exception) {
-                        track.durationMs
+        com.example.monetization.TapsellPlus.showRewardedAd(
+            context = app,
+            zoneId = "" // TODO: Insert Rewarded Zone ID
+        ) {
+            OnlineCacheHolder.downloadTrackExplicitly(app, track) { downloadedFile ->
+                if (downloadedFile != null) {
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val realDurMs = try {
+                            val mmr = android.media.MediaMetadataRetriever()
+                            mmr.setDataSource(downloadedFile.absolutePath)
+                            val d = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                            mmr.release()
+                            if (d != null && d > 5_000L) d else track.durationMs
+                        } catch (_: Exception) {
+                            track.durationMs
+                        }
+                        val savedTrack = track.copy(
+                            uri = downloadedFile.absolutePath,
+                            durationMs = realDurMs,
+                            dateAdded = System.currentTimeMillis(),
+                            isDemo = false
+                        )
+                        repository.saveDownloadedTrackToLibrary(savedTrack)
                     }
-                    val savedTrack = track.copy(
-                        uri = downloadedFile.absolutePath,
-                        durationMs = realDurMs,
-                        dateAdded = System.currentTimeMillis(),
-                        isDemo = false
-                    )
-                    repository.saveDownloadedTrackToLibrary(savedTrack)
+                    val isFa = _appSettings.value.language == AppLanguage.PERSIAN
+                    android.widget.Toast.makeText(
+                        app,
+                        if (isFa) "«${track.title}» دانلود شد و به آهنگ‌های گوشی اضافه گردید ✓" else "\"${track.title}\" saved to device songs ✓",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    val isFa = _appSettings.value.language == AppLanguage.PERSIAN
+                    android.widget.Toast.makeText(
+                        app,
+                        if (isFa) "خطا در دانلود فایل صوتی" else "Failed to download track",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
                 }
-                val isFa = _appSettings.value.language == AppLanguage.PERSIAN
-                android.widget.Toast.makeText(
-                    app,
-                    if (isFa) "«${track.title}» دانلود شد و به آهنگ‌های گوشی اضافه گردید ✓" else "\"${track.title}\" saved to device songs ✓",
-                    android.widget.Toast.LENGTH_SHORT
-                ).show()
-            } else {
-                val isFa = _appSettings.value.language == AppLanguage.PERSIAN
-                android.widget.Toast.makeText(
-                    app,
-                    if (isFa) "خطا در دانلود فایل صوتی" else "Failed to download track",
-                    android.widget.Toast.LENGTH_SHORT
-                ).show()
             }
         }
     }
@@ -505,6 +534,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private fun playTrackInternal(track: Track, queue: List<Track>, queueIndex: Int, startPositionMs: Long = 0L) {
+        // وقتی آهنگ جدیدی استارت می‌خورد، شمارنده تبلیغ این آهنگ ریست می‌شود
+        hasCountedCurrentTrackForAd = false
+
         // ۱. بررسی آهنگ قبلی: فقط اگر واقعاً گوش داده شده باشد ثبت میشود و اگر سریع اسکیپ شده باشد نادیده گرفته میشود
         commitActiveListeningSession(wasSkipped = true)
 
@@ -608,6 +640,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun playTrack(track: Track, newQueue: List<Track>? = null, startPositionMs: Long = 0L) {
+        // وقتی آهنگ جدیدی استارت می‌خورد، شمارنده این آهنگ ریست می‌شود
+        hasCountedCurrentTrackForAd = false
         if (newQueue != null && newQueue.isNotEmpty()) {
             originalQueue = newQueue
             if (_playbackState.value.shuffleMode != ShuffleMode.OFF) {

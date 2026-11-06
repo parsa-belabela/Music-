@@ -2419,6 +2419,7 @@ fun OnlineMusicScreen(
     var paywallMessage by remember { mutableStateOf<String?>(null) }
     var paywallError by remember { mutableStateOf(false) }
     var showSongRequestSheet by remember { mutableStateOf(false) }
+    var showVipPaywallSheet by remember { mutableStateOf(false) }
     var showMyketThankYouDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -2428,6 +2429,7 @@ fun OnlineMusicScreen(
 
     LaunchedEffect(isPremium) {
         if (isPremium) {
+            showVipPaywallSheet = false
             onRefresh()
         }
     }
@@ -2451,11 +2453,13 @@ fun OnlineMusicScreen(
                     is PurchaseResult.Success -> {
                         paywallError = false
                         paywallMessage = "🎉 اشتراک پریمیوم مادام‌العمر فعال شد!"
+                        showVipPaywallSheet = false
                         showMyketThankYouDialog = true
                     }
                     is PurchaseResult.Error -> {
                         paywallError = true
                         paywallMessage = r.message
+                        android.widget.Toast.makeText(context, r.message, android.widget.Toast.LENGTH_LONG).show()
                     }
                     is PurchaseResult.Cancelled -> {
                         paywallError = false
@@ -2468,82 +2472,15 @@ fun OnlineMusicScreen(
         }
     }
 
-    if (!isPremium) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFF070A14))
-                .statusBarsPadding()
-                .padding(bottom = bottomPadding)
-        ) {
-            AuraPremiumPaywallContent(
-                config = remoteConfig,
-                hardwareId = hardwareId,
-                isLoading = paywallLoading,
-                statusMessage = paywallMessage,
-                isError = paywallError,
-                onBuyClick = {
-                    scope.launch {
-                        paywallLoading = true
-                        paywallMessage = null
-                        try {
-                            val intentRes = withTimeoutOrNull(6000L) {
-                                EntitlementManager.createMyketBuyIntent(context)
-                            }
-                            if (intentRes == null) {
-                                paywallError = true
-                                paywallMessage = "پاسخی از سرور مایکت دریافت نشد. دوباره تلاش کنید یا از کد تخفیف استفاده نمایید."
-                            } else {
-                                intentRes
-                                    .onSuccess { pi ->
-                                        myketLauncher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
-                                    }
-                                    .onFailure { err ->
-                                        if (err.message == "ALREADY_OWNED_AND_RESTORED") {
-                                            paywallError = false
-                                            paywallMessage = "✅ اشتراک شما بازیابی و فعال شد!"
-                                            showMyketThankYouDialog = true
-                                        } else {
-                                            paywallError = true
-                                            paywallMessage = err.message
-                                        }
-                                    }
-                            }
-                        } catch (e: Exception) {
-                            paywallError = true
-                            paywallMessage = "خطا در اتصال به مایکت: دوباره تلاش کنید"
-                        } finally {
-                            paywallLoading = false
-                        }
-                    }
-                },
-                onRestoreClick = {
-                    scope.launch {
-                        paywallLoading = true
-                        try {
-                            when (val r = EntitlementManager.restorePurchaseFromMyket(context)) {
-                                is PurchaseResult.Success -> {
-                                    paywallError = false
-                                    paywallMessage = "✅ اشتراک شما با موفقیت بازیابی شد!"
-                                    showMyketThankYouDialog = true
-                                }
-                                is PurchaseResult.Error -> {
-                                    paywallError = true
-                                    paywallMessage = r.message
-                                }
-                                else -> {}
-                            }
-                        } finally {
-                            paywallLoading = false
-                        }
-                    }
-                },
-                onPromoSuccess = {
-                    onRefresh()
-                }
-            )
+    val effectiveDownloadHandler: ((Track) -> Unit)? = onDownloadTrack?.let { handler ->
+        { trackToDownload ->
+            com.example.monetization.TapsellPlus.showRewardedAd(
+                context = context,
+                zoneId = "" // TODO: Insert Rewarded Zone ID
+            ) {
+                handler(trackToDownload)
+            }
         }
-        return
     }
 
     var searchQuery by remember { mutableStateOf("") }
@@ -2601,7 +2538,7 @@ fun OnlineMusicScreen(
                     onBack = { navState = HubNavigationState.MainHub },
                     onAlbumClick = { navState = HubNavigationState.AlbumPage(it) },
                     onPlayTrack = onPlayTrack,
-                    onDownloadTrack = onDownloadTrack
+                    onDownloadTrack = effectiveDownloadHandler
                 )
             }
 
@@ -2612,7 +2549,7 @@ fun OnlineMusicScreen(
                     isPersian = isPersian,
                     onBack = { navState = HubNavigationState.MainHub },
                     onPlayTrack = onPlayTrack,
-                    onDownloadTrack = onDownloadTrack
+                    onDownloadTrack = effectiveDownloadHandler
                 )
             }
 
@@ -2623,7 +2560,7 @@ fun OnlineMusicScreen(
                     isPersian = isPersian,
                     onBack = { navState = HubNavigationState.MainHub },
                     onPlayTrack = onPlayTrack,
-                    onDownloadTrack = onDownloadTrack
+                    onDownloadTrack = effectiveDownloadHandler
                 )
             }
 
@@ -2658,8 +2595,21 @@ fun OnlineMusicScreen(
                             totalArtists = artists.size,
                             searchQuery = searchQuery,
                             isPersian = isPersian,
+                            isPremium = isPremium,
                             remainingRequests = remainingRequests,
-                            onRequestSong = { showSongRequestSheet = true },
+                            onRequestSong = {
+                                if (isPremium) {
+                                    showSongRequestSheet = true
+                                } else {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "👑 ارسال درخواست آهنگ (۳ بار در روز) فقط ویژه کاربران VIP است",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                    showVipPaywallSheet = true
+                                }
+                            },
+                            onOpenVipPaywall = { showVipPaywallSheet = true },
                             onSearchChange = { searchQuery = it },
                             onRefresh = onRefresh
                         )
@@ -2675,7 +2625,7 @@ fun OnlineMusicScreen(
                             onArtistClick = { navState = HubNavigationState.ArtistPage(it) },
                             onAlbumClick = { navState = HubNavigationState.AlbumPage(it) },
                             onPlayTrack = onPlayTrack,
-                            onDownloadTrack = onDownloadTrack
+                            onDownloadTrack = effectiveDownloadHandler
                         )
                     } else {
                         item(key = "top_hub_tabs") {
@@ -2872,6 +2822,53 @@ fun OnlineMusicScreen(
                 onDismiss = { showSongRequestSheet = false }
             )
         }
+
+        if (showVipPaywallSheet) {
+            com.example.ui.components.VipPaywallSheet(
+                isFarsi = isPersian,
+                onDismiss = { showVipPaywallSheet = false },
+                onUnlockedSuccess = {
+                    showVipPaywallSheet = false
+                    onRefresh()
+                },
+                onStartMyketPurchase = {
+                    scope.launch {
+                        paywallLoading = true
+                        try {
+                            val intentRes = withTimeoutOrNull(6000L) {
+                                EntitlementManager.createMyketBuyIntent(context)
+                            }
+                            if (intentRes == null) {
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "پاسخی از سرور مایکت دریافت نشد. دوباره تلاش کنید یا از کد تخفیف استفاده نمایید.",
+                                    android.widget.Toast.LENGTH_LONG
+                                ).show()
+                            } else {
+                                intentRes
+                                    .onSuccess { pi ->
+                                        myketLauncher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+                                    }
+                                    .onFailure { err ->
+                                        if (err.message == "ALREADY_OWNED_AND_RESTORED") {
+                                            showVipPaywallSheet = false
+                                            showMyketThankYouDialog = true
+                                        } else {
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                err.message ?: "خطا در اتصال به مایکت",
+                                                android.widget.Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
+                            }
+                        } finally {
+                            paywallLoading = false
+                        }
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -2956,8 +2953,10 @@ private fun SpotifyGlassTopBar(
     totalArtists: Int,
     searchQuery: String,
     isPersian: Boolean,
+    isPremium: Boolean = false,
     remainingRequests: Int = 3,
     onRequestSong: () -> Unit = {},
+    onOpenVipPaywall: () -> Unit = {},
     onSearchChange: (String) -> Unit,
     onRefresh: () -> Unit
 ) {
@@ -3009,9 +3008,13 @@ private fun SpotifyGlassTopBar(
                     }
 
                     Surface(
-                        color = Color(0xFFFFD166).copy(alpha = 0.18f),
+                        onClick = { if (!isPremium) onOpenVipPaywall() },
+                        color = if (isPremium) Color(0xFFFFD166).copy(alpha = 0.18f) else Color.White.copy(alpha = 0.1f),
                         shape = RoundedCornerShape(50),
-                        border = BorderStroke(1.dp, Color(0xFFFFD166).copy(alpha = 0.5f))
+                        border = BorderStroke(
+                            1.dp,
+                            if (isPremium) Color(0xFFFFD166).copy(alpha = 0.5f) else Color.White.copy(alpha = 0.2f)
+                        )
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -3020,13 +3023,13 @@ private fun SpotifyGlassTopBar(
                             Icon(
                                 imageVector = Icons.Default.Star,
                                 contentDescription = null,
-                                tint = Color(0xFFFFD166),
+                                tint = if (isPremium) Color(0xFFFFD166) else Color.White.copy(alpha = 0.7f),
                                 modifier = Modifier.size(12.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "VIP",
-                                color = Color(0xFFFFD166),
+                                text = if (isPremium) "👑 کاربر VIP" else "کاربر عادی",
+                                color = if (isPremium) Color(0xFFFFD166) else Color.White.copy(alpha = 0.85f),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
@@ -3060,19 +3063,23 @@ private fun SpotifyGlassTopBar(
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF00E5FF).copy(alpha = 0.18f),
-                        contentColor = Color(0xFF00E5FF)
+                        containerColor = if (isPremium) Color(0xFF00E5FF).copy(alpha = 0.18f) else Color(0xFFFFD166).copy(alpha = 0.16f),
+                        contentColor = if (isPremium) Color(0xFF00E5FF) else Color(0xFFFFD166)
                     ),
                     modifier = Modifier.height(36.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Add,
+                        imageVector = if (isPremium) Icons.Default.Add else Icons.Default.Lock,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        text = if (isPersian) "درخواست ($remainingRequests/۳)" else "Request ($remainingRequests/3)",
+                        text = if (isPersian) {
+                            if (isPremium) "درخواست ($remainingRequests/۳)" else "درخواست آهنگ (VIP)"
+                        } else {
+                            if (isPremium) "Request ($remainingRequests/3)" else "Request (VIP)"
+                        },
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -3090,6 +3097,43 @@ private fun SpotifyGlassTopBar(
                         contentDescription = if (isPersian) "بروزرسانی" else "Refresh",
                         tint = Color.White,
                         modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+
+        // بنر شیشه‌ای ارتقا به VIP برای کاربران عادی
+        if (!isPremium) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(Color(0xFF581C87).copy(alpha = 0.85f), Color(0xFF1E3A8A).copy(alpha = 0.85f))
+                        )
+                    )
+                    .border(1.dp, Color(0xFFFFD166).copy(alpha = 0.45f), RoundedCornerShape(16.dp))
+                    .clickable { onOpenVipPaywall() }
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "👑 ارتقا به VIP (بدون تبلیغات + امکانات ویژه)",
+                        color = Color.White,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = "مشاهده ⬅",
+                        color = Color(0xFFFFD166),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }

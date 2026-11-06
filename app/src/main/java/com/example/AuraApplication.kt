@@ -24,11 +24,19 @@ class AuraApplication : Application() {
     val audioEngine by lazy { AudioEngine(this) }
     val audioAnalysisEngine by lazy { AudioAnalysisEngine() }
     val trackAnalyzer by lazy { com.example.audio.TrackAnalyzer() }
+    val entitlementManager by lazy { com.example.monetization.EntitlementManager.getInstance(this) }
 
     override fun onCreate() {
         super.onCreate()
         instance = this
         com.example.data.model.UserTrackMetadataStore.init(this)
+        entitlementManager.refreshRemoteConfig()
+
+        // راه‌اندازی تپسل با کلید خالی (بعداً کلید واقعی تپسل را اینجا قرار بده)
+        com.example.monetization.TapsellPlus.initialize(
+            context = this,
+            appKey = "" // TODO: Insert Tapsell AppKey here
+        )
 
         if (BuildConfig.DEBUG) {
             StrictMode.setThreadPolicy(

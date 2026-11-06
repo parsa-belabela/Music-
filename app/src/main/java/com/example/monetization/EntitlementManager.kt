@@ -2,6 +2,7 @@ package com.example.monetization
 
 import com.example.AuraApplication
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
@@ -12,6 +13,7 @@ import android.os.IBinder
 import android.os.Parcel
 import android.provider.Settings
 import android.util.Base64
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -33,6 +35,7 @@ import java.security.spec.X509EncodedKeySpec
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.coroutines.resume
@@ -145,6 +148,76 @@ sealed class VipPurchaseState {
     data class Connecting(val message: String = "در حال اتصال به سرور مایکت...") : VipPurchaseState()
     data class Success(val message: String) : VipPurchaseState()
     data class Error(val message: String) : VipPurchaseState()
+}
+
+/**
+ * مدیریت تبلیغات تپسل (Interstitial و Rewarded) با رعایت قانون طلایی VIP
+ */
+object TapsellPlus {
+    private var initializedAppKey: String = ""
+
+    const val INTERSTITIAL_ZONE_ID = "" // TODO: Insert Interstitial Zone ID
+    const val REWARDED_ZONE_ID = ""     // TODO: Insert Rewarded Zone ID
+
+    private val playedTracksCounter = AtomicInteger(0)
+    private const val INTERSTITIAL_FREQUENCY = 3
+
+    fun initialize(context: Context, appKey: String) {
+        if (EntitlementManager.isPremium.value) return
+        initializedAppKey = appKey.trim()
+        if (initializedAppKey.isEmpty()) {
+            Log.d("TapsellPlus", "Tapsell AppKey is empty. Waiting for key configuration.")
+            return
+        }
+        // زمانی که کتابخانه تپسل را به build.gradle اضافه کردی، خط زیر را فعال کن:
+        // ir.tapsell.plus.TapsellPlus.initialize(context, initializedAppKey, ...)
+    }
+
+    fun onTrackPlayed(
+        context: Context? = null,
+        zoneId: String = INTERSTITIAL_ZONE_ID
+    ) {
+        if (EntitlementManager.isPremium.value) return
+        val currentCount = playedTracksCounter.incrementAndGet()
+        Log.d("TapsellPlus", "Half-track listened count: $currentCount / $INTERSTITIAL_FREQUENCY")
+        if (currentCount >= INTERSTITIAL_FREQUENCY) {
+            playedTracksCounter.set(0)
+            loadAndShowInterstitial(context, zoneId)
+        }
+    }
+
+    fun loadAndShowInterstitial(
+        context: Context? = null,
+        zoneId: String = INTERSTITIAL_ZONE_ID,
+        activity: Activity? = null
+    ) {
+        if (EntitlementManager.isPremium.value) return
+        val cleanZone = zoneId.trim()
+        if (initializedAppKey.isEmpty() || cleanZone.isEmpty()) {
+            Log.d("TapsellPlus", "Interstitial ad skipped (AppKey or ZoneID is empty).")
+            return
+        }
+        // ir.tapsell.plus.TapsellPlus.requestInterstitialAd(activity, cleanZone, ...)
+    }
+
+    fun showRewardedAd(
+        context: Context? = null,
+        zoneId: String = REWARDED_ZONE_ID,
+        activity: Activity? = null,
+        onReward: () -> Unit
+    ) {
+        if (EntitlementManager.isPremium.value) {
+            onReward()
+            return
+        }
+        val cleanZone = zoneId.trim()
+        if (initializedAppKey.isEmpty() || cleanZone.isEmpty()) {
+            // تا زمانی که کلید تپسل وارد نشده، قفل ویژگی/دانلود به صورت پیش‌فرض باز می‌شود
+            onReward()
+            return
+        }
+        // ir.tapsell.plus.TapsellPlus.requestRewardedVideoAd(activity, cleanZone, ...)
+    }
 }
 
 class EntitlementManager(context: Context) {
@@ -303,6 +376,8 @@ class EntitlementManager(context: Context) {
     }
 
     fun hasEntitlement(gate: FeatureGate): Boolean {
+        // بخش آرشیو و سرچ برای همه کاربران باز است
+        if (gate == FeatureGate.CLOUD_ARCHIVE) return true
         return _globalIsVip.value ||
             verifyLocalHardwareBoundVip() ||
             legacyPrefs.getBoolean("is_vip_lifetime", false) ||
@@ -811,6 +886,16 @@ class EntitlementManager(context: Context) {
         artistName: String,
         note: String = ""
     ): Result<String> = withContext(Dispatchers.IO) {
+        val isVipUserNow = _globalIsVip.value ||
+            verifyLocalHardwareBoundVip() ||
+            legacyPrefs.getBoolean("is_vip_lifetime", false) ||
+            vipPrefs.getBoolean(KEY_IS_VIP, false)
+        if (!isVipUserNow) {
+            return@withContext Result.failure(
+                IllegalStateException("ارسال درخواست آهنگ فقط مخصوص کاربران VIP است.")
+            )
+        }
+
         val deviceId = getHardwareDeviceId()
         try {
             val url = URL("${CLOUDFLARE_WORKER_URL.trimEnd('/')}/request-song")
