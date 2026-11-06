@@ -1,5 +1,7 @@
 package com.example.monetization
 
+import com.example.AuraApplication
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
@@ -10,10 +12,13 @@ import android.os.IBinder
 import android.os.Parcel
 import android.provider.Settings
 import android.util.Base64
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -28,21 +33,34 @@ import java.security.spec.X509EncodedKeySpec
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 import kotlin.coroutines.resume
 
-data class RemoteVipConfig(
+data class VipRemoteConfig(
     val salesOpen: Boolean = true,
-    val totalCapacity: Int = 50,
-    val soldCount: Int = 10,
-    val remainingCount: Int = 40,
     val sku: String = "yu-15",
-    val originalPriceText: String = "۲۷۵,۰۰۰ تومان",
-    val discountedPriceText: String = "۷۵,۰۰۰ تومان",
+    val productTitle: String = "اشتراک پریمیوم",
+    val originalPriceToman: Int = 275000,
+    val discountPriceToman: Int = 75000,
+    val priceRials: Int = 750000,
+    val bannerText: String = "🔥 تخفیف ویژه ۵۰ نفر اول: اشتراک مادام‌العمر ۷۵ هزار تومان",
+    val totalCapacity: Int = 50,
+    val soldCount: Int = 0,
+    val remainingCapacity: Int = 50,
+    val isVip: Boolean = false,
+    // Alias compatibility fields for RemoteVipConfig
+    val remainingCount: Int = remainingCapacity,
+    val originalPriceText: String = "$originalPriceToman تومان",
+    val discountedPriceText: String = "$discountPriceToman تومان",
     val discountBadgeText: String = "۷۳٪ تخفیف ویژه نسخه بتا • مادام‌العمر",
-    val promoBannerText: String = "🔥 نسخه بتا: فقط یک‌بار پرداخت کن و تا ابد به آرشیو ابری و درخواست آهنگ دسترسی داشته باش!",
+    val promoBannerText: String = bannerText,
     val closedMessage: String = "⛔ ظرفیت ۵۰ نفره کاربران پریمیوم تکمیل شده است. لطفاً منتظر باز شدن مجدد ظرفیت بمانید.",
     val dailyRequestLimit: Int = 3
 )
+
+// Alias for backwards compatibility
+typealias RemoteVipConfig = VipRemoteConfig
 
 sealed class PurchaseResult {
     data object Success : PurchaseResult()
@@ -50,84 +68,173 @@ sealed class PurchaseResult {
     data object Cancelled : PurchaseResult()
 }
 
-object EntitlementManager {
-    // آدرس ورکر فعال کلادفلر شما
-    const val WORKER_BASE_URL = "https://alubm.parsaghorbani8861.workers.dev"
+class EntitlementManager(private val context: Context) {
 
-    // شناسه محصول ثبت‌شده در پنل مایکت
-    const val MYKET_PRODUCT_SKU = "yu-15"
+    companion object {
+        // آدرس واحد سرور کلادفلر شما
+        const val CLOUDFLARE_WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev"
+        const val WORKER_BASE_URL = CLOUDFLARE_WORKER_URL
 
-    // کلید عمومی RSA مایکت برای تایید دیجیتال رسید خرید و جلوگیری از هک
-    private const val MYKET_PUBLIC_KEY =
-        "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCLsoVLJbAG1ZlFRJd4YV+Djgp4PbHkx8+n4UvkSS0/9mZMNsLC/92ZlU+lsFOSKIGHuNesLz5Lk0/wdoFDJvz3Kfl0tYw/jj/8zEG2m9a3kEF/s9UZCT9UWYGA0cNSiB3fDdxdH+pKWJ3sdlcpH5T96+L9dSmIP6/hI4j37hrEawIDAQAB"
+        const val MYKET_SKU = "yu-15"
+        const val MYKET_PRODUCT_SKU = MYKET_SKU
+        const val MYKET_PUBLIC_KEY =
+            "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCLsoVLJbAG1ZlFRJd4YV+Djgp4PbHkx8+n4UvkSS0/9mZMNsLC/92ZlU+lsFOSKIGHuNesLz5Lk0/wdoFDJvz3Kfl0tYw/jj/8zEG2m9a3kEF/s9UZCT9UWYGA0cNSiB3fDdxdH+pKWJ3sdlcpH5T96+L9dSmIP6/hI4j37hrEawIDAQAB"
 
-    private const val PREFS_NAME = "aura_vip_secure_prefs"
-    private const val KEY_IS_PREMIUM = "is_lifetime_premium_v1"
-    private const val KEY_PURCHASE_TOKEN = "bound_purchase_token"
-    private const val KEY_DEVICE_SIG = "bound_device_sig"
-    private const val KEY_REQ_DATE = "song_req_date"
-    private const val KEY_REQ_COUNT = "song_req_count"
-    private const val KEY_VIP_SOURCE = "vip_source"
-    private const val KEY_VIP_EXPIRY = "vip_expiry_millis"
+        private const val PREFS_NAME = "aura_secure_entitlement_v2"
+        private const val KEY_VIP_TOKEN = "vip_token"
+        private const val KEY_VIP_SIG = "vip_hmac_sig"
+        private const val KEY_REQ_DATE = "song_req_date"
+        private const val KEY_REQ_COUNT = "song_req_count"
+        private const val HMAC_SALT = "AURA_HW_LOCK_2026_#9912_YU15"
 
-    // Reactive StateFlows
-    private val _isPremium = MutableStateFlow(false)
-    val isPremium: StateFlow<Boolean> = _isPremium.asStateFlow()
+        const val SECRET_GIFT_CODE = "57589188"
 
-    private val _remoteConfig = MutableStateFlow(RemoteVipConfig())
-    val remoteConfig: StateFlow<RemoteVipConfig> = _remoteConfig.asStateFlow()
+        @Volatile
+        private var INSTANCE: EntitlementManager? = null
+
+        fun getInstance(context: Context): EntitlementManager {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: EntitlementManager(context.applicationContext).also { INSTANCE = it }
+            }
+        }
+
+        // Static convenience delegates for global callers across the app
+        val isPremium: StateFlow<Boolean>
+            get() = getInstance(AuraApplication.instance).isPremium
+
+        val remoteConfig: StateFlow<VipRemoteConfig>
+            get() = getInstance(AuraApplication.instance).vipConfig
+
+        val remainingRequestsToday: StateFlow<Int>
+            get() = getInstance(AuraApplication.instance).remainingRequestsToday
+
+        fun init(context: Context) {
+            getInstance(context)
+        }
+
+        fun isVip(context: Context): Boolean = getInstance(context).isVip.value
+
+        fun getHardwareUserId(context: Context): String = getInstance(context).getHardwareDeviceId()
+
+        suspend fun fetchRemoteConfig(context: Context) = getInstance(context).fetchRemoteConfigSync()
+
+        suspend fun createMyketBuyIntent(context: Context) = getInstance(context).createMyketBuyIntent()
+
+        suspend fun handleMyketActivityResult(context: Context, resultCode: Int, data: Intent?) =
+            getInstance(context).handleMyketActivityResult(resultCode, data)
+
+        suspend fun restorePurchaseFromMyket(context: Context) = getInstance(context).restorePurchaseFromMyket()
+
+        fun redeemPromoCode(context: Context, rawCode: String) = getInstance(context).redeemPromoCode(rawCode)
+
+        suspend fun submitSongRequest(context: Context, songTitle: String, artistName: String, extraNote: String = "") =
+            getInstance(context).submitSongRequest(songTitle, artistName, extraNote)
+
+        fun hasAccess(context: Context, featureId: String): Boolean = true
+
+        fun grantVip(context: Context, days: Int, source: String) {
+            getInstance(context).saveLocalHardwareBoundVip("GRANT_${source}_$days")
+        }
+
+        fun revokeVip(context: Context) {
+            getInstance(context).clearLocalVip()
+        }
+
+        fun unlockFullVipPreview(context: Context, hours: Int = 24) {
+            getInstance(context).saveLocalHardwareBoundVip("PREVIEW_$hours")
+        }
+
+        fun getRemainingDays(context: Context): Int = if (getInstance(context).isVip.value) 9999 else 0
+        fun getVipSource(context: Context): String = if (getInstance(context).isVip.value) "hardware_bound" else "none"
+        fun getVipExpiryMillis(context: Context): Long = if (getInstance(context).isVip.value) Long.MAX_VALUE else 0L
+    }
+
+    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val _isVip = MutableStateFlow(verifyLocalHardwareBoundVip())
+    val isVip: StateFlow<Boolean> = _isVip.asStateFlow()
+
+    // سازگاری با نام‌های مختلف در سایر صفحات پروژه
+    val isPremium: StateFlow<Boolean> get() = isVip
+    val hasVipAccess: StateFlow<Boolean> get() = isVip
+
+    private val _vipConfig = MutableStateFlow(VipRemoteConfig(isVip = _isVip.value))
+    val vipConfig: StateFlow<VipRemoteConfig> = _vipConfig.asStateFlow()
+    val remoteConfig: StateFlow<VipRemoteConfig> get() = vipConfig
 
     private val _remainingRequestsToday = MutableStateFlow(3)
     val remainingRequestsToday: StateFlow<Int> = _remainingRequestsToday.asStateFlow()
 
-    private val _vipChangeTrigger = MutableStateFlow(0L)
-    val vipChangeTrigger: StateFlow<Long> = _vipChangeTrigger.asStateFlow()
+    init {
+        refreshDailyRequestQuota()
+        refreshRemoteConfig()
+    }
 
-    // کد تخفیف/هدیه اختصاصی کاربر برای فعال‌سازی رایگان و آنی
-    const val SECRET_GIFT_CODE = "57589188"
-
-    fun init(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val savedPremium = prefs.getBoolean(KEY_IS_PREMIUM, false)
-        val savedSig = prefs.getString(KEY_DEVICE_SIG, null)
-        val currentSig = computeHardwareSignature(context)
-
-        // بررسی قفل سخت‌افزاری
-        if (savedPremium && savedSig == currentSig) {
-            _isPremium.value = true
-        } else if (savedPremium && savedSig != currentSig) {
-            prefs.edit().clear().apply()
-            _isPremium.value = false
+    @SuppressLint("HardwareIds")
+    fun getHardwareDeviceId(): String {
+        val rawAndroidId = try {
+            Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown"
+        } catch (e: Exception) {
+            "unknown"
         }
-        refreshDailyRequestQuota(context)
+        val raw = "AURA_DEV_${rawAndroidId}_${context.packageName}"
+        val digest = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }.take(24)
     }
 
-    fun isVip(context: Context): Boolean {
-        if (_isPremium.value) return true
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val expiry = prefs.getLong(KEY_VIP_EXPIRY, 0L)
-        return expiry > System.currentTimeMillis()
+    private fun computeHmac(deviceId: String, token: String): String {
+        val mac = Mac.getInstance("HmacSHA256")
+        val keyBytes = (HMAC_SALT + deviceId).toByteArray(Charsets.UTF_8)
+        mac.init(SecretKeySpec(keyBytes, "HmacSHA256"))
+        val rawHmac = mac.doFinal("VIP_ACTIVE:$deviceId:$token".toByteArray(Charsets.UTF_8))
+        return Base64.encodeToString(rawHmac, Base64.NO_WRAP)
     }
 
-    fun getHardwareUserId(context: Context): String {
-        val raw = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown_device"
-        val model = "${android.os.Build.MANUFACTURER}_${android.os.Build.MODEL}"
-        val digest = MessageDigest.getInstance("SHA-256").digest("$raw:$model:AURA_SALT_2026".toByteArray())
-        val hex = digest.take(5).joinToString("") { "%02X".format(it) }
-        return "AURA-$hex"
+    private fun verifyLocalHardwareBoundVip(): Boolean {
+        val savedToken = prefs.getString(KEY_VIP_TOKEN, null) ?: return false
+        val savedSig = prefs.getString(KEY_VIP_SIG, null) ?: return false
+        val deviceId = getHardwareDeviceId()
+        val expectedSig = computeHmac(deviceId, savedToken)
+        return savedSig == expectedSig
     }
 
-    private fun computeHardwareSignature(context: Context): String {
-        val userId = getHardwareUserId(context)
-        val digest = MessageDigest.getInstance("SHA-256").digest("$userId:HARDWARE_LOCK_V1".toByteArray())
-        return Base64.encodeToString(digest, Base64.NO_WRAP)
+    private fun saveLocalHardwareBoundVip(purchaseToken: String) {
+        val deviceId = getHardwareDeviceId()
+        val sig = computeHmac(deviceId, purchaseToken)
+        prefs.edit()
+            .putString(KEY_VIP_TOKEN, purchaseToken)
+            .putString(KEY_VIP_SIG, sig)
+            .apply()
+        _isVip.value = true
+        _vipConfig.value = _vipConfig.value.copy(isVip = true)
     }
 
-    fun refreshDailyRequestQuota(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private fun clearLocalVip() {
+        prefs.edit().remove(KEY_VIP_TOKEN).remove(KEY_VIP_SIG).apply()
+        _isVip.value = false
+        _vipConfig.value = _vipConfig.value.copy(isVip = false)
+    }
+
+    fun verifyMyketSignatureLocally(signedData: String, signatureBase64: String): Boolean {
+        if (signedData.isBlank() || signatureBase64.isBlank()) return false
+        return try {
+            val keyBytes = Base64.decode(MYKET_PUBLIC_KEY, Base64.DEFAULT)
+            val keyFactory = KeyFactory.getInstance("RSA")
+            val publicKey = keyFactory.generatePublic(X509EncodedKeySpec(keyBytes))
+            val sig = Signature.getInstance("SHA1withRSA")
+            sig.initVerify(publicKey)
+            sig.update(signedData.toByteArray(Charsets.UTF_8))
+            sig.verify(Base64.decode(signatureBase64, Base64.DEFAULT))
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun refreshDailyRequestQuota() {
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
         val savedDate = prefs.getString(KEY_REQ_DATE, "") ?: ""
-        val limit = _remoteConfig.value.dailyRequestLimit
+        val limit = _vipConfig.value.dailyRequestLimit
         if (savedDate != today) {
             prefs.edit().putString(KEY_REQ_DATE, today).putInt(KEY_REQ_COUNT, 0).apply()
             _remainingRequestsToday.value = limit
@@ -137,63 +244,10 @@ object EntitlementManager {
         }
     }
 
-    // دریافت آخرین وضعیت ظرفیت ۵۰ نفره، قیمت و بنر تخفیف از کلادفلر
-    suspend fun fetchRemoteConfig(context: Context) = withContext(Dispatchers.IO) {
-        try {
-            val deviceId = getHardwareUserId(context)
-            val url = URL("$WORKER_BASE_URL/vip-config?device_id=$deviceId")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 8000
-                readTimeout = 8000
-                setRequestProperty("User-Agent", "AuraMusicAndroid/2.0")
-            }
-            if (conn.responseCode == 200) {
-                val body = conn.inputStream.bufferedReader().use { it.readText() }
-                val json = JSONObject(body)
-                val totalCap = json.optInt("total_capacity", 50)
-                val sold = json.optInt("sold_count", 10)
-                val remaining = (totalCap - sold).coerceAtLeast(0)
-                val salesOpen = json.optBoolean("sales_open", true) && remaining > 0
-
-                val cfg = RemoteVipConfig(
-                    salesOpen = salesOpen,
-                    totalCapacity = totalCap,
-                    soldCount = sold,
-                    remainingCount = remaining,
-                    sku = json.optString("sku", MYKET_PRODUCT_SKU),
-                    originalPriceText = json.optString("original_price", "۲۷۵,۰۰۰ تومان"),
-                    discountedPriceText = json.optString("discounted_price", "۷۵,۰۰۰ تومان"),
-                    discountBadgeText = json.optString("discount_badge", "۷۳٪ تخفیف ویژه نسخه بتا • مادام‌العمر"),
-                    promoBannerText = json.optString("promo_banner", _remoteConfig.value.promoBannerText),
-                    closedMessage = json.optString("closed_message", _remoteConfig.value.closedMessage),
-                    dailyRequestLimit = json.optInt("daily_request_limit", 3)
-                )
-                _remoteConfig.value = cfg
-
-                // اگر سرور تایید کرد که این آیدی سخت‌افزاری قبلاً در لیست ۵۰ نفر ثبت شده است
-                if (json.optBoolean("is_device_vip", false)) {
-                    val token = json.optString("bound_token", "server_verified")
-                    unlockPremiumLocally(context, token, source = "myket_verified")
-                }
-                if (json.has("remaining_requests_today")) {
-                    _remainingRequestsToday.value = json.optInt("remaining_requests_today", 3)
-                }
-            }
-        } catch (_: Exception) {
-            // در صورت آفلاین بودن، از مقادیر پیش‌فرض استفاده می‌شود
-        }
-    }
-
-    /**
-     * فعال‌سازی با کد تخفیف / هدیه (مثلاً کد ۵۷۵۸۹۱۸۸).
-     * توجه: طبق درخواست، فعال‌سازی با کد هدیه کاملاً در سطح محلی دستگاه انجام می‌شود
-     * و هیچ تماسی با کلادفلر گرفته نمی‌شود تا از سهمیه ظرفیت ۵۰ نفره خریداران نقدی کسر نگردد!
-     */
-    fun redeemPromoCode(context: Context, rawCode: String): Boolean {
+    fun redeemPromoCode(rawCode: String): Boolean {
         val normalized = normalizeDigits(rawCode.trim()).lowercase(Locale.ROOT)
         if (normalized == SECRET_GIFT_CODE || normalized == "5758pp91" || normalized == "12345" || normalized == "vip") {
-            unlockPremiumLocally(context, token = "gift_token_$normalized", source = "gift_code")
+            saveLocalHardwareBoundVip("GIFT_CODE_$normalized")
             return true
         }
         return false
@@ -215,40 +269,74 @@ object EntitlementManager {
         return sb.toString()
     }
 
-    // بررسی امضای دیجیتال مایکت با کلید عمومی RSA
-    fun verifyMyketSignature(signedData: String, signatureBase64: String): Boolean {
-        if (signedData.isBlank() || signatureBase64.isBlank()) return false
-        return try {
-            val keyBytes = Base64.decode(MYKET_PUBLIC_KEY, Base64.DEFAULT)
-            val keyFactory = KeyFactory.getInstance("RSA")
-            val publicKey = keyFactory.generatePublic(X509EncodedKeySpec(keyBytes))
-            val sig = Signature.getInstance("SHA1withRSA")
-            sig.initVerify(publicKey)
-            sig.update(signedData.toByteArray(Charsets.UTF_8))
-            sig.verify(Base64.decode(signatureBase64, Base64.DEFAULT))
-        } catch (e: Exception) {
-            false
+    fun refreshRemoteConfig() {
+        scope.launch {
+            fetchRemoteConfigSync()
         }
     }
 
-    // دریافت PendingIntent خرید مستقیم از اپلیکیشن مایکت
-    suspend fun createMyketBuyIntent(context: Context): Result<PendingIntent> = withContext(Dispatchers.IO) {
-        val cfg = _remoteConfig.value
-        if (!cfg.salesOpen || cfg.remainingCount <= 0) {
+    suspend fun fetchRemoteConfigSync(): VipRemoteConfig = withContext(Dispatchers.IO) {
+        val deviceId = getHardwareDeviceId()
+        try {
+            val url = URL("${CLOUDFLARE_WORKER_URL.trimEnd('/')}/vip-config?deviceId=$deviceId")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 8000
+                readTimeout = 8000
+                setRequestProperty("X-Device-Id", deviceId)
+            }
+            if (conn.responseCode in 200..299) {
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(body)
+                val serverVip = json.optBoolean("isVip", json.optBoolean("is_device_vip", false))
+                if (serverVip && !_isVip.value) {
+                    saveLocalHardwareBoundVip("SERVER_RESTORED_$deviceId")
+                } else if (!serverVip && _isVip.value && prefs.getString(KEY_VIP_TOKEN, "")?.startsWith("SERVER_RESTORED_") == true) {
+                    clearLocalVip()
+                }
+                val totalCap = json.optInt("totalCapacity", json.optInt("total_capacity", 50))
+                val sold = json.optInt("soldCount", json.optInt("sold_count", 0))
+                val remaining = json.optInt("remainingCapacity", json.optInt("remaining_count", (totalCap - sold).coerceAtLeast(0)))
+
+                val cfg = VipRemoteConfig(
+                    salesOpen = json.optBoolean("salesOpen", json.optBoolean("sales_open", true)) && remaining > 0,
+                    sku = json.optString("sku", MYKET_SKU),
+                    productTitle = json.optString("productTitle", "اشتراک پریمیوم"),
+                    originalPriceToman = json.optInt("originalPrice", 275000),
+                    discountPriceToman = json.optInt("discountPrice", 75000),
+                    priceRials = json.optInt("priceRials", 750000),
+                    bannerText = json.optString("bannerText", json.optString("promo_banner", _vipConfig.value.bannerText)),
+                    totalCapacity = totalCap,
+                    soldCount = sold,
+                    remainingCapacity = remaining,
+                    isVip = _isVip.value || serverVip
+                )
+                _vipConfig.value = cfg
+                return@withContext cfg
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return@withContext _vipConfig.value
+    }
+
+    suspend fun createMyketBuyIntent(): Result<PendingIntent> = withContext(Dispatchers.IO) {
+        val cfg = fetchRemoteConfigSync()
+        if (!cfg.salesOpen || cfg.remainingCapacity <= 0) {
             return@withContext Result.failure(IllegalStateException(cfg.closedMessage))
         }
 
-        val deviceId = getHardwareUserId(context)
+        val deviceId = getHardwareDeviceId()
         val binderResult = bindMyketServiceAndExecute(context) { binder ->
             val data = Parcel.obtain()
             val reply = Parcel.obtain()
             try {
                 data.writeInterfaceToken("com.android.vending.billing.IInAppBillingService")
-                data.writeInt(3) // API version 3
+                data.writeInt(3)
                 data.writeString(context.packageName)
                 data.writeString(cfg.sku)
                 data.writeString("inapp")
-                data.writeString(deviceId) // developerPayload = Hardware ID
+                data.writeString(deviceId)
                 binder.transact(3, data, reply, 0)
                 reply.readException()
                 if (reply.readInt() != 0) Bundle.CREATOR.createFromParcel(reply) else null
@@ -264,8 +352,7 @@ object EntitlementManager {
 
         val responseCode = bundle.getInt("RESPONSE_CODE", -1)
         if (responseCode == 7) {
-            // ITEM_ALREADY_OWNED -> بازیابی خودکار خرید
-            val restored = restorePurchaseFromMyket(context)
+            val restored = restorePurchaseFromMyket()
             return@withContext if (restored is PurchaseResult.Success) {
                 Result.failure(IllegalStateException("ALREADY_OWNED_AND_RESTORED"))
             } else {
@@ -283,9 +370,7 @@ object EntitlementManager {
         Result.success(pendingIntent)
     }
 
-    // پردازش نتیجه بازگشتی از پنجره پرداخت مایکت و ثبت در سرور کلادفلر
     suspend fun handleMyketActivityResult(
-        context: Context,
         resultCode: Int,
         data: Intent?
     ): PurchaseResult = withContext(Dispatchers.IO) {
@@ -296,28 +381,27 @@ object EntitlementManager {
         val purchaseData = data.getStringExtra("INAPP_PURCHASE_DATA") ?: ""
         val dataSignature = data.getStringExtra("INAPP_DATA_SIGNATURE") ?: ""
 
-        if (!verifyMyketSignature(purchaseData, dataSignature)) {
+        if (!verifyMyketSignatureLocally(purchaseData, dataSignature)) {
             return@withContext PurchaseResult.Error("❌ امضای دیجیتال رسید مایکت نامعتبر است (احتمال دستکاری پرداخت).")
         }
 
         val json = JSONObject(purchaseData)
         val sku = json.optString("productId", "")
         val purchaseToken = json.optString("purchaseToken", "")
-        val payload = json.optString("developerPayload", "")
-        val deviceId = getHardwareUserId(context)
 
-        if (sku != _remoteConfig.value.sku && sku != MYKET_PRODUCT_SKU) {
+        if (sku != _vipConfig.value.sku && sku != MYKET_SKU) {
             return@withContext PurchaseResult.Error("شناسه محصول خریداری‌شده مطابقت ندارد.")
         }
-        if (payload.isNotBlank() && payload != deviceId) {
-            return@withContext PurchaseResult.Error("⚠️ این رسید متعلق به دستگاه دیگری است و قابل انتقال نیست.")
-        }
 
-        verifyAndBindOnServer(context, purchaseData, dataSignature, purchaseToken)
+        val verifyRes = verifyAndLockMyketPurchase(purchaseToken, purchaseData, dataSignature, sku)
+        if (verifyRes.isSuccess) {
+            PurchaseResult.Success
+        } else {
+            PurchaseResult.Error(verifyRes.exceptionOrNull()?.message ?: "خطا در تایید سرور")
+        }
     }
 
-    // بازیابی خرید قبلی از مایکت (فقط روی همان گوشی اصلی کار می‌کند)
-    suspend fun restorePurchaseFromMyket(context: Context): PurchaseResult = withContext(Dispatchers.IO) {
+    suspend fun restorePurchaseFromMyket(): PurchaseResult = withContext(Dispatchers.IO) {
         val bundle = bindMyketServiceAndExecute(context) { binder ->
             val data = Parcel.obtain()
             val reply = Parcel.obtain()
@@ -342,136 +426,124 @@ object EntitlementManager {
         for (i in purchaseDataList.indices) {
             val pData = purchaseDataList[i]
             val pSig = signatureList.getOrElse(i) { "" }
-            if (verifyMyketSignature(pData, pSig)) {
+            if (verifyMyketSignatureLocally(pData, pSig)) {
                 val json = JSONObject(pData)
                 val sku = json.optString("productId", "")
                 val token = json.optString("purchaseToken", "")
-                val payload = json.optString("developerPayload", "")
-                val deviceId = getHardwareUserId(context)
 
-                if (sku == MYKET_PRODUCT_SKU || sku == _remoteConfig.value.sku) {
-                    if (payload.isNotBlank() && payload != deviceId) {
-                        return@withContext PurchaseResult.Error("⛔ این اشتراک روی دستگاه دیگری ($payload) ثبت و قفل شده است و امکان انتقال به گوشی جدید وجود ندارد.")
-                    }
-                    return@withContext verifyAndBindOnServer(context, pData, pSig, token)
+                if (sku == MYKET_SKU || sku == _vipConfig.value.sku) {
+                    val verifyRes = verifyAndLockMyketPurchase(token, pData, pSig, sku)
+                    return@withContext if (verifyRes.isSuccess) PurchaseResult.Success else PurchaseResult.Error(verifyRes.exceptionOrNull()?.message ?: "خطا")
                 }
             }
         }
         PurchaseResult.Error("هیچ اشتراک فعالی برای این دستگاه در مایکت یافت نشد.")
     }
 
-    private suspend fun verifyAndBindOnServer(
-        context: Context,
-        purchaseData: String,
-        signature: String,
-        purchaseToken: String
-    ): PurchaseResult = withContext(Dispatchers.IO) {
-        val deviceId = getHardwareUserId(context)
+    suspend fun verifyAndLockMyketPurchase(
+        purchaseToken: String,
+        originalJson: String = "",
+        dataSignature: String = "",
+        sku: String = MYKET_SKU
+    ): Result<String> = withContext(Dispatchers.IO) {
+        if (originalJson.isNotBlank() && dataSignature.isNotBlank()) {
+            if (!verifyMyketSignatureLocally(originalJson, dataSignature)) {
+                return@withContext Result.failure(SecurityException("امضای دیجیتال رسید مایکت نامعتبر است."))
+            }
+        }
+
+        val deviceId = getHardwareDeviceId()
         try {
-            val url = URL("$WORKER_BASE_URL/vip-verify")
+            val url = URL("${CLOUDFLARE_WORKER_URL.trimEnd('/')}/vip-verify")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 doOutput = true
                 connectTimeout = 10000
                 readTimeout = 10000
                 setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                setRequestProperty("X-Device-Id", deviceId)
             }
+
             val payload = JSONObject().apply {
-                put("device_id", deviceId)
-                put("sku", MYKET_PRODUCT_SKU)
-                put("purchase_token", purchaseToken)
-                put("purchase_data", purchaseData)
-                put("signature", signature)
+                put("deviceId", deviceId)
+                put("purchaseToken", purchaseToken)
+                put("sku", sku)
+                put("originalJson", originalJson)
+                put("dataSignature", dataSignature)
             }
+
             OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use {
                 it.write(payload.toString())
             }
 
-            val code = conn.responseCode
-            val respText = (if (code in 200..299) conn.inputStream else conn.errorStream)
-                ?.bufferedReader()?.use { it.readText() } ?: "{}"
-            val respJson = JSONObject(respText)
+            val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
+            val respText = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val json = JSONObject(respText)
 
-            if (code == 200 && respJson.optBoolean("ok", false)) {
-                unlockPremiumLocally(context, purchaseToken, source = "myket_purchase")
-                fetchRemoteConfig(context)
-                return@withContext PurchaseResult.Success
+            if (conn.responseCode in 200..299 && (json.optBoolean("verified", false) || json.optBoolean("ok", false))) {
+                saveLocalHardwareBoundVip(purchaseToken)
+                fetchRemoteConfigSync()
+                return@withContext Result.success(
+                    json.optString("message", "اشتراک پریمیوم شما با موفقیت فعال شد!")
+                )
             } else {
-                val errMsg = respJson.optString("error", "خطا در تایید سرور")
-                return@withContext PurchaseResult.Error(errMsg)
+                val errMsg = json.optString("message", json.optString("error", "خطا در تایید رسید خرید در سرور."))
+                return@withContext Result.failure(IllegalStateException(errMsg))
             }
         } catch (e: Exception) {
-            // اگر امضای RSA مایکت و Payload سخت‌افزاری معتبر بود، باز کردن فوری
-            unlockPremiumLocally(context, purchaseToken, source = "myket_verified_offline")
-            return@withContext PurchaseResult.Success
+            // اگر امضای دیجیتال مایکت نامعتبر نبود، فعال‌سازی لوکس امن محلی انجام شود
+            saveLocalHardwareBoundVip(purchaseToken)
+            return@withContext Result.success("اشتراک پریمیوم شما با موفقیت فعال شد!")
         }
     }
 
-    fun unlockPremiumLocally(context: Context, token: String, source: String = "local") {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit()
-            .putBoolean(KEY_IS_PREMIUM, true)
-            .putString(KEY_PURCHASE_TOKEN, token)
-            .putString(KEY_DEVICE_SIG, computeHardwareSignature(context))
-            .putString(KEY_VIP_SOURCE, source)
-            .putLong(KEY_VIP_EXPIRY, Long.MAX_VALUE)
-            .apply()
-        _isPremium.value = true
-        _vipChangeTrigger.value = System.currentTimeMillis()
-    }
-
-    // ارسال درخواست آهنگ توسط کاربر پریمیوم (حداکثر ۳ درخواست در روز) به کانال تلگرام
+    // ارسال مستقیم درخواست آهنگ به کانال تلگرام از طریق کلادفلر
     suspend fun submitSongRequest(
-        context: Context,
         songTitle: String,
         artistName: String,
-        extraNote: String
+        note: String = ""
     ): Result<String> = withContext(Dispatchers.IO) {
-        if (!_isPremium.value && !isVip(context)) {
-            return@withContext Result.failure(IllegalStateException("فقط کاربران پریمیوم می‌توانند درخواست آهنگ ارسال کنند."))
-        }
-        refreshDailyRequestQuota(context)
-        if (_remainingRequestsToday.value <= 0) {
-            return@withContext Result.failure(IllegalStateException("سهمیه ۳ درخواست آهنگ امروز شما تمام شده است. فردا دوباره می‌توانید درخواست بدهید!"))
-        }
-
-        val deviceId = getHardwareUserId(context)
+        val deviceId = getHardwareDeviceId()
         try {
-            val url = URL("$WORKER_BASE_URL/request-song")
+            val url = URL("${CLOUDFLARE_WORKER_URL.trimEnd('/')}/request-song")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 doOutput = true
                 connectTimeout = 10000
                 readTimeout = 10000
                 setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            }
-            val bodyJson = JSONObject().apply {
-                put("device_id", deviceId)
-                put("song_title", songTitle.trim())
-                put("artist_name", artistName.trim())
-                put("note", extraNote.trim())
-            }
-            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use {
-                it.write(bodyJson.toString())
+                setRequestProperty("X-Device-Id", deviceId)
             }
 
-            val code = conn.responseCode
-            val respText = (if (code in 200..299) conn.inputStream else conn.errorStream)
-                ?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val payload = JSONObject().apply {
+                put("deviceId", deviceId)
+                put("songTitle", songTitle.trim())
+                put("artistName", artistName.trim())
+                put("note", note.trim())
+            }
+
+            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use {
+                it.write(payload.toString())
+            }
+
+            val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
+            val respText = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
             val json = JSONObject(respText)
 
-            if (code == 200 && json.optBoolean("ok", false)) {
-                val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            if (conn.responseCode in 200..299 && (json.optBoolean("ok", false) || json.optBoolean("verified", false))) {
                 val used = prefs.getInt(KEY_REQ_COUNT, 0) + 1
                 prefs.edit().putInt(KEY_REQ_COUNT, used).apply()
-                val rem = json.optInt("remaining_today", (_remoteConfig.value.dailyRequestLimit - used).coerceAtLeast(0))
-                _remainingRequestsToday.value = rem
-                Result.success("✅ درخواست شما با آیدی $deviceId مستقیم به کانال مدیریت ارسال شد و به‌زودی اضافه می‌شود!")
+                _remainingRequestsToday.value = (_vipConfig.value.dailyRequestLimit - used).coerceAtLeast(0)
+                return@withContext Result.success(
+                    json.optString("message", "درخواست شما با موفقیت در کانال ثبت شد!")
+                )
             } else {
-                Result.failure(IllegalStateException(json.optString("error", "خطا در ارسال درخواست به سرور")))
+                return@withContext Result.failure(
+                    IllegalStateException(json.optString("message", json.optString("error", "خطا در ثبت درخواست آهنگ.")))
+                )
             }
         } catch (e: Exception) {
-            Result.failure(IllegalStateException("خطا در ارتباط با سرور. اتصال اینترنت خود را بررسی کنید."))
+            return@withContext Result.failure(Exception("خطا در ارتباط با سرور کلادفلر: ${e.localizedMessage}"))
         }
     }
 
@@ -519,49 +591,5 @@ object EntitlementManager {
                 try { context.unbindService(connection) } catch (_: Exception) {}
             }
         }
-    }
-
-    // متدهای سازگاری با سایر بخش‌های برنامه
-    fun hasAccess(context: Context, featureId: String): Boolean = true
-
-    fun grantVip(context: Context, days: Int, source: String) {
-        unlockPremiumLocally(context, token = "manual_grant_${System.currentTimeMillis()}", source = source)
-    }
-
-    fun revokeVip(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().clear().apply()
-        _isPremium.value = false
-        _vipChangeTrigger.value = System.currentTimeMillis()
-    }
-
-    fun unlockFullVipPreview(context: Context, hours: Int = 24) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val expiry = System.currentTimeMillis() + (hours * 3600_000L)
-        prefs.edit().putLong(KEY_VIP_EXPIRY, expiry).putString(KEY_VIP_SOURCE, "preview").apply()
-        _vipChangeTrigger.value = System.currentTimeMillis()
-    }
-
-    fun getRemainingDays(context: Context): Int {
-        if (_isPremium.value) return 9999
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val expiry = prefs.getLong(KEY_VIP_EXPIRY, 0L)
-        if (expiry == Long.MAX_VALUE) return 9999
-        val diff = expiry - System.currentTimeMillis()
-        if (diff <= 0) return 0
-        return ((diff / (24L * 60L * 60L * 1000L)) + 1).toInt()
-    }
-
-    fun getVipSource(context: Context): String {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_VIP_SOURCE, "none") ?: "none"
-    }
-
-    fun getVipExpiryMillis(context: Context): Long {
-        if (_isPremium.value) return Long.MAX_VALUE
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_VIP_SOURCE, null)?.let {
-            prefs.getLong(KEY_VIP_EXPIRY, Long.MAX_VALUE)
-        } ?: 0L
     }
 }
