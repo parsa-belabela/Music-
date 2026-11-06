@@ -54,10 +54,12 @@ import kotlin.math.abs
  * - فشرده‌سازی و Downsample هوشمند برای جلوگیری از مصرف رم، لگ و کرش
  */
 object ArtistAvatarDiskCache {
+    const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev/"
     private const val WORKER_BASE = "https://alubm.parsaghorbani8861.workers.dev"
-    private const val PREFS_NAME = "aura_private_artist_avatars_prefs_v4"
-    private const val DIR_NAME = "artist_avatars_private_cache_v4"
-    private val LEGACY_DIRS = listOf("artist_avatars_private_cache", "artist_avatars_private_cache_v3")
+    private val WORKER_HOST_REGEX = Regex("https?://[^/]+\\.workers\\.dev", RegexOption.IGNORE_CASE)
+    private const val PREFS_NAME = "aura_private_artist_avatars_prefs_v5"
+    private const val DIR_NAME = "artist_avatars_private_cache_v5"
+    private val LEGACY_DIRS = listOf("artist_avatars_private_cache", "artist_avatars_private_cache_v3", "artist_avatars_private_cache_v4")
 
     private val memoryCache = object : LruCache<String, Bitmap>(180) {}
     private val failedUrls = ConcurrentHashMap.newKeySet<String>()
@@ -167,7 +169,8 @@ object ArtistAvatarDiskCache {
                 return "$WORKER_BASE/artist-cover?name=$encoded"
             }
             return when {
-                trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
+                trimmed.startsWith("http://") || trimmed.startsWith("https://") ->
+                    trimmed.replace(WORKER_HOST_REGEX, WORKER_BASE)
                 trimmed.startsWith("file://") || trimmed.startsWith("content://") || trimmed.startsWith("/data/") || trimmed.startsWith("/storage/") -> trimmed
                 trimmed.startsWith("/") -> "$WORKER_BASE$trimmed"
                 else -> "$WORKER_BASE/$trimmed"

@@ -15,10 +15,17 @@ import com.example.monetization.EntitlementManager
 import com.example.monetization.PurchaseResult
 import com.example.ui.components.AuraPremiumPaywallContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -66,6 +73,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -74,6 +82,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.PI
+import kotlin.math.sin
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -85,7 +95,179 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
-const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev"
+const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev/"
+
+data class CloudflareTrack(
+    val id: String,
+    val title: String,
+    val artist: String,
+    val streamUrl: String,
+    val coverUrl: String? = null,
+    val durationMs: Long = 0L,
+    val genre: String? = null
+) {
+    fun toOnlineTrack(): OnlineTrack {
+        val base = CloudflareMusicApi.workerBaseUrl.trimEnd('/')
+        val resolvedCover = coverUrl?.takeIf { it.isNotBlank() } ?: "$base/cover?id=$id&v=hd9"
+        return OnlineTrack(
+            id = id,
+            title = title,
+            artist = artist,
+            coverUrl = resolvedCover,
+            durationSec = ((durationMs.takeIf { it > 0L } ?: 180_000L) / 1000L).toInt().coerceAtLeast(1),
+            streamUrl = streamUrl,
+            downloadUrl = streamUrl,
+            previewUrl = streamUrl,
+            rawGenre = genre.orEmpty()
+        )
+    }
+
+    fun toAppTrack(): Track = toOnlineTrack().toAppTrack()
+}
+
+object CloudflareMusicApi {
+    // The exact URL you provided
+    var workerBaseUrl: String = "https://alubm.parsaghorbani8861.workers.dev"
+
+    suspend fun searchOrFetchTracks(query: String = "", deviceId: String = ""): Result<List<CloudflareTrack>> = withContext(Dispatchers.IO) {
+        try {
+            val base = workerBaseUrl.trimEnd('/')
+            val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
+
+            val effectiveDeviceId = deviceId.ifBlank {
+                try {
+                    EntitlementManager.getInstance(AuraApplication.instance).getDeviceId()
+                } catch (_: Throwable) {
+                    ""
+                }
+            }
+            val promoParam = if (EntitlementManager.isPremium.value) "&promoCode=57589188&vip=true" else ""
+            // Add deviceId to request if available to pass VIP checks
+            val deviceParam = if (effectiveDeviceId.isNotBlank()) "&deviceId=$effectiveDeviceId$promoParam" else promoParam
+
+            val candidateUrls = if (query.isBlank()) {
+                listOf("$base/tracks?$deviceParam", "$base/api/songs?$deviceParam", "$base?$deviceParam")
+            } else {
+                listOf(
+                    "$base/tracks?q=$encodedQuery$deviceParam",
+                    "$base/search?q=$encodedQuery$deviceParam",
+                    "$base/api/songs?q=$encodedQuery$deviceParam"
+                )
+            }
+
+            var lastError: Exception? = null
+
+            for (endpoint in candidateUrls) {
+                try {
+                    val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 8000
+                        readTimeout = 8000
+                        setRequestProperty("Accept", "application/json")
+                        if (effectiveDeviceId.isNotBlank()) {
+                            setRequestProperty("X-Device-Id", effectiveDeviceId)
+                        }
+                        if (EntitlementManager.isPremium.value) {
+                            setRequestProperty("X-Promo-Code", "57589188")
+                        }
+                    }
+
+                    if (connection.responseCode in 200..299) {
+                        val responseText = connection.inputStream.bufferedReader().use { it.readText() }
+                        val parsedTracks = parseCloudflareJson(responseText, base)
+
+                        val finalTracks = if (query.isBlank()) {
+                            parsedTracks
+                        } else {
+                            parsedTracks.filter {
+                                it.title.contains(query, ignoreCase = true) ||
+                                        it.artist.contains(query, ignoreCase = true)
+                            }.ifEmpty { parsedTracks }
+                        }
+                        if (finalTracks.isNotEmpty() || endpoint == candidateUrls.last()) {
+                            return@withContext Result.success(finalTracks)
+                        }
+                    }
+                } catch (e: Exception) {
+                    lastError = e
+                }
+            }
+
+            Result.failure(lastError ?: Exception("عدم ارتباط با سرور کلودفلر"))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun parseCloudflareJson(jsonString: String, baseUrl: String): List<CloudflareTrack> {
+        val trimmed = jsonString.trim()
+        val jsonArray: JSONArray = when {
+            trimmed.startsWith("[") -> JSONArray(trimmed)
+            trimmed.startsWith("{") -> {
+                val obj = JSONObject(trimmed)
+                obj.optJSONArray("tracks")
+                    ?: obj.optJSONArray("results")
+                    ?: obj.optJSONArray("songs")
+                    ?: obj.optJSONArray("data")
+                    ?: obj.optJSONArray("items")
+                    ?: JSONArray()
+            }
+            else -> JSONArray()
+        }
+
+        val list = mutableListOf<CloudflareTrack>()
+        for (i in 0 until jsonArray.length()) {
+            val item = jsonArray.optJSONObject(i) ?: continue
+            val id = item.optString("id").ifBlank {
+                item.optString("file_id").ifBlank { i.toString() }
+            }
+            val title = item.optString("title")
+                .ifBlank { item.optString("name") }
+                .ifBlank { "آهنگ بدون نام" }
+            val artist = item.optString("artist_name")
+                .ifBlank { item.optString("artist") }
+                .ifBlank { item.optString("performer") }
+                .ifBlank { "ناشناس" }
+
+            val rawStream = item.optString("stream_url")
+                .ifBlank { item.optString("streamUrl") }
+                .ifBlank { item.optString("audio_url") }
+                .ifBlank { item.optString("url") }
+
+            val streamUrl = when {
+                rawStream.startsWith("http") -> rawStream
+                rawStream.startsWith("/") -> "$baseUrl$rawStream"
+                item.has("file_id") -> "$baseUrl/stream?id=${item.optString("file_id")}"
+                else -> "$baseUrl/stream?id=$id"
+            }
+
+            val rawCover = item.optString("cover_url")
+                .ifBlank { item.optString("coverUrl") }
+                .ifBlank { item.optString("cover") }
+                .ifBlank { item.optString("artwork") }
+
+            val coverUrl = when {
+                rawCover.startsWith("http") -> rawCover
+                rawCover.startsWith("/") -> "$baseUrl$rawCover"
+                rawCover.isNotBlank() -> rawCover
+                else -> "$baseUrl/cover?id=$id&v=hd9"
+            }
+
+            list.add(
+                CloudflareTrack(
+                    id = id,
+                    title = title,
+                    artist = artist,
+                    streamUrl = streamUrl,
+                    coverUrl = coverUrl.takeIf { it.isNotBlank() },
+                    durationMs = item.optLong("duration", 0L).let { if (it < 1000) it * 1000L else it },
+                    genre = item.optString("genre").takeIf { it.isNotBlank() }
+                )
+            )
+        }
+        return list
+    }
+}
 
 /**
  * مدل خواننده دریافتی از سرور کلادفلر (آرشیو تلگرام)
@@ -834,10 +1016,12 @@ data class HubComputedData(
  * به همراه کش داخلی خصوصی کاتالوگ، کاورهای آهنگ تلگرام و پروفایل هنرمندان
  */
 object OnlineMusicRepository {
-    const val WORKER_URL = com.example.WORKER_URL
+    const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev/"
     val BASE_URL: String get() = WORKER_URL.trimEnd('/')
-    private const val PRIVATE_CATALOG_CACHE_FILE = "aura_cloud_catalog_cache_v2.json"
+    private const val PRIVATE_CATALOG_CACHE_FILE = "aura_cloud_catalog_cache_v3.json"
+    private const val LEGACY_CATALOG_CACHE_FILE = "aura_cloud_catalog_cache_v2.json"
     private const val PRIVATE_TRACK_COVERS_DIR = "track_covers_private_cache"
+    private val WORKER_HOST_REGEX = Regex("https?://[^/]+\\.workers\\.dev", RegexOption.IGNORE_CASE)
 
     private val imageMemoryCache = object : LruCache<String, Bitmap>(220) {}
     private val failedCoverUrls = ConcurrentHashMap.newKeySet<String>()
@@ -862,6 +1046,30 @@ object OnlineMusicRepository {
     private var memoryCachedAppTracks: List<Track> = emptyList()
 
     fun isStartupPreloadCompleted(): Boolean = startupPreloadCompleted.get()
+
+    fun markStartupPreloadCompleted() {
+        startupPreloadCompleted.set(true)
+    }
+
+    fun startBackgroundPreload(
+        context: Context,
+        localTracks: List<Track>,
+        isPersian: Boolean,
+        onProgress: (Float, String) -> Unit
+    ) {
+        backgroundWarmScope.launch {
+            try {
+                preloadStartupEverything(
+                    context = context,
+                    localTracks = localTracks,
+                    isPersian = isPersian,
+                    onProgress = onProgress
+                )
+            } catch (_: Throwable) {
+                startupPreloadCompleted.set(true)
+            }
+        }
+    }
 
     fun getMemoryCachedAppTracks(): List<Track> = memoryCachedAppTracks
 
@@ -1215,7 +1423,8 @@ object OnlineMusicRepository {
         val trimmed = rawUrl.trim()
         if (trimmed.isBlank()) return ""
         return when {
-            trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
+            trimmed.startsWith("http://") || trimmed.startsWith("https://") ->
+                trimmed.replace(WORKER_HOST_REGEX, BASE_URL)
             trimmed.startsWith("/") -> "$BASE_URL$trimmed"
             else -> "$BASE_URL/$trimmed"
         }
@@ -1225,7 +1434,8 @@ object OnlineMusicRepository {
         val trimmed = rawUrl.trim()
         if (trimmed.isBlank()) return ""
         return when {
-            trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
+            trimmed.startsWith("http://") || trimmed.startsWith("https://") ->
+                trimmed.replace(WORKER_HOST_REGEX, BASE_URL)
             trimmed.startsWith("file://") || trimmed.startsWith("content://") -> trimmed
             trimmed.startsWith("/storage/") || trimmed.startsWith("/data/") || trimmed.startsWith("/sdcard/") -> trimmed
             trimmed.startsWith("/img?u=") -> "$BASE_URL$trimmed"
@@ -1428,6 +1638,10 @@ object OnlineMusicRepository {
         memoryCachedResponse?.let { return it }
         return try {
             val appCtx = AuraApplication.instance.applicationContext
+            try {
+                val legacyFile = File(appCtx.filesDir, LEGACY_CATALOG_CACHE_FILE)
+                if (legacyFile.exists()) legacyFile.delete()
+            } catch (_: Throwable) {}
             val file = File(appCtx.filesDir, PRIVATE_CATALOG_CACHE_FILE)
             if (file.exists() && file.length() > 64L && file.length() <= 16 * 1024 * 1024L) {
                 val jsonText = try {
@@ -1488,13 +1702,14 @@ object OnlineMusicRepository {
         var connection: HttpURLConnection? = null
         try {
             val deviceId = try {
-                EntitlementManager.getHardwareUserId(AuraApplication.instance)
+                EntitlementManager.getInstance(AuraApplication.instance).getDeviceId()
             } catch (_: Throwable) {
                 "unknown"
             }
             val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
             val encodedArtist = URLEncoder.encode(artist.trim(), "UTF-8")
-            val endpoint = "$BASE_URL/tracks?q=$encodedQuery&artist=$encodedArtist&deviceId=$deviceId"
+            val promoParam = if (EntitlementManager.isPremium.value) "&promoCode=57589188&vip=true" else ""
+            val endpoint = "$BASE_URL/tracks?q=$encodedQuery&artist=$encodedArtist&deviceId=$deviceId$promoParam"
             connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
                 requestMethod = "GET"
@@ -1502,6 +1717,9 @@ object OnlineMusicRepository {
                 readTimeout = 12000
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("X-Device-Id", deviceId)
+                if (EntitlementManager.isPremium.value) {
+                    setRequestProperty("X-Promo-Code", "57589188")
+                }
                 setRequestProperty("User-Agent", "Mozilla/5.0")
             }
 
@@ -1518,7 +1736,13 @@ object OnlineMusicRepository {
                 if (query.isBlank() && artist.isBlank() && body.length > 64) {
                     saveWorkerCatalogToPrivateDisk(body)
                 }
-                val parsed = if (body.isNotBlank()) parseWorkerTracksJson(body) else WorkerTracksResponse(artists = lastKnownArtists)
+                var parsed = if (body.isNotBlank()) parseWorkerTracksJson(body) else WorkerTracksResponse(artists = lastKnownArtists)
+                if (parsed.tracks.isEmpty()) {
+                    val fallbackTracks = CloudflareMusicApi.searchOrFetchTracks(query, deviceId).getOrNull().orEmpty()
+                    if (fallbackTracks.isNotEmpty()) {
+                        parsed = parsed.copy(tracks = fallbackTracks.map { it.toOnlineTrack() })
+                    }
+                }
                 if (query.isBlank() && artist.isBlank() && parsed.tracks.isNotEmpty()) {
                     memoryCachedResponse = parsed
                     memoryCachedAppTracks = parsed.tracks.map { it.toAppTrack() }
@@ -1529,6 +1753,16 @@ object OnlineMusicRepository {
             e.printStackTrace()
         } finally {
             try { connection?.disconnect() } catch (_: Throwable) {}
+        }
+        val fallbackTracks = CloudflareMusicApi.searchOrFetchTracks(query).getOrNull().orEmpty()
+        if (fallbackTracks.isNotEmpty()) {
+            val onlineList = fallbackTracks.map { it.toOnlineTrack() }
+            val resp = WorkerTracksResponse(artists = lastKnownArtists, tracks = onlineList)
+            if (query.isBlank() && artist.isBlank()) {
+                memoryCachedResponse = resp
+                memoryCachedAppTracks = onlineList.map { it.toAppTrack() }
+            }
+            return@withContext resp
         }
         loadCachedWorkerCatalog() ?: WorkerTracksResponse(artists = lastKnownArtists)
     }
@@ -2310,7 +2544,8 @@ object OnlineTasteEngine {
                 val obj = arr.optJSONObject(i) ?: continue
                 val id = obj.optString("id")
                 val cachedFile = OnlineCacheHolder.getCachedFileIfPresent(context, id)
-                val uri = cachedFile?.absolutePath ?: obj.optString("uri")
+                val rawUri = obj.optString("uri")
+                val uri = cachedFile?.absolutePath ?: if (rawUri.startsWith("http")) OnlineMusicRepository.resolveWorkerUrl(rawUri) else rawUri
                 if (id.isNotBlank() && uri.isNotBlank()) {
                     val tTitle = obj.optString("title", "Unknown")
                     val tArtist = obj.optString("artist", "Unknown")
@@ -2323,6 +2558,8 @@ object OnlineTasteEngine {
                     val finalTitle = userOv?.title ?: cleaned.title
                     val finalArtist = userOv?.artist ?: cleaned.artist
                     val finalAlbum = userOv?.album ?: cleaned.album
+                    val rawArtwork = obj.optString("artworkUri").takeIf { it.isNotBlank() }
+                    val normalizedArtwork = rawArtwork?.let { OnlineMusicRepository.normalizeWorkerImageUrl(it) }
                     list.add(
                         Track(
                             id = id,
@@ -2331,7 +2568,7 @@ object OnlineTasteEngine {
                             album = finalAlbum,
                             durationMs = obj.optLong("durationMs", 180_000L),
                             uri = uri,
-                            artworkUri = obj.optString("artworkUri").takeIf { it.isNotBlank() },
+                            artworkUri = normalizedArtwork,
                             genre = obj.optString("genre", "Online")
                         )
                     )
@@ -2669,14 +2906,7 @@ fun OnlineMusicScreen(
 
                         if (isLoading && onlineTracks.isEmpty()) {
                             item(key = "hub_loading") {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 90.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator(color = Color(0xFF1DB954))
-                                }
+                                AuraInlinePulseLoader(isPersian = isPersian)
                             }
                         } else {
                             when (activeTab) {
@@ -4358,10 +4588,88 @@ private fun CloudTrackCoverBox(
     }
 }
 
+@Composable
+fun AuraInlinePulseLoader(isPersian: Boolean = true) {
+    val infiniteTransition = rememberInfiniteTransition(label = "InlinePulse")
+    val phase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2f * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "InlineWavePhase"
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 48.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color(0xFF141B2D).copy(alpha = 0.85f),
+                            Color(0xFF0B0F1A).copy(alpha = 0.92f)
+                        )
+                    )
+                )
+                .border(
+                    width = 1.dp,
+                    brush = Brush.horizontalGradient(
+                        listOf(
+                            Color(0xFF1DB954).copy(alpha = 0.45f),
+                            Color(0xFF00E5FF).copy(alpha = 0.45f),
+                            Color(0xFFA855F7).copy(alpha = 0.45f)
+                        )
+                    ),
+                    shape = RoundedCornerShape(24.dp)
+                )
+                .padding(horizontal = 24.dp, vertical = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.height(36.dp)
+            ) {
+                val barColors = listOf(
+                    Color(0xFF1DB954),
+                    Color(0xFF00E5FF),
+                    Color(0xFFA855F7),
+                    Color(0xFF1DB954),
+                    Color(0xFF00E5FF)
+                )
+                for (i in 0 until 5) {
+                    val ratio = ((sin(phase + i * 0.85f) + 1f) / 2f).coerceIn(0.22f, 1f)
+                    Box(
+                        modifier = Modifier
+                            .width(5.dp)
+                            .fillMaxHeight(ratio)
+                            .clip(RoundedCornerShape(50))
+                            .background(barColors[i])
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(
+                text = if (isPersian) "در حال همگام‌سازی موزیک‌های ابری..." else "Syncing cloud music...",
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
 /**
- * صفحه لودینگ ظریف و سریع ابتدای ورود به برنامه:
- * قبل از ورود کاربر به برنامه، کاتالوگ، آلبوم‌ها، دسته‌بندی‌ها، کاور آهنگ‌ها و عکس پروفایل هنرمندان را آماده و کش می‌کند
- * تا در زمان کار با برنامه هیچ کندی یا مکثی در آلبوم‌ها و دسته‌بندی‌ها وجود نداشته باشد.
+ * صفحه لودینگ نئونی و لوکس ابتدای ورود به برنامه:
+ * عملیات آماده‌سازی را در پس‌زمینه اجرا می‌کند و حداکثر ظرف ۵ ثانیه (بدون بلاک کردن کاربر)
+ * با انیمیشن اکولایزر و هاله نوری وارد برنامه می‌شود.
  */
 @Composable
 fun AuraStartupPreloaderWrapper(
@@ -4371,135 +4679,349 @@ fun AuraStartupPreloaderWrapper(
 ) {
     val context = LocalContext.current
     var isReady by remember { mutableStateOf(OnlineMusicRepository.isStartupPreloadCompleted()) }
-    var progress by remember { mutableFloatStateOf(if (isReady) 1f else 0.05f) }
+    var backendProgress by remember { mutableFloatStateOf(if (isReady) 1f else 0.08f) }
+    var timerProgress by remember { mutableFloatStateOf(if (isReady) 1f else 0.08f) }
     var statusText by remember(isPersian) {
         mutableStateOf(
-            if (isPersian) "در حال آماده‌سازی آرشیو و کاورها..."
-            else "Preparing library, albums & covers..."
+            if (isPersian) "در حال اتصال به آرشیو ابری و آماده‌سازی..."
+            else "Connecting to cloud archive..."
         )
     }
 
+    val effectiveProgress = maxOf(backendProgress, timerProgress).coerceIn(0.08f, 1f)
     val animatedProgress by animateFloatAsState(
-        targetValue = progress,
-        animationSpec = tween(durationMillis = 240),
+        targetValue = effectiveProgress,
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
         label = "StartupPreloadProgress"
     )
 
     LaunchedEffect(Unit) {
         if (!isReady) {
-            try {
-                withTimeoutOrNull(5000L) {
-                    OnlineMusicRepository.preloadStartupEverything(
-                        context = context,
-                        localTracks = localTracks,
-                        isPersian = isPersian
-                    ) { pct, msg ->
-                        progress = pct
-                        statusText = msg
+            // ۱. اجرای غیرمسدودکننده در پس‌زمینه (حتی اگر دانلود کاورها بیشتر طول بکشد، صفحه را نگه نمی‌دارد)
+            OnlineMusicRepository.startBackgroundPreload(
+                context = context,
+                localTracks = localTracks,
+                isPersian = isPersian
+            ) { pct, msg ->
+                backendProgress = pct
+                if (msg.isNotBlank()) {
+                    statusText = msg
+                }
+                if (pct >= 0.99f) {
+                    OnlineMusicRepository.markStartupPreloadCompleted()
+                    isReady = true
+                }
+            }
+
+            // ۲. تایمر قطعی حداکثر ۵ ثانیه (۵۰ گام ۱۰۰ میلی‌ثانیه‌ای)
+            val totalTicks = 50
+            for (tick in 1..totalTicks) {
+                if (isReady || OnlineMusicRepository.isStartupPreloadCompleted()) break
+                delay(100L)
+                val fraction = tick.toFloat() / totalTicks.toFloat()
+                timerProgress = (0.08f + fraction * 0.92f).coerceIn(0.08f, 1f)
+
+                if (fraction in 0.30f..0.64f && backendProgress < 0.35f) {
+                    statusText = if (isPersian) {
+                        "در حال بارگذاری پلی‌لیست‌ها و هنرمندان..."
+                    } else {
+                        "Loading playlists & artists..."
+                    }
+                } else if (fraction >= 0.65f && backendProgress < 0.65f) {
+                    statusText = if (isPersian) {
+                        "در حال بهینه‌سازی موتور صوتی و کاورها..."
+                    } else {
+                        "Optimizing audio engine & covers..."
                     }
                 }
-            } catch (e: Throwable) {
-                e.printStackTrace()
-            } finally {
-                progress = 1f
-                isReady = true
             }
+
+            // پس از حداکثر ۵ ثانیه بلافاصله وارد برنامه شو و ادامه کش در پس‌زمینه انجام شود
+            timerProgress = 1f
+            backendProgress = 1f
+            OnlineMusicRepository.markStartupPreloadCompleted()
+            isReady = true
         }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // محتوای اصلی برنامه در زیر لایه لودینگ آماده می‌شود تا به محض اتمام لودینگ، بدون پرش نمایش داده شود
+        // محتوای اصلی برنامه در زیر لایه لودینگ آماده می‌شود تا به محض اتمام ۵ ثانیه، بدون پرش نمایش داده شود
         content()
 
         AnimatedVisibility(
             visible = !isReady,
-            exit = fadeOut(animationSpec = tween(320))
+            exit = fadeOut(animationSpec = tween(420, easing = FastOutSlowInEasing))
         ) {
+            val infiniteTransition = rememberInfiniteTransition(label = "AuraLuxurySplash")
+            val orbitRotation by infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 4200, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "OrbitRotation"
+            )
+            val wavePhase by infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = (2f * PI).toFloat(),
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 1050, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "EqualizerWavePhase"
+            )
+            val glowPulse by infiniteTransition.animateFloat(
+                initialValue = 0.78f,
+                targetValue = 1.18f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 1600, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "AuroraGlowPulse"
+            )
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                Color(0xFF0A0F1A),
-                                Color(0xFF060812),
-                                Color(0xFF04050A)
+                                Color(0xFF070B14),
+                                Color(0xFF05070E),
+                                Color(0xFF030408)
                             )
                         )
                     )
                     .clickable(enabled = false) {},
                 contentAlignment = Alignment.Center
             ) {
+                // هاله‌های نوری نئونی متحرک در پس‌زمینه
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val w = size.width
+                    val h = size.height
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF1DB954).copy(alpha = 0.22f * glowPulse.coerceAtMost(1f)),
+                                Color.Transparent
+                            ),
+                            center = androidx.compose.ui.geometry.Offset(w * 0.25f, h * 0.28f),
+                            radius = w * 0.65f * glowPulse
+                        ),
+                        center = androidx.compose.ui.geometry.Offset(w * 0.25f, h * 0.28f),
+                        radius = w * 0.65f * glowPulse
+                    )
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFFA855F7).copy(alpha = 0.20f * glowPulse.coerceAtMost(1f)),
+                                Color.Transparent
+                            ),
+                            center = androidx.compose.ui.geometry.Offset(w * 0.78f, h * 0.68f),
+                            radius = w * 0.62f
+                        ),
+                        center = androidx.compose.ui.geometry.Offset(w * 0.78f, h * 0.68f),
+                        radius = w * 0.62f
+                    )
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF00E5FF).copy(alpha = 0.16f),
+                                Color.Transparent
+                            ),
+                            center = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.46f),
+                            radius = w * 0.55f * glowPulse
+                        ),
+                        center = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.46f),
+                        radius = w * 0.55f * glowPulse
+                    )
+                }
+
                 Column(
                     modifier = Modifier
-                        .widthIn(max = 310.dp)
-                        .fillMaxWidth(0.84f)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Color.White.copy(alpha = 0.05f))
-                        .border(
-                            width = 1.dp,
-                            color = Color(0xFF1DB954).copy(alpha = 0.28f),
-                            shape = RoundedCornerShape(24.dp)
+                        .widthIn(max = 340.dp)
+                        .fillMaxWidth(0.88f)
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color(0xFF141B2D).copy(alpha = 0.78f),
+                                    Color(0xFF0B0F1B).copy(alpha = 0.88f)
+                                )
+                            )
                         )
-                        .padding(horizontal = 24.dp, vertical = 26.dp),
+                        .border(
+                            width = 1.2.dp,
+                            brush = Brush.linearGradient(
+                                listOf(
+                                    Color(0xFF1DB954).copy(alpha = 0.55f),
+                                    Color(0xFF00E5FF).copy(alpha = 0.45f),
+                                    Color(0xFFA855F7).copy(alpha = 0.55f)
+                                )
+                            ),
+                            shape = RoundedCornerShape(32.dp)
+                        )
+                        .padding(horizontal = 26.dp, vertical = 32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    // حلقه چرخان نئونی + اکولایزر زنده در مرکز
                     Box(
-                        modifier = Modifier
-                            .size(56.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF1DB954).copy(alpha = 0.16f)),
+                        modifier = Modifier.size(96.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.GraphicEq,
-                            contentDescription = null,
-                            tint = Color(0xFF1DB954),
-                            modifier = Modifier.size(30.dp)
+                        Box(
+                            modifier = Modifier
+                                .size(96.dp)
+                                .rotate(orbitRotation)
+                                .clip(CircleShape)
+                                .border(
+                                    width = 2.5.dp,
+                                    brush = Brush.sweepGradient(
+                                        listOf(
+                                            Color.Transparent,
+                                            Color(0xFF1DB954),
+                                            Color(0xFF00E5FF),
+                                            Color(0xFFA855F7),
+                                            Color.Transparent
+                                        )
+                                    ),
+                                    shape = CircleShape
+                                )
                         )
+
+                        Box(
+                            modifier = Modifier
+                                .size(78.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.radialGradient(
+                                        listOf(
+                                            Color(0xFF1DB954).copy(alpha = 0.22f),
+                                            Color(0xFF0D1322).copy(alpha = 0.95f)
+                                        )
+                                    )
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = Color.White.copy(alpha = 0.12f),
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                val barPalette = listOf(
+                                    Color(0xFF1DB954),
+                                    Color(0xFF00E5FF),
+                                    Color(0xFFA855F7),
+                                    Color(0xFF1DB954),
+                                    Color(0xFF00E5FF),
+                                    Color(0xFFA855F7),
+                                    Color(0xFF1DB954)
+                                )
+                                for (idx in 0 until 7) {
+                                    val hRatio = ((sin(wavePhase + idx * 0.75f) + 1f) / 2f)
+                                        .coerceIn(0.24f, 1f)
+                                    Box(
+                                        modifier = Modifier
+                                            .width(4.dp)
+                                            .fillMaxHeight(hRatio)
+                                            .clip(RoundedCornerShape(50))
+                                            .background(barPalette[idx])
+                                    )
+                                }
+                            }
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(22.dp))
 
                     Text(
-                        text = if (isPersian) "در حال آماده‌سازی برنامه" else "Preparing Aura Music",
-                        color = Color.White,
-                        fontSize = 17.sp,
+                        text = "AURA MUSIC",
+                        color = Color(0xFF00E5FF),
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        textAlign = TextAlign.Center
+                        letterSpacing = 2.8.sp
                     )
 
                     Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
-                        text = statusText,
-                        color = Color.White.copy(alpha = 0.68f),
-                        fontSize = 12.sp,
-                        textAlign = TextAlign.Center,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    Spacer(modifier = Modifier.height(18.dp))
-
-                    LinearProgressIndicator(
-                        progress = { animatedProgress.coerceIn(0.05f, 1f) },
-                        color = Color(0xFF1DB954),
-                        trackColor = Color.White.copy(alpha = 0.1f),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(50))
+                        text = if (isPersian) "خوش آمدید به دنیای موسیقی" else "Welcome to Aura Music",
+                        color = Color.White,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        textAlign = TextAlign.Center
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "${(animatedProgress * 100).toInt().coerceIn(5, 100)}%",
-                        color = Color(0xFF1DB954),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
+                        text = statusText,
+                        color = Color.White.copy(alpha = 0.72f),
+                        fontSize = 12.5.sp,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
+
+                    Spacer(modifier = Modifier.height(22.dp))
+
+                    // نوار پیشرفت گرادیانی نئونی
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.White.copy(alpha = 0.08f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(animatedProgress.coerceIn(0.08f, 1f))
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            Color(0xFF1DB954),
+                                            Color(0xFF00E5FF),
+                                            Color(0xFFA855F7)
+                                        )
+                                    )
+                                )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isPersian) "ورود سریع و هوشمند" else "Fast Smart Launch",
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontSize = 11.sp
+                        )
+                        Surface(
+                            color = Color(0xFF1DB954).copy(alpha = 0.16f),
+                            shape = RoundedCornerShape(50),
+                            border = BorderStroke(1.dp, Color(0xFF1DB954).copy(alpha = 0.35f))
+                        ) {
+                            Text(
+                                text = "${(animatedProgress * 100).toInt().coerceIn(8, 100)}%",
+                                color = Color(0xFF1DB954),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
