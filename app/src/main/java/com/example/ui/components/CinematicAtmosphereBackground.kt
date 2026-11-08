@@ -16,8 +16,11 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import android.graphics.Bitmap
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import coil.size.Size
+import com.example.OnlineMusicRepository
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
 import com.example.data.model.Track
@@ -103,14 +106,20 @@ fun CinematicAtmosphereBackground(
             modifier = Modifier.fillMaxSize()
         ) { uri ->
             if (!uri.isNullOrEmpty()) {
+                val hiResUri = remember(uri) {
+                    OnlineMusicRepository.upgradeToHighResImageUrl(uri)
+                }
                 AsyncImage(
                     model = ImageRequest.Builder(context)
-                        .data(uri)
-                        .size(256, 256)
+                        .data(hiResUri)
+                        .size(Size.ORIGINAL)
+                        .bitmapConfig(Bitmap.Config.ARGB_8888)
+                        .allowRgb565(false)
                         .crossfade(true)
                         .build(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
+                    filterQuality = FilterQuality.High,
                     modifier = Modifier
                         .fillMaxSize()
                         .blur(68.dp),

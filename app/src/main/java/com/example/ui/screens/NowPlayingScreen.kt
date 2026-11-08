@@ -43,7 +43,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.graphics.Bitmap
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Size as CoilSize
 import com.example.OnlineCacheHolder
 import com.example.OnlineMusicRepository
 import com.example.audio.AmbientPalette
@@ -601,15 +604,20 @@ fun NowPlayingScreen(
                                 },
                             contentAlignment = Alignment.Center
                         ) {
-                            var loadedCoverBitmap by remember(track.id, track.artworkUri) {
-                                mutableStateOf(OnlineMusicRepository.getCachedCoverBitmap(track.artworkUri ?: track.id))
+                            val hiResArtworkUri = remember(track.artworkUri) {
+                                OnlineMusicRepository.upgradeToHighResImageUrl(track.artworkUri)
                             }
-                            LaunchedEffect(track.id, track.artworkUri) {
+                            var loadedCoverBitmap by remember(track.id, hiResArtworkUri) {
+                                mutableStateOf(OnlineMusicRepository.getCachedCoverBitmap(hiResArtworkUri.ifBlank { track.id }))
+                            }
+                            LaunchedEffect(track.id, hiResArtworkUri) {
                                 if (loadedCoverBitmap == null) {
-                                    val url = track.artworkUri?.takeIf { it.isNotBlank() }
+                                    val url = hiResArtworkUri.ifBlank { null }
                                         ?: OnlineMusicRepository.getCoverUrlForTrack(track.id, track.artist)
                                     if (!url.isNullOrBlank()) {
-                                        loadedCoverBitmap = OnlineMusicRepository.loadCoverBitmap(url)
+                                        loadedCoverBitmap = OnlineMusicRepository.loadCoverBitmap(
+                                            OnlineMusicRepository.upgradeToHighResImageUrl(url).ifBlank { url }
+                                        )
                                     }
                                 }
                             }
@@ -620,14 +628,22 @@ fun NowPlayingScreen(
                                     bitmap = bmp.asImageBitmap(),
                                     contentDescription = track.title,
                                     modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
+                                    contentScale = ContentScale.Crop,
+                                    filterQuality = FilterQuality.High
                                 )
-                            } else if (!track.artworkUri.isNullOrEmpty()) {
+                            } else if (!hiResArtworkUri.isNullOrEmpty()) {
                                 AsyncImage(
-                                    model = track.artworkUri,
+                                    model = ImageRequest.Builder(context)
+                                        .data(hiResArtworkUri)
+                                        .size(CoilSize.ORIGINAL)
+                                        .bitmapConfig(Bitmap.Config.ARGB_8888)
+                                        .allowRgb565(false)
+                                        .crossfade(true)
+                                        .build(),
                                     contentDescription = track.title,
                                     modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
+                                    contentScale = ContentScale.Crop,
+                                    filterQuality = FilterQuality.High
                                 )
                             } else {
                                 MusicArtworkPlaceholder(

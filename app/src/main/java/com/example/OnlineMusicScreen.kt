@@ -49,6 +49,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -108,7 +109,9 @@ data class CloudflareTrack(
 ) {
     fun toOnlineTrack(): OnlineTrack {
         val base = CloudflareMusicApi.workerBaseUrl.trimEnd('/')
-        val resolvedCover = coverUrl?.takeIf { it.isNotBlank() } ?: "$base/cover?id=$id&v=hd9"
+        val resolvedCover = OnlineMusicRepository.upgradeToHighResImageUrl(
+            coverUrl?.takeIf { it.isNotBlank() } ?: "$base/cover?id=$id&v=hd9&size=large"
+        )
         return OnlineTrack(
             id = id,
             title = title,
@@ -241,17 +244,22 @@ object CloudflareMusicApi {
                 else -> "$baseUrl/stream?id=$id"
             }
 
-            val rawCover = item.optString("cover_url")
+            val rawCover = item.optString("cover_xl")
+                .ifBlank { item.optString("cover_big") }
+                .ifBlank { item.optString("picture_xl") }
                 .ifBlank { item.optString("coverUrl") }
+                .ifBlank { item.optString("cover_url") }
                 .ifBlank { item.optString("cover") }
                 .ifBlank { item.optString("artwork") }
 
-            val coverUrl = when {
-                rawCover.startsWith("http") -> rawCover
-                rawCover.startsWith("/") -> "$baseUrl$rawCover"
-                rawCover.isNotBlank() -> rawCover
-                else -> "$baseUrl/cover?id=$id&v=hd9"
-            }
+            val coverUrl = OnlineMusicRepository.upgradeToHighResImageUrl(
+                when {
+                    rawCover.startsWith("http") -> rawCover
+                    rawCover.startsWith("/") -> "$baseUrl$rawCover"
+                    rawCover.isNotBlank() -> rawCover
+                    else -> "$baseUrl/cover?id=$id&v=hd9&size=large"
+                }
+            )
 
             list.add(
                 CloudflareTrack(
@@ -1020,7 +1028,9 @@ object OnlineMusicRepository {
     val BASE_URL: String get() = WORKER_URL.trimEnd('/')
     private const val PRIVATE_CATALOG_CACHE_FILE = "aura_cloud_catalog_cache_v3.json"
     private const val LEGACY_CATALOG_CACHE_FILE = "aura_cloud_catalog_cache_v2.json"
-    private const val PRIVATE_TRACK_COVERS_DIR = "track_covers_private_cache"
+    private const val PRIVATE_TRACK_COVERS_DIR = "track_covers_private_cache_hd"
+    private const val LEGACY_TRACK_COVERS_DIR = "track_covers_private_cache"
+    private val cleanedLegacyCoverCache = AtomicBoolean(false)
     private val WORKER_HOST_REGEX = Regex("https?://[^/]+\\.workers\\.dev", RegexOption.IGNORE_CASE)
 
     private val imageMemoryCache = object : LruCache<String, Bitmap>(220) {}
@@ -1417,8 +1427,27 @@ object OnlineMusicRepository {
         }
     }
 
+    fun upgradeToHighResImageUrl(rawUrl: String?): String {
+        val trimmed = rawUrl?.trim().orEmpty()
+        if (trimmed.isBlank()) return ""
+        return trimmed
+            .replace("size=small", "size=large", ignoreCase = true)
+            .replace("size=thumb", "size=large", ignoreCase = true)
+            .replace("size=medium", "size=large", ignoreCase = true)
+            .replace("cover_small", "cover_xl", ignoreCase = true)
+            .replace("cover_medium", "cover_xl", ignoreCase = true)
+            .replace("picture_small", "picture_xl", ignoreCase = true)
+            .replace("picture_medium", "picture_xl", ignoreCase = true)
+            .replace("56x56", "1000x1000", ignoreCase = true)
+            .replace("100x100", "1000x1000", ignoreCase = true)
+            .replace("120x120", "1000x1000", ignoreCase = true)
+            .replace("200x200", "1000x1000", ignoreCase = true)
+            .replace("250x250", "1000x1000", ignoreCase = true)
+            .replace("300x300", "1000x1000", ignoreCase = true)
+    }
+
     fun normalizeWorkerImageUrl(rawUrl: String): String {
-        val trimmed = rawUrl.trim()
+        val trimmed = upgradeToHighResImageUrl(rawUrl)
         if (trimmed.isBlank()) return ""
         return when {
             trimmed.startsWith("http://") || trimmed.startsWith("https://") ->
@@ -1553,6 +1582,12 @@ object OnlineMusicRepository {
     private fun getPrivateTrackCoverCacheDir(): File? {
         return try {
             val appCtx = AuraApplication.instance.applicationContext
+            if (cleanedLegacyCoverCache.compareAndSet(false, true)) {
+                try {
+                    val legacyDir = File(appCtx.filesDir, LEGACY_TRACK_COVERS_DIR)
+                    if (legacyDir.exists()) legacyDir.deleteRecursively()
+                } catch (_: Exception) {}
+            }
             val dir = File(appCtx.filesDir, PRIVATE_TRACK_COVERS_DIR)
             if (!dir.exists()) {
                 dir.mkdirs()
@@ -1580,7 +1615,7 @@ object OnlineMusicRepository {
         return File(dir, "tg_cover_$safeKey.jpg")
     }
 
-    private fun decodeDownsampledCoverBytes(bytes: ByteArray, maxDim: Int = 320): Bitmap? {
+    private fun decodeDownsampledCoverBytes(bytes: ByteArray, maxDim: Int = 1000): Bitmap? {
         return try {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
@@ -1591,7 +1626,7 @@ object OnlineMusicRepository {
             }
             val opts = BitmapFactory.Options().apply {
                 inSampleSize = sampleSize
-                inPreferredConfig = Bitmap.Config.RGB_565
+                inPreferredConfig = Bitmap.Config.ARGB_8888
             }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
         } catch (_: Throwable) {
@@ -1599,7 +1634,7 @@ object OnlineMusicRepository {
         }
     }
 
-    private fun decodeDownsampledCoverFile(file: File, maxDim: Int = 320): Bitmap? {
+    private fun decodeDownsampledCoverFile(file: File, maxDim: Int = 1000): Bitmap? {
         return try {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(file.absolutePath, bounds)
@@ -1610,7 +1645,7 @@ object OnlineMusicRepository {
             }
             val opts = BitmapFactory.Options().apply {
                 inSampleSize = sampleSize
-                inPreferredConfig = Bitmap.Config.RGB_565
+                inPreferredConfig = Bitmap.Config.ARGB_8888
             }
             BitmapFactory.decodeFile(file.absolutePath, opts)
         } catch (_: Throwable) {
@@ -1773,10 +1808,14 @@ object OnlineMusicRepository {
                     val rawName = obj.optString("name", "").trim()
                     if (rawName.isBlank()) continue
                     val trackCount = obj.optInt("trackCount", obj.optInt("count", 0))
-                    val rawCover = obj.optString("cover", "")
-                        .ifBlank { obj.optString("picture", "") }
+                    val rawCover = obj.optString("picture_xl", "")
+                        .ifBlank { obj.optString("cover_xl", "") }
+                        .ifBlank { obj.optString("cover_big", "") }
+                        .ifBlank { obj.optString("coverUrl", "") }
                         .ifBlank { obj.optString("cover_url", "") }
                         .ifBlank { obj.optString("picture_url", "") }
+                        .ifBlank { obj.optString("cover", "") }
+                        .ifBlank { obj.optString("picture", "") }
 
                     val isCollab = SmartArtistParser.isCollaborationString(rawName)
                     val individualNames = SmartArtistParser.extractArtistsFromTrack(rawName)
@@ -1827,10 +1866,14 @@ object OnlineMusicRepository {
                             val rawName = item.optString("name", "").trim()
                             if (rawName.isNotBlank()) {
                                 val count = item.optInt("trackCount", item.optInt("count", 0))
-                                val rawCover = item.optString("cover", "")
-                                    .ifBlank { item.optString("picture", "") }
+                                val rawCover = item.optString("picture_xl", "")
+                                    .ifBlank { item.optString("cover_xl", "") }
+                                    .ifBlank { item.optString("cover_big", "") }
+                                    .ifBlank { item.optString("coverUrl", "") }
                                     .ifBlank { item.optString("cover_url", "") }
                                     .ifBlank { item.optString("picture_url", "") }
+                                    .ifBlank { item.optString("cover", "") }
+                                    .ifBlank { item.optString("picture", "") }
                                 val primaryName = SmartArtistParser.extractPrimaryArtist(rawName)
                                 val cover = ArtistAvatarDiskCache.resolveCloudflareArtistUrl(primaryName, rawCover)
                                 if (cover.isNotBlank()) {
@@ -1886,8 +1929,11 @@ object OnlineMusicRepository {
                     val rawDownload = obj.optString("download_url", "")
                         .ifBlank { obj.optString("downloadUrl", "") }
                         .ifBlank { rawStream }
-                    val rawCover = obj.optString("cover_url", "")
+                    val rawCover = obj.optString("cover_xl", "")
+                        .ifBlank { obj.optString("cover_big", "") }
+                        .ifBlank { obj.optString("picture_xl", "") }
                         .ifBlank { obj.optString("coverUrl", "") }
+                        .ifBlank { obj.optString("cover_url", "") }
                         .ifBlank { obj.optString("cover", "") }
                     val rawGenre = obj.optString("genre", "")
                         .ifBlank { obj.optString("category", "") }
@@ -1897,11 +1943,11 @@ object OnlineMusicRepository {
 
                     val streamUrl = resolveWorkerUrl(rawStream)
                     val downloadUrl = resolveWorkerUrl(rawDownload)
-                    // کاور آهنگ همیشه از تلگرام از طریق سرور کلادفلر (/cover?id=...) دریافت می‌شود
+                    // کاور آهنگ همیشه با کیفیت بالا از تلگرام از طریق سرور کلادفلر دریافت می‌شود
                     val encodedId = try { URLEncoder.encode(id, "UTF-8") } catch (_: Exception) { id }
                     val coverUrl = normalizeWorkerImageUrl(rawCover).let { candidate ->
                         if (candidate.isBlank() || candidate.contains("dzcdn.net") || candidate.contains("deezer.com") || candidate.contains("/artist-cover")) {
-                            "$BASE_URL/cover?id=$encodedId"
+                            "$BASE_URL/cover?id=$encodedId&size=large"
                         } else {
                             candidate
                         }
@@ -2122,9 +2168,7 @@ object OnlineMusicRepository {
                             if (diskCoverFile != null) {
                                 try {
                                     val tmp = File(diskCoverFile.parentFile, "${diskCoverFile.name}.tmp")
-                                    FileOutputStream(tmp).use { out ->
-                                        bitmap.compress(Bitmap.CompressFormat.JPEG, 88, out)
-                                    }
+                                    tmp.writeBytes(bytes)
                                     if (tmp.exists() && tmp.length() > 512L) {
                                         if (diskCoverFile.exists()) diskCoverFile.delete()
                                         tmp.renameTo(diskCoverFile)
@@ -4541,6 +4585,7 @@ private fun CloudTrackCoverBox(
                 bitmap = bmp.asImageBitmap(),
                 contentDescription = fallbackName,
                 contentScale = ContentScale.Crop,
+                filterQuality = FilterQuality.High,
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(shape)

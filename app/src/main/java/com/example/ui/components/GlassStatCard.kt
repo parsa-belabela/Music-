@@ -27,7 +27,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.graphics.Bitmap
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Size
+import com.example.OnlineMusicRepository
 import com.example.audio.AmbientPalette
 import com.example.data.model.Track
 import com.example.ui.theme.GlassThickness
@@ -124,13 +131,24 @@ fun GlassStatCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (track.artworkUri != null) {
+                        val context = LocalContext.current
+                        val hiResUri = remember(track.artworkUri) {
+                            OnlineMusicRepository.upgradeToHighResImageUrl(track.artworkUri)
+                        }
                         AsyncImage(
-                            model = track.artworkUri,
+                            model = ImageRequest.Builder(context)
+                                .data(hiResUri)
+                                .size(Size.ORIGINAL)
+                                .bitmapConfig(Bitmap.Config.ARGB_8888)
+                                .allowRgb565(false)
+                                .crossfade(true)
+                                .build(),
                             contentDescription = null,
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(RoundedCornerShape(10.dp)),
-                            contentScale = ContentScale.Crop
+                            contentScale = ContentScale.Crop,
+                            filterQuality = FilterQuality.High
                         )
                     } else {
                         Box(

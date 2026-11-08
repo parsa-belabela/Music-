@@ -5,8 +5,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Bitmap
 import android.media.AudioManager
 import android.os.StrictMode
+import coil.ImageLoader
+import coil.ImageLoaderFactory
 import com.example.audio.AudioAnalysisEngine
 import com.example.audio.AudioEngine
 import com.example.data.db.AppDatabase
@@ -16,8 +19,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-class AuraApplication : Application() {
+class AuraApplication : Application(), ImageLoaderFactory {
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    override fun newImageLoader(): ImageLoader {
+        return ImageLoader.Builder(this)
+            .bitmapConfig(Bitmap.Config.ARGB_8888)
+            .allowRgb565(false)
+            .crossfade(true)
+            .build()
+    }
 
     val database by lazy { AppDatabase.getInstance(this) }
     val repository by lazy { MusicRepository(this, database.musicDao()) }

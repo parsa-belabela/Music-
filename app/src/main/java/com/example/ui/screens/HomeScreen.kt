@@ -43,9 +43,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.graphics.Bitmap
+import androidx.compose.ui.graphics.FilterQuality
 import coil.compose.rememberAsyncImagePainter
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import coil.size.Size
 import com.example.OnlineCacheHolder
 import com.example.OnlineMusicRepository
 import com.example.OnlineTasteEngine
@@ -761,11 +764,22 @@ private fun HeroQuickPlayCard(
                         contentAlignment = Alignment.Center
                     ) {
                         if (!heroTrack?.artworkUri.isNullOrEmpty()) {
-                            coil.compose.AsyncImage(
-                                model = heroTrack?.artworkUri,
+                            val context = LocalContext.current
+                            val hiResHeroUri = remember(heroTrack?.artworkUri) {
+                                OnlineMusicRepository.upgradeToHighResImageUrl(heroTrack?.artworkUri)
+                            }
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(hiResHeroUri)
+                                    .size(Size.ORIGINAL)
+                                    .bitmapConfig(Bitmap.Config.ARGB_8888)
+                                    .allowRgb565(false)
+                                    .crossfade(true)
+                                    .build(),
                                 contentDescription = heroTrack?.title,
                                 modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
+                                contentScale = ContentScale.Crop,
+                                filterQuality = FilterQuality.High
                             )
                         } else {
                             MusicArtworkPlaceholder(
@@ -960,10 +974,21 @@ fun HomeCloudflareSpotlightSection(
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (!track.artworkUri.isNullOrBlank()) {
+                                    val context = LocalContext.current
+                                    val hiResSpotlightUri = remember(track.artworkUri) {
+                                        OnlineMusicRepository.upgradeToHighResImageUrl(track.artworkUri)
+                                    }
                                     AsyncImage(
-                                        model = track.artworkUri,
+                                        model = ImageRequest.Builder(context)
+                                            .data(hiResSpotlightUri)
+                                            .size(Size.ORIGINAL)
+                                            .bitmapConfig(Bitmap.Config.ARGB_8888)
+                                            .allowRgb565(false)
+                                            .crossfade(true)
+                                            .build(),
                                         contentDescription = track.title,
                                         contentScale = ContentScale.Crop,
+                                        filterQuality = FilterQuality.High,
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 } else {

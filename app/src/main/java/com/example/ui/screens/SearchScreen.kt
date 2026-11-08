@@ -13,7 +13,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import android.graphics.Bitmap
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -21,6 +23,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Size
 import com.example.CloudflareMusicApi
 import com.example.CloudflareTrack
 import com.example.OnlineMusicRepository
@@ -154,11 +158,22 @@ fun TrackListItem(track: CloudflareTrack, onClick: () -> Unit) {
             contentAlignment = Alignment.Center
         ) {
             if (!track.coverUrl.isNullOrBlank()) {
+                val context = LocalContext.current
+                val hiResUrl = remember(track.coverUrl) {
+                    OnlineMusicRepository.upgradeToHighResImageUrl(track.coverUrl)
+                }
                 AsyncImage(
-                    model = track.coverUrl,
+                    model = ImageRequest.Builder(context)
+                        .data(hiResUrl)
+                        .size(Size.ORIGINAL)
+                        .bitmapConfig(Bitmap.Config.ARGB_8888)
+                        .allowRgb565(false)
+                        .crossfade(true)
+                        .build(),
                     contentDescription = track.title,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                    contentScale = ContentScale.Crop,
+                    filterQuality = FilterQuality.High
                 )
             } else {
                 Text("🎵", fontSize = 24.sp)
