@@ -1311,24 +1311,11 @@ object OnlineMusicRepository {
             if (isPersian) "در حال ساخت آلبوم‌ها، دسته‌بندی‌ها و پروفایل هنرمندان..." else "Indexing albums, categories & artists..."
         )
 
-        val baseTracks = if (onlineAppTracks.isNotEmpty()) onlineAppTracks else localTracks
-        val unifiedTracks = if (onlineAppTracks.isNotEmpty() && localTracks.isNotEmpty()) {
-            withContext(Dispatchers.Default) {
-                (onlineAppTracks + localTracks).distinctBy {
-                    "${it.title.trim().lowercase()}__${it.artist.trim().lowercase()}"
-                }
-            }
-        } else {
-            baseTracks
-        }
+        val unifiedTracks = onlineAppTracks
 
-        // ۲. پیش‌محاسبه کامل آلبوم‌ها، هنرمندان و دسته‌بندی‌ها در رم برای هر دو حالت زبان
+        // ۲. پیش‌محاسبه کامل آلبوم‌ها، هنرمندان و دسته‌بندی‌ها در رم برای هر دو حالت زبان (فقط آهنگ‌های آنلاین کلادفلر)
         val hubPrimary = computeHubDataAsync(unifiedTracks, isPersian)
         computeHubDataAsync(unifiedTracks, !isPersian)
-        if (onlineAppTracks.isNotEmpty() && unifiedTracks.size != onlineAppTracks.size) {
-            computeHubDataAsync(onlineAppTracks, isPersian)
-            computeHubDataAsync(onlineAppTracks, !isPersian)
-        }
 
         onProgress(
             0.55f,
@@ -5043,8 +5030,11 @@ fun SongRequestModalSheet(
     var isSending by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
 
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = Color(0xFF101422),
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     ) {

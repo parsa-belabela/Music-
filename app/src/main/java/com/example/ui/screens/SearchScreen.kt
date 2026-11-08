@@ -266,31 +266,15 @@ fun SearchScreen(
 
     val isPersian = appSettings.language == AppLanguage.PERSIAN
 
-    var unifiedTracks by remember {
-        mutableStateOf(if (onlineTracks.isNotEmpty()) onlineTracks else tracks)
-    }
-
-    LaunchedEffect(tracks, onlineTracks, isPersian) {
-        val nextUnified = if (onlineTracks.isEmpty()) {
-            tracks
-        } else if (tracks.isEmpty()) {
-            onlineTracks
-        } else {
-            withContext(Dispatchers.Default) {
-                (onlineTracks + tracks).distinctBy {
-                    "${it.title.trim().lowercase()}__${it.artist.trim().lowercase()}"
-                }
-            }
+    LaunchedEffect(onlineTracks, isPersian) {
+        if (onlineTracks.isNotEmpty()) {
+            OnlineMusicRepository.computeHubDataAsync(onlineTracks, isPersian)
         }
-        if (nextUnified.isNotEmpty()) {
-            OnlineMusicRepository.computeHubDataAsync(nextUnified, isPersian)
-        }
-        unifiedTracks = nextUnified
     }
 
     Box(modifier = modifier.fillMaxSize()) {
         OnlineMusicScreen(
-            onlineTracks = unifiedTracks,
+            onlineTracks = onlineTracks,
             isLoading = isLoadingOnline,
             currentPlayingTrack = playbackState.currentTrack,
             isPersian = isPersian,
@@ -312,14 +296,8 @@ fun SearchScreen(
     onPlayTrack: (Track, List<Track>) -> Unit,
     onRefreshOnline: () -> Unit = {}
 ) {
-    val unifiedTracks = remember(localTracks, onlineTracks) {
-        if (onlineTracks.isEmpty()) localTracks
-        else if (localTracks.isEmpty()) onlineTracks
-        else (onlineTracks + localTracks).distinctBy { "${it.title.trim()}_${it.artist.trim()}" }
-    }
-
     OnlineMusicScreen(
-        onlineTracks = unifiedTracks,
+        onlineTracks = onlineTracks,
         isLoading = isLoadingOnline,
         currentPlayingTrack = currentPlayingTrack,
         isPersian = isPersian,

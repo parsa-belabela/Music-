@@ -1246,42 +1246,13 @@ class AudioEngine(private val context: Context) {
 
     private fun initAudioEffects(sessionId: Int, startSilentForFade: Boolean = false) {
         if (sessionId <= 0) return
-        releaseEffects()
 
         try {
-            AuraDspController.bindToAudioSession(sessionId)
+            val dsp = AuraDspController.getInstance(sessionId)
+            dsp.attachToSession(sessionId)
         } catch (e: Exception) {
             Log.w(tag, "AuraDspController init error: ${e.message}")
         }
-
-        try {
-            // اولویت استاندارد ۰ برای سازگاری بی‌نقص با موتور AudioFlinger
-            equalizer = Equalizer(0, sessionId).apply {
-                enabled = isEqEnabled
-            }
-        } catch (e: Exception) {
-            Log.w(tag, "Equalizer init warning: ${e.message}")
-        }
-
-        try {
-            bassBoost = BassBoost(0, sessionId).apply {
-                enabled = isEqEnabled && currentBassBoostStrength > 0
-                if (strengthSupported) {
-                    setStrength(currentBassBoostStrength.toShort().coerceIn(0, 1000))
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(tag, "BassBoost init warning: ${e.message}")
-        }
-
-        try {
-            virtualizer = Virtualizer(0, sessionId).apply {
-                enabled = isEqEnabled && currentBassBoostStrength > 60
-                if (strengthSupported) {
-                    setStrength(((currentBassBoostStrength / 1000f) * 600f).toInt().toShort().coerceIn(0, 1000))
-                }
-            }
-        } catch (_: Exception) {}
 
         applyCurrentEffects(suppressLoudnessBoost = startSilentForFade)
     }
@@ -1292,8 +1263,8 @@ class AudioEngine(private val context: Context) {
         bassBoostStrength: Int,
         beatFocus: Boolean = beatFocusEnabled,
         vocalCrystal: Boolean = vocalCrystalEnabled,
-        virtualizer: Float = AuraDspController.virtualizerStrength,
-        loudness: Float = AuraDspController.loudnessStrength
+        virtualizer: Float = AuraDspController.getInstance().state.value.virtualizerStrength,
+        loudness: Float = (AuraDspController.getInstance().state.value.loudnessGainDb / 15f).coerceIn(0f, 1f)
     ) {
         isEqEnabled = enabled
         currentEqBands = bands
@@ -1302,27 +1273,29 @@ class AudioEngine(private val context: Context) {
         vocalCrystalEnabled = vocalCrystal
 
         val sid = _audioSessionId.value
-        AuraDspController.isEnabled = enabled
-        val gains = FloatArray(5)
-        for (i in 0 until 5) {
-            gains[i] = bands.getOrElse(i) { 0f }
-        }
-        AuraDspController.bandGainsDb = gains
-        AuraDspController.bassStrength = (bassBoostStrength / 1000f).coerceIn(0f, 1f)
-        AuraDspController.virtualizerStrength = virtualizer.coerceIn(0f, 1f)
-        AuraDspController.loudnessStrength = loudness.coerceIn(0f, 1f)
-
+        val dsp = AuraDspController.getInstance(sid)
         if (sid > 0) {
-            AuraDspController.bindToAudioSession(sid)
-        } else {
-            AuraDspController.applyCurrentState()
+            dsp.attachToSession(sid)
+        }
+        dsp.setEnabled(enabled)
+        if (bands.isNotEmpty()) {
+            val tenBands = if (bands.size >= 10) {
+                bands.take(10)
+            } else {
+                List(10) { idx -> bands.getOrElse(idx / 2) { 0f } }
+            }
+            dsp.setBandLevels(tenBands, dsp.state.value.activePresetId)
+        }
+        dsp.setBassBoost(bassBoostStrength)
+        dsp.setVirtualizer(virtualizer.coerceIn(0f, 1f))
+        dsp.setLoudnessGain((loudness.coerceIn(0f, 1f) * 15f))
+        if (beatFocus) {
+            dsp.setSubBassPunch(0.65f)
+        }
+        if (vocalCrystal) {
+            dsp.setVocalClarity(0.75f)
         }
 
-        if (equalizer == null && sid > 0) {
-            initAudioEffects(sid)
-        } else {
-            applyCurrentEffects()
-        }
         applyVolume()
     }
 
@@ -1348,78 +1321,15 @@ class AudioEngine(private val context: Context) {
         return gains.last()
     }
 
-    /**
-     * اعمال واقعی و قدرتمند اکولایزر ۱۰ بانده + تقویت سابووفر (Sub-Bass Shelf) + Loudness DSP
-     */
     private fun applyCurrentEffects(suppressLoudnessBoost: Boolean = false) {
-        val bassNormalized = (currentBassBoostStrength / 1000f).coerceIn(0f, 1f)
-
-        // ۱. اعمال سختافزاری BassBoost با حداکثر اولویت
-        try {
-            bassBoost?.let { bb ->
-                bb.enabled = isEqEnabled && currentBassBoostStrength > 0
-                if (bb.strengthSupported) {
-                    bb.setStrength(currentBassBoostStrength.toShort().coerceIn(0, 1000))
-                }
+        val sid = _audioSessionId.value
+        if (sid > 0) {
+            try {
+                AuraDspController.getInstance(sid).attachToSession(sid)
+            } catch (e: Exception) {
+                Log.w(tag, "AuraDspController applyCurrentEffects warning: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(tag, "Failed applying bass boost: ${e.message}")
         }
-
-        // ۲. اعمال باندهای اکولایزر + تزریق Sub-Bass Shelf واقعی روی فرکانسهای زیر 160Hz
-        try {
-            equalizer?.let { eq ->
-                eq.enabled = isEqEnabled
-                val numBands = eq.numberOfBands.toInt()
-                if (numBands > 0) {
-                    val range = eq.bandLevelRange
-                    val minLevel = range[0].toInt()
-                    val maxLevel = range[1].toInt()
-
-                    for (band in 0 until numBands) {
-                        val centerFreqMilliHz = eq.getCenterFreq(band.toShort())
-                        val centerFreqHz = (centerFreqMilliHz / 1000f).coerceAtLeast(20f)
-                        var gainDb = calculateGainForFreq(centerFreqHz, currentEqBands)
-
-                        if (isEqEnabled && bassNormalized > 0f && centerFreqHz <= 180f) {
-                            val subBassShelfFactor = ((180f - centerFreqHz) / 150f).coerceIn(0f, 1f)
-                            gainDb += (bassNormalized * 9.5f * subBassShelfFactor)
-                        }
-
-                        if (beatFocusEnabled) {
-                            when {
-                                centerFreqHz <= 150f -> gainDb += 4.2f
-                                centerFreqHz in 420f..2400f -> gainDb -= 3.0f
-                                centerFreqHz >= 7500f -> gainDb += 2.2f
-                            }
-                        }
-
-                        if (vocalCrystalEnabled) {
-                            when {
-                                centerFreqHz in 160f..320f -> gainDb -= 1.6f
-                                centerFreqHz in 900f..4500f -> gainDb += 4.5f
-                                centerFreqHz > 4500f -> gainDb += 2.0f
-                            }
-                        }
-
-                        val targetMilliBels = (gainDb * 100f).roundToInt().coerceIn(minLevel, maxLevel)
-                        eq.setBandLevel(band.toShort(), targetMilliBels.toShort())
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(tag, "Failed applying equalizer bands: ${e.message}")
-        }
-
-        // ۳. ایجاد فضای سه‌بعدی ملایم متناسب با بیس
-        try {
-            virtualizer?.let { virt ->
-                virt.enabled = isEqEnabled && currentBassBoostStrength > 60
-                if (virt.strengthSupported) {
-                    virt.setStrength(((currentBassBoostStrength / 1000f) * 600f).toInt().toShort().coerceIn(0, 1000))
-                }
-            }
-        } catch (_: Exception) {}
     }
 
     private fun releaseEffects() {
@@ -1429,7 +1339,7 @@ class AudioEngine(private val context: Context) {
         equalizer = null
         bassBoost = null
         virtualizer = null
-        try { AuraDspController.releaseEffects() } catch (_: Exception) {}
+        try { AuraDspController.getInstance().release() } catch (_: Exception) {}
     }
 
     private fun startProgressTracker() {

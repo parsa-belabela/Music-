@@ -414,6 +414,9 @@ fun MainScreen(
                         )
                     }
                     MainTab.WRAPPED -> {
+                        LaunchedEffect(Unit) {
+                            viewModel.refreshWrappedPeriods()
+                        }
                         WrappedScreen(
                             appSettings = appSettings,
                             palette = palette,
@@ -422,7 +425,20 @@ fun MainScreen(
                             wrappedStats = wrappedStats,
                             onSelectPeriod = { viewModel.selectWrappedPeriod(it) },
                             onPlayTrackById = { trackId ->
-                                allTracks.firstOrNull { it.id == trackId }?.let { viewModel.playTrack(it, allTracks) }
+                                val onlineTaste = try {
+                                    com.example.OnlineTasteEngine.getRecentOnlineTracks(context)
+                                } catch (_: Exception) {
+                                    emptyList()
+                                }
+                                val onlineMem = try {
+                                    com.example.OnlineMusicRepository.getMemoryCachedAppTracks()
+                                } catch (_: Exception) {
+                                    emptyList()
+                                }
+                                val combined = (allTracks + onlineTaste + onlineMem).distinctBy { it.id }
+                                combined.firstOrNull { it.id == trackId }?.let { target ->
+                                    viewModel.playTrack(target, combined)
+                                }
                             },
                             bottomPadding = bottomBarPadding,
                             modifier = Modifier.statusBarsPadding()

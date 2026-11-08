@@ -111,79 +111,21 @@ fun WrappedScreen(
         return if (isFa) WrappedEngine.toPersianDigits(raw) else raw
     }
 
-    val app = remember { try { com.example.AuraApplication.instance } catch (_: Exception) { null } }
-    val allLocalTracks by (app?.repository?.allTracks ?: kotlinx.coroutines.flow.flowOf(emptyList()))
-        .collectAsState(initial = emptyList())
+    // استفاده مستقیم و ۱۰۰٪ واقعی از آمار آهنگ‌هایی که حداقل تا نیمه (۵۰٪) گوش داده شده‌اند (بدون هیچ آمار ساختگی!)
+    val effectiveStats: WrappedStats? = wrappedStats
 
-    // ساخت آمار غنی و کامل برای استوری (شامل آهنگ‌های آنلاین و آفلاین گوش‌داده‌شده)
-    val effectiveStats: WrappedStats? = remember(wrappedStats, selectedPeriod, allLocalTracks) {
-        val base = wrappedStats
-        if (base != null && base.topSongs.isNotEmpty()) {
-            base
-        } else if (selectedPeriod != null) {
-            val recentOnline = OnlineTasteEngine.getRecentOnlineTracks(context)
-            val fallbackPool = (recentOnline + allLocalTracks).distinctBy { "${it.title.lowercase()}|${it.artist.lowercase()}" }
-            if (fallbackPool.isNotEmpty()) {
-                val synthSongs = fallbackPool.take(5).mapIndexed { idx, t ->
-                    val plays = (t.playCount.coerceAtLeast(5 - idx)).coerceAtLeast(1)
-                    TopSongItem(
-                        trackId = t.id,
-                        title = t.title,
-                        artist = t.artist,
-                        album = t.album,
-                        artworkUri = t.artworkUri,
-                        playCount = plays,
-                        totalDurationMs = t.durationMs.coerceAtLeast(180_000L) * plays,
-                        rank = idx + 1
-                    )
-                }
-                val totalMs = synthSongs.sumOf { it.totalDurationMs }.coerceAtLeast(25 * 60_000L)
-                val synthArtists = fallbackPool
-                    .groupBy { it.artist.substringBefore(" feat").substringBefore(",").trim().ifBlank { "Artist" } }
-                    .entries
-                    .take(5)
-                    .mapIndexed { idx, entry ->
-                        val count = (6 - idx).coerceAtLeast(1)
-                        TopStatItem(
-                            name = entry.key,
-                            count = count,
-                            formattedDuration = "${count * 4} min",
-                            percentage = (42f - idx * 7f).coerceIn(10f, 100f),
-                            artworkUri = entry.value.firstOrNull()?.artworkUri
-                        )
-                    }
-                val synthGenres = listOf(
-                    TopStatItem("Hip-Hop & Rap", 8, "32 min", 52f),
-                    TopStatItem("Pop & Melodic", 5, "18 min", 30f),
-                    TopStatItem("Late Night Vibe", 3, "12 min", 18f)
-                )
-                WrappedStats(
-                    period = selectedPeriod,
-                    totalListeningTimeMs = totalMs,
-                    totalTracksPlayed = synthSongs.sumOf { it.playCount },
-                    totalSkips = 1,
-                    listeningStreakDays = 3,
-                    topSongs = synthSongs,
-                    topArtists = synthArtists,
-                    topAlbums = emptyList(),
-                    topGenres = synthGenres,
-                    favoriteTimeSlot = ListeningTimeSlot.NIGHT,
-                    daysWithAura = 7,
-                    audioPersonalityEn = "Harmonic Explorer",
-                    audioPersonalityFa = "کاوشگر هارمونیک",
-                    audioPersonalityDescEn = "An open-minded musical traveler discovering beauty across frequencies.",
-                    audioPersonalityDescFa = "جستجوگری کنجکاو در دنیای نواها که زیبایی را در تنوع سبک‌ها کشف می‌کند.",
-                    completionRate = 0.94f,
-                    hourlyDistribution = List(24) { h -> if (h in 19..23) 8 else if (h in 14..18) 4 else 1 },
-                    peakHour = 22,
-                    uniqueTracksCount = fallbackPool.size.coerceAtLeast(synthSongs.size),
-                    uniqueArtistsCount = synthArtists.size.coerceAtLeast(1)
-                )
-            } else {
-                base
-            }
+    fun formatListenedDuration(durationMs: Long): String {
+        val totalSec = (durationMs / 1000L).coerceAtLeast(0L)
+        val mins = totalSec / 60L
+        val secs = totalSec % 60L
+        return if (isFa) {
+            if (mins > 0L && secs > 0L) "${formatNum(mins)} دقیقه و ${formatNum(secs)} ثانیه"
+            else if (mins > 0L) "${formatNum(mins)} دقیقه"
+            else "${formatNum(secs)} ثانیه"
         } else {
-            base
+            if (mins > 0L && secs > 0L) "${mins}m ${secs}s"
+            else if (mins > 0L) "${mins}m"
+            else "${secs}s"
         }
     }
 
@@ -383,11 +325,16 @@ fun WrappedScreen(
             item {
                 LockedWrappedVaultCard(
                     period = selectedPeriod,
+                    stats = effectiveStats,
                     palette = palette,
                     isFa = isFa,
                     formatNum = ::formatNum,
                     onPreviewStoryAnyway = {
-                        showInteractiveStoryModal = true
+                        if (effectiveStats != null && effectiveStats.topSongs.isNotEmpty()) {
+                            showInteractiveStoryModal = true
+                        } else {
+                            previewUnlockedOverride = true
+                        }
                     },
                     onUnlockPreviewPage = {
                         previewUnlockedOverride = true
@@ -495,27 +442,84 @@ fun WrappedScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // دکمه تماشای استوری تمام‌صفحه اسپاتیفای
+                        // دکمه تماشای استوری تمام‌صفحه اسپاتیفای (فقط زمانی که حداقل ۱ آهنگ تا ۵۰٪ گوش داده شده باشد)
+                        val hasValidSongs = effectiveStats.topSongs.isNotEmpty()
                         Button(
-                            onClick = { showInteractiveStoryModal = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1ED760)),
+                            onClick = { if (hasValidSongs) showInteractiveStoryModal = true },
+                            enabled = hasValidSongs,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF1ED760),
+                                disabledContainerColor = Color.White.copy(alpha = 0.10f)
+                            ),
                             shape = RoundedCornerShape(16.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(50.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.PlayCircleFilled,
+                                imageVector = if (hasValidSongs) Icons.Default.PlayCircleFilled else Icons.Default.HourglassBottom,
                                 contentDescription = null,
-                                tint = Color(0xFF050806),
+                                tint = if (hasValidSongs) Color(0xFF050806) else Color(0xFF94A3B8),
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = if (isFa) "تماشای استوری کامل (Spotify Wrapped)" else "Watch Full Wrapped Story",
-                                color = Color(0xFF050806),
+                                text = if (hasValidSongs) {
+                                    if (isFa) "تماشای استوری کامل (Spotify Wrapped)" else "Watch Full Wrapped Story"
+                                } else {
+                                    if (isFa) "حداقل نصف یک آهنگ را گوش دهید تا استوری فعال شود" else "Listen to >=50% of a song to unlock Story"
+                                },
+                                color = if (hasValidSongs) Color(0xFF050806) else Color(0xFF94A3B8),
                                 fontWeight = FontWeight.Black,
-                                fontSize = 14.sp
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (effectiveStats.topSongs.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .liquidGlass(
+                                shape = RoundedCornerShape(24.dp),
+                                thickness = GlassThickness.REGULAR,
+                                tintColor = palette.primary,
+                                tintAlpha = 0.14f,
+                                borderWidth = 1.dp
+                            )
+                            .padding(20.dp)
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.GraphicEq,
+                                contentDescription = null,
+                                tint = Color(0xFF1ED760),
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Text(
+                                text = if (isFa) "هنوز آهنگی تا نیمه (۵۰٪) گوش داده نشده است" else "No songs listened past 50% yet",
+                                color = Color.White,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 16.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                text = if (isFa) {
+                                    "در سیستم جدید وارپ، صرفاً کلیک کردن روی آهنگ شمارش نمی‌شود. برای ثبت شدن هر آهنگ در کارنامه شنیداری شما، باید حداقل نصف (۵۰٪) زمان آن آهنگ را واقعاً گوش دهید."
+                                } else {
+                                    "Clicking a track does not count it as played. You must genuinely listen to at least half (50%) of a track's duration for it to be recorded in your Wrapped."
+                                },
+                                color = Color(0xFFB4B9CE),
+                                fontSize = 13.sp,
+                                lineHeight = 20.sp,
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
@@ -651,12 +655,97 @@ fun WrappedScreen(
                                                 fontSize = 13.5.sp
                                             )
                                             Text(
-                                                text = "${formatNum((song.totalDurationMs / 60000L).coerceAtLeast(1L))}m",
+                                                text = formatListenedDuration(song.totalDurationMs),
                                                 color = Color(0xFF9096AC),
                                                 fontSize = 10.5.sp
                                             )
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // خوانندگان برتر دوره
+            if (effectiveStats.topArtists.isNotEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .liquidGlass(
+                                shape = RoundedCornerShape(24.dp),
+                                thickness = GlassThickness.REGULAR,
+                                tintColor = palette.secondary,
+                                tintAlpha = 0.14f,
+                                borderWidth = 1.dp
+                            )
+                            .padding(18.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = Color(0xFF1ED760),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (isFa) "خوانندگان برتر شما" else "Your Top Artists",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color.White
+                                    )
+                                )
+                            }
+
+                            for ((idx, artist) in effectiveStats.topArtists.withIndex()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(Color(0x22000000))
+                                        .padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Text(
+                                        text = "#${formatNum(idx + 1)}",
+                                        color = if (idx == 0) Color(0xFFFBBF24) else Color(0xFF1ED760),
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.width(26.dp)
+                                    )
+                                    TrackArtworkThumbnail(
+                                        artworkUri = artist.artworkUri,
+                                        accentColor = palette.accent,
+                                        size = 42.dp,
+                                        shape = CircleShape,
+                                        title = artist.name
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = artist.name,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = formatNum(artist.formattedDuration),
+                                            color = Color(0xFF9096AC),
+                                            fontSize = 11.5.sp
+                                        )
+                                    }
+                                    Text(
+                                        text = "${formatNum(artist.count)}x",
+                                        color = Color(0xFF1ED760),
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 13.sp
+                                    )
                                 }
                             }
                         }
@@ -709,16 +798,26 @@ fun WrappedScreen(
 @Composable
 private fun LockedWrappedVaultCard(
     period: WrappedPeriod,
+    stats: WrappedStats?,
     palette: AmbientPalette,
     isFa: Boolean,
     formatNum: (Any) -> String,
     onPreviewStoryAnyway: () -> Unit,
     onUnlockPreviewPage: () -> Unit
 ) {
-    val nowCal = remember { Calendar.getInstance() }
+    var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(15_000L)
+            currentTimeMillis = System.currentTimeMillis()
+        }
+    }
+    val nowCal = remember(currentTimeMillis) {
+        Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
+    }
     val currentHour = nowCal.get(Calendar.HOUR_OF_DAY)
     val currentMinute = nowCal.get(Calendar.MINUTE)
-    val daysLeft = period.daysRemainingUntilUnlock.coerceAtLeast(1)
+    val daysLeft = (period.daysRemainingUntilUnlock - 1).coerceAtLeast(0)
     val hoursLeft = (23 - currentHour).coerceIn(0, 23)
     val minsLeft = (59 - currentMinute).coerceIn(0, 59)
 
@@ -906,7 +1005,47 @@ private fun LockedWrappedVaultCard(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // نمایش زنده تعداد آهنگ‌های ثبت‌شده در این دوره (فقط آهنگ‌هایی که >= ۵۰٪ گوش داده شده‌اند)
+            val recordedPlays = stats?.totalTracksPlayed ?: 0
+            val recordedMins = stats?.totalListeningMinutes ?: 0L
+            Surface(
+                color = Color(0x221ED760),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, Color(0xFF1ED760).copy(alpha = 0.45f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = if (isFa) {
+                            "آمار ثبت‌شده تا این لحظه: ${formatNum(recordedPlays)} پخش کامل (بیش از نصف آهنگ) • ${formatNum(recordedMins)} دقیقه"
+                        } else {
+                            "Recorded so far: ${formatNum(recordedPlays)} qualified plays (>=50% listened) • ${formatNum(recordedMins)} min"
+                        },
+                        color = Color(0xFF1ED760),
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 11.5.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = if (isFa) {
+                            "فقط آهنگ‌هایی که حداقل تا نیمه (۵۰٪) گوش داده شوند در وارپ ثبت می‌گردند."
+                        } else {
+                            "Only songs listened to for at least 50% of their duration are counted."
+                        },
+                        color = Color(0xFFB4B9CE),
+                        fontSize = 10.5.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
 
             // دکمه تست و پیش‌نمایش استوری برای بررسی استوری بازطراحی‌شده
             Row(
@@ -1029,14 +1168,18 @@ private fun SpotifyWrappedStoryModal(
 
     fun fmt(v: Any): String = if (isFa) WrappedEngine.toPersianDigits(v.toString()) else v.toString()
 
-    // پخش نرم آهنگ شماره ۱ کاربر در پس‌زمینه استوری (فقط یک‌بار در شروع استوری تا وسط اسلایدها قطع نشود)
+    // پخش نرم آهنگ شماره ۱ کاربر در پس‌زمینه استوری (فقط اگر واقعاً آهنگ شماره ۱ وجود داشته باشد)
     LaunchedEffect(isMuted) {
         if (isMuted || app == null) return@LaunchedEffect
+        val topSongId = stats.topSongs.firstOrNull()?.trackId ?: return@LaunchedEffect
+        val onlineCached = try {
+            com.example.OnlineMusicRepository.getMemoryCachedAppTracks()
+        } catch (_: Exception) {
+            emptyList()
+        }
         val recentOnline = OnlineTasteEngine.getRecentOnlineTracks(context)
-        val combinedPool = (recentOnline + allTracks).distinctBy { it.id }
-        val topSongId = stats.topSongs.firstOrNull()?.trackId
+        val combinedPool = (recentOnline + onlineCached + allTracks).distinctBy { it.id }
         val trackToPlay = combinedPool.firstOrNull { it.id == topSongId }
-            ?: combinedPool.firstOrNull()
 
         if (trackToPlay != null) {
             currentlyPlayingStoryTrackTitle = "${trackToPlay.title} • ${trackToPlay.artist}"

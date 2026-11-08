@@ -382,32 +382,55 @@ class MusicRepository(
     suspend fun recordPlaybackSession(
         track: Track,
         durationListenedMs: Long,
-        wasSkipped: Boolean
-    ) = withContext(Dispatchers.IO) {
-        if (durationListenedMs >= 3000L) { // Only log meaningful listens (> 3 seconds)
-            val event = PlaybackEvent(
-                trackId = track.id,
-                trackTitle = track.title,
-                artist = track.artist,
-                album = track.album,
-                genre = track.genre,
-                timestamp = System.currentTimeMillis(),
-                durationListenedMs = durationListenedMs,
-                fullTrackDurationMs = track.durationMs,
-                wasSkipped = wasSkipped
-            )
-            musicDao.insertPlaybackEvent(event)
+        fullTrackDurationMs: Long = track.durationMs,
+        wasSkipped: Boolean,
+        eventId: Long = 0L,
+        sessionTimestamp: Long = System.currentTimeMillis()
+    ): Long = withContext(Dispatchers.IO) {
+        val effectiveFullDuration = fullTrackDurationMs.takeIf { it > 0L }
+            ?: track.durationMs.takeIf { it > 0L }
+            ?: 180_000L
+        val halfDuration = (effectiveFullDuration / 2L).coerceAtLeast(10_000L)
+        // قانون سخت‌گیرانه ۵۰٪: تا وقتی آهنگ حداقل تا نصف (۵۰٪) گوش داده نشده، مطلقاً در وارپ ثبت نشود
+        if (durationListenedMs < (halfDuration * 95L / 100L)) {
+            return@withContext -1L
         }
+        val event = PlaybackEvent(
+            id = eventId,
+            trackId = track.id,
+            trackTitle = track.title,
+            artist = track.artist,
+            album = track.album,
+            genre = track.genre,
+            timestamp = sessionTimestamp,
+            durationListenedMs = durationListenedMs.coerceAtMost(effectiveFullDuration),
+            fullTrackDurationMs = effectiveFullDuration,
+            wasSkipped = wasSkipped
+        )
+        musicDao.insertPlaybackEvent(event)
     }
 
     suspend fun getAvailableWrappedPeriods(): List<WrappedPeriod> = withContext(Dispatchers.IO) {
+        musicDao.purgeInvalidShortPlaybackEvents()
         val firstTimestamp = musicDao.getFirstPlaybackTimestamp() ?: System.currentTimeMillis()
         WrappedEngine.getAvailablePeriods(firstTimestamp)
     }
 
     suspend fun getWrappedStats(period: WrappedPeriod): WrappedStats = withContext(Dispatchers.IO) {
+        musicDao.purgeInvalidShortPlaybackEvents()
         val events = musicDao.getAllPlaybackEvents()
-        val allTracksList = musicDao.getAllTracks().firstOrNull() ?: emptyList()
+        val localTracks = musicDao.getAllTracksSync()
+        val onlineMemoryTracks = try {
+            com.example.OnlineMusicRepository.getMemoryCachedAppTracks()
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val onlineTasteTracks = try {
+            com.example.OnlineTasteEngine.getRecentOnlineTracks(context)
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val allTracksList = (localTracks + onlineTasteTracks + onlineMemoryTracks).distinctBy { it.id }
         val firstTimestamp = musicDao.getFirstPlaybackTimestamp() ?: 0L
         WrappedEngine.computeStats(period, events, allTracksList, firstTimestamp)
     }

@@ -1,0 +1,1444 @@
+مسیر فایل: app/src/main/java/com/example/audio/AuraDspController.kt
+package com.example.audio
+
+import android.content.Context
+import android.media.audiofx.BassBoost
+import android.media.audiofx.DynamicsProcessing
+import android.media.audiofx.Equalizer
+import android.media.audiofx.LoudnessEnhancer
+import android.media.audiofx.PresetReverb
+import android.media.audiofx.Virtualizer
+import android.os.Build
+import android.util.Log
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlin.math.abs
+import kotlin.math.pow
+import kotlin.math.roundToInt
+
+data class EqPreset(
+    val id: String,
+    val nameFa: String,
+    val nameEn: String,
+    val bands: List<Float>, // 10 bands in dB (-15f .. +15f)
+    val bassBoost: Float = 0f,
+    val virtualizer: Float = 0f,
+    val loudnessDb: Float = 0f,
+    val clarity: Float = 0f
+)
+
+data class DspState(
+    val isEnabled: Boolean = true,
+    val audioSessionId: Int = 0,
+    val bandFrequencies: List<Int> = AuraDspController.STANDARD_10_BANDS,
+    val bandLevelsDb: List<Float> = List(10) { 0f },
+    val preampDb: Float = 0f,
+    val bassBoostStrength: Float = 0f,       // 0f .. 1f
+    val virtualizerStrength: Float = 0f,     // 0f .. 1f
+    val loudnessGainDb: Float = 0f,          // 0f .. 12f
+    val subBassPunch: Float = 0f,            // 0f .. 1f
+    val vocalClarity: Float = 0f,            // 0f .. 1f
+    val multibandCompressorEnabled: Boolean = true,
+    val brickwallLimiterEnabled: Boolean = true,
+    val activePresetId: String = "flat",
+    val reverbPreset: Int = 0
+)
+
+class AuraDspController(initialSessionId: Int = 0) {
+
+    constructor(context: Context) : this(0)
+
+    private var currentSessionId: Int = initialSessionId
+    private var dynamicsProcessing: DynamicsProcessing? = null
+    private var systemEqualizer: Equalizer? = null
+    private var bassBoost: BassBoost? = null
+    private var virtualizer: Virtualizer? = null
+    private var loudnessEnhancer: LoudnessEnhancer? = null
+    private var presetReverb: PresetReverb? = null
+
+    private val _state = MutableStateFlow(DspState(audioSessionId = initialSessionId))
+    val state: StateFlow<DspState> = _state.asStateFlow()
+
+    init {
+        INSTANCE = this
+        if (initialSessionId >= 0) {
+            attachToSession(initialSessionId)
+        }
+    }
+
+    @Synchronized
+    fun attachToSession(audioSessionId: Int) {
+        val targetSession = if (audioSessionId < 0) 0 else audioSessionId
+        if (currentSessionId == targetSession && (dynamicsProcessing != null || systemEqualizer != null)) {
+            applyAllDspParameters()
+            return
+        }
+
+        releaseEffectsInternal()
+        currentSessionId = targetSession
+        _state.value = _state.value.copy(audioSessionId = targetSession)
+
+        // 1. Primary Studio Mastering Engine: Android DynamicsProcessing (API 28+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try {
+                val config = DynamicsProcessing.Config.Builder(
+                    DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION,
+                    2, // Stereo channels
+                    true, // Pre-EQ enabled
+                     BAND_COUNT,
+                    true, // Multi-Band Compressor (MBC) enabled
+                    BAND_COUNT,
+                    true, // Post-EQ enabled (Psychoacoustic Bass & Air stage)
+                    BAND_COUNT,
+                    true  // Brickwall Mastering Limiter enabled
+                ).build()
+
+                dynamicsProcessing = DynamicsProcessing(Int.MAX_VALUE, targetSession, config).apply {
+                    enabled = _state.value.isEnabled
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "DynamicsProcessing init fallback on session $targetSession: ${e.message}")
+                dynamicsProcessing = null
+            }
+        }
+
+        // 2. Hardware Native Equalizer (Secondary / Fallback sync)
+        try {
+            systemEqualizer = Equalizer(Int.MAX_VALUE - 1, targetSession).apply {
+                enabled = _state.value.isEnabled
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "Equalizer init failed: ${e.message}")
+            systemEqualizer = null
+        }
+
+        // 3. Hardware BassBoost
+        try {
+            bassBoost = BassBoost(Int.MAX_VALUE - 2, targetSession).apply {
+                enabled = _state.value.isEnabled && _state.value.bassBoostStrength > 0.01f
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "BassBoost init failed: ${e.message}")
+            bassBoost = null
+        }
+
+        // 4. Hardware 3D Virtualizer
+        try {
+            virtualizer = Virtualizer(Int.MAX_VALUE - 3, targetSession).apply {
+                enabled = _state.value.isEnabled && _state.value.virtualizerStrength > 0.01f
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "Virtualizer init failed: ${e.message}")
+            virtualizer = null
+        }
+
+        // 5. Hardware LoudnessEnhancer (Pre-Amp & Output Gain)
+        try {
+            loudnessEnhancer = LoudnessEnhancer(targetSession).apply {
+                enabled = _state.value.isEnabled
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "LoudnessEnhancer init failed: ${e.message}")
+            loudnessEnhancer = null
+        }
+
+        // 6. PresetReverb
+        try {
+            presetReverb = PresetReverb(Int.MAX_VALUE - 4, targetSession).apply {
+                enabled = _state.value.isEnabled && _state.value.reverbPreset > 0
+            }
+        } catch (e: Throwable) {
+            presetReverb = null
+        }
+
+        applyAllDspParameters()
+    }
+
+    fun bindAudioSession(audioSessionId: Int) = attachToSession(audioSessionId)
+    fun setAudioSessionId(audioSessionId: Int) = attachToSession(audioSessionId)
+    fun initialize(audioSessionId: Int) = attachToSession(audioSessionId)
+
+    fun setEnabled(enabled: Boolean) {
+        _state.value = _state.value.copy(isEnabled = enabled)
+        applyAllDspParameters()
+    }
+
+    fun setBandLevel(bandIndex: Int, levelDb: Float) {
+        if (bandIndex !in 0 until BAND_COUNT) return
+        val clamped = levelDb.coerceIn(-MAX_DB_RANGE, MAX_DB_RANGE)
+        val updated = _state.value.bandLevelsDb.toMutableList().apply {
+            this[bandIndex] = clamped
+        }
+        _state.value = _state.value.copy(
+            bandLevelsDb = updated,
+            activePresetId = "custom"
+        )
+        applyAllDspParameters()
+    }
+
+    fun setBandLevels(levelsDb: List<Float>, presetId: String = "custom") {
+        val normalized = List(BAND_COUNT) { idx ->
+            levelsDb.getOrElse(idx) { 0f }.coerceIn(-MAX_DB_RANGE, MAX_DB_RANGE)
+        }
+        _state.value = _state.value.copy(
+            bandLevelsDb = normalized,
+            activePresetId = presetId
+        )
+        applyAllDspParameters()
+    }
+
+    fun setPreampDb(preampDb: Float) {
+        _state.value = _state.value.copy(preampDb = preampDb.coerceIn(-12f, 12f))
+        applyAllDspParameters()
+    }
+
+    fun setBassBoost(strength: Float) {
+        val normalized = if (strength > 1f) (strength / 1000f).coerceIn(0f, 1f) else strength.coerceIn(0f, 1f)
+        _state.value = _state.value.copy(bassBoostStrength = normalized)
+        applyAllDspParameters()
+    }
+
+    fun setBassBoost(strengthPermille: Int) {
+        setBassBoost(strengthPermille / 1000f)
+    }
+
+    fun setVirtualizer(strength: Float) {
+        val normalized = if (strength > 1f) (strength / 1000f).coerceIn(0f, 1f) else strength.coerceIn(0f, 1f)
+        _state.value = _state.value.copy(virtualizerStrength = normalized)
+        applyAllDspParameters()
+    }
+
+    fun setVirtualizer(strengthPermille: Int) {
+        setVirtualizer(strengthPermille / 1000f)
+    }
+
+    fun setStereoWidening(strength: Float) = setVirtualizer(strength)
+
+    fun setLoudnessGain(gainDb: Float) {
+        _state.value = _state.value.copy(loudnessGainDb = gainDb.coerceIn(0f, 15f))
+        applyAllDspParameters()
+    }
+
+    fun setSubBassPunch(strength: Float) {
+        _state.value = _state.value.copy(subBassPunch = strength.coerceIn(0f, 1f))
+        applyAllDspParameters()
+    }
+
+    fun setVocalClarity(strength: Float) {
+        _state.value = _state.value.copy(vocalClarity = strength.coerceIn(0f, 1f))
+        applyAllDspParameters()
+    }
+
+    fun setMultibandCompressor(enabled: Boolean) {
+        _state.value = _state.value.copy(multibandCompressorEnabled = enabled)
+        applyAllDspParameters()
+    }
+
+    fun setBrickwallLimiter(enabled: Boolean) {
+        _state.value = _state.value.copy(brickwallLimiterEnabled = enabled)
+        applyAllDspParameters()
+    }
+
+    fun setReverbPreset(preset: Int) {
+        _state.value = _state.value.copy(reverbPreset = preset.coerceIn(0, 6))
+        applyAllDspParameters()
+    }
+
+    fun applyPreset(preset: EqPreset) {
+        _state.value = _state.value.copy(
+            bandLevelsDb = preset.bands.map { it.coerceIn(-MAX_DB_RANGE, MAX_DB_RANGE) },
+            bassBoostStrength = preset.bassBoost.coerceIn(0f, 1f),
+            virtualizerStrength = preset.virtualizer.coerceIn(0f, 1f),
+            loudnessGainDb = preset.loudnessDb.coerceIn(0f, 15f),
+            vocalClarity = preset.clarity.coerceIn(0f, 1f),
+            activePresetId = preset.id
+        )
+        applyAllDspParameters()
+    }
+
+    fun applyPresetById(presetId: String) {
+        val preset = BUILT_IN_PRESETS.find {
+            it.id.equals(presetId, ignoreCase = true) ||
+                it.nameEn.equals(presetId, ignoreCase = true) ||
+                it.nameFa == presetId
+        } ?: return
+        applyPreset(preset)
+    }
+
+    fun resetToFlat() {
+        _state.value = _state.value.copy(
+            bandLevelsDb = List(BAND_COUNT) { 0f },
+            preampDb = 0f,
+            bassBoostStrength = 0f,
+            virtualizerStrength = 0f,
+            loudnessGainDb = 0f,
+            subBassPunch = 0f,
+            vocalClarity = 0f,
+            reverbPreset = 0,
+            activePresetId = "flat"
+        )
+        applyAllDspParameters()
+    }
+
+    @Synchronized
+    private fun applyAllDspParameters() {
+        val s = _state.value
+
+        // Calculate composite per-band gains (User 10-band EQ + Sub-Bass Punch + Vocal Clarity/Air)
+        val effectiveBandsDb = FloatArray(BAND_COUNT) { idx ->
+            var gain = s.bandLevelsDb.getOrElse(idx) { 0f }
+            // Sub-Bass harmonic shelf on 31Hz, 62Hz, 125Hz
+            when (idx) {
+                0 -> gain += s.bassBoostStrength * 6.5f + s.subBassPunch * 5.0f
+                1 -> gain += s.bassBoostStrength * 5.0f + s.subBassPunch * 4.0f
+                2 -> gain += s.bassBoostStrength * 2.5f + s.subBassPunch * 2.0f
+                3 -> gain -= s.bassBoostStrength * 0.8f // Anti-mud cut at 250Hz
+            }
+            // Vocal Clarity & High-Air presence on 2kHz, 4kHz, 8kHz, 16kHz
+            when (idx) {
+                6 -> gain += s.vocalClarity * 2.5f
+                7 -> gain += s.vocalClarity * 4.0f
+                8 -> gain += s.vocalClarity * 4.5f
+                9 -> gain += s.vocalClarity * 5.5f
+            }
+            gain.coerceIn(-18f, 18f)
+        }
+
+        // Automatic Headroom Compensation to prevent digital clipping when bands are boosted
+        val maxBoost = (effectiveBandsDb.maxOrNull() ?: 0f).coerceAtLeast(0f)
+        val autoHeadroomDb = if (s.brickwallLimiterEnabled && maxBoost > 6f) {
+            -(maxBoost - 6f) * 0.45f
+        } else {
+            0f
+        }
+
+        // 1. Apply to Android 9+ DynamicsProcessing (Full 10-Band Pre-EQ + MBC + Post-EQ + Limiter)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            dynamicsProcessing?.let { dp ->
+                try {
+                    dp.enabled = s.isEnabled
+                    if (s.isEnabled) {
+                        dp.setInputGainAllChannelsTo(s.preampDb + autoHeadroomDb)
+
+                        val preEq = DynamicsProcessing.Eq(true, true, BAND_COUNT)
+                        val postEq = DynamicsProcessing.Eq(true, true, BAND_COUNT)
+                        val mbc = DynamicsProcessing.Mbc(true, s.multibandCompressorEnabled, BAND_COUNT)
+
+                        for (i in 0 until BAND_COUNT) {
+                            val cutoffFreq = CUTOFF_FREQUENCIES[i]
+                            val userGain = s.bandLevelsDb.getOrElse(i) { 0f }
+                            val postExtraGain = effectiveBandsDb[i] - userGain
+
+                            preEq.setBand(i, DynamicsProcessing.EqBand(true, cutoffFreq, userGain))
+                            postEq.setBand(i, DynamicsProcessing.EqBand(true, cutoffFreq, postExtraGain))
+
+                            // Studio Multi-Band Compressor curve tuned per frequency zone
+                            val isBassZone = i <= 2
+                            val isVocalZone = i in 5..7
+                            val attackTime = if (isBassZone) 8f else 3f
+                            val releaseTime = if (isBassZone) 90f else 50f
+                            val ratio = if (isBassZone) 3.2f else if (isVocalZone) 2.2f else 2.0f
+                            val threshold = if (isBassZone) -16f else -18f
+                            val kneeWidth = 6f
+                            val noiseGate = -75f
+                            val expanderRatio = 1.0f
+                            val preGain = if (isBassZone) (s.subBassPunch * 2.5f) else 0f
+                            val postGain = if (s.multibandCompressorEnabled) 1.5f else 0f
+
+                            mbc.setBand(
+                                i,
+                                DynamicsProcessing.MbcBand(
+                                    s.multibandCompressorEnabled,
+                                    cutoffFreq,
+                                    attackTime,
+                                    releaseTime,
+                                    ratio,
+                                    threshold,
+                                    kneeWidth,
+                                    noiseGate,
+                                    expanderRatio,
+                                    preGain,
+                                    postGain
+                                )
+                            )
+                        }
+
+                        dp.setPreEqAllChannelsTo(preEq)
+                        dp.setMbcAllChannelsTo(mbc)
+                        dp.setPostEqAllChannelsTo(postEq)
+
+                        val limiter = DynamicsProcessing.Limiter(
+                            true,
+                            s.brickwallLimiterEnabled,
+                            0,
+                            1.5f,   // 1.5ms ultra-fast attack
+                            60f,    // 60ms smooth musical release
+                            10f,    // 10:1 brickwall ratio
+                            -0.8f,  // -0.8 dBFS ceiling
+                            s.loudnessGainDb * 0.6f
+                        )
+                        dp.setLimiterAllChannelsTo(limiter)
+                    }
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Error applying DynamicsProcessing: ${e.message}")
+                }
+            }
+        }
+
+        // 2. Apply to Native Hardware Equalizer (interpolating 10 bands to device's hardware bands)
+        systemEqualizer?.let { eq ->
+            try {
+                eq.enabled = s.isEnabled
+                if (s.isEnabled) {
+                    val numBands = eq.numberOfBands.toInt()
+                    val levelRange = eq.bandLevelRange
+                    val minMb = levelRange[0].toInt()
+                    val maxMb = levelRange[1].toInt()
+
+                    // If DynamicsProcessing is active, we apply 40% reinforcement on hardware EQ;
+                    // if DynamicsProcessing is unavailable, hardware EQ carries 100% of the curve.
+                    val scale = if (dynamicsProcessing != null) 0.45f else 1.0f
+
+                    for (b in 0 until numBands) {
+                        val centerFreqHz = (eq.getCenterFreq(b.toShort()) / 1000).toFloat()
+                        val interpolatedDb = interpolateGainForFrequency(centerFreqHz, effectiveBandsDb) * scale
+                        val targetMb = (interpolatedDb * 100f).roundToInt().coerceIn(minMb, maxMb).toShort()
+                        eq.setBandLevel(b.toShort(), targetMb)
+                    }
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Error applying Equalizer: ${e.message}")
+            }
+        }
+
+        // 3. Apply Hardware BassBoost
+        bassBoost?.let { bb ->
+            try {
+                val active = s.isEnabled && (s.bassBoostStrength > 0.01f || s.subBassPunch > 0.01f)
+                bb.enabled = active
+                if (active && bb.strengthSupported) {
+                    val combined = ((s.bassBoostStrength * 0.75f + s.subBassPunch * 0.25f) * 1000f)
+                        .roundToInt()
+                        .coerceIn(0, 1000)
+                        .toShort()
+                    bb.setStrength(combined)
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Error applying BassBoost: ${e.message}")
+            }
+        }
+
+        // 4. Apply Hardware 3D Virtualizer
+        virtualizer?.let { virt ->
+            try {
+                val active = s.isEnabled && s.virtualizerStrength > 0.01f
+                virt.enabled = active
+                if (active && virt.strengthSupported) {
+                    val strength = (s.virtualizerStrength * 1000f).roundToInt().coerceIn(0, 1000).toShort()
+                    virt.setStrength(strength)
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Error applying Virtualizer: ${e.message}")
+            }
+        }
+
+        // 5. Apply LoudnessEnhancer (Pre-amp + Loudness in millibels)
+        loudnessEnhancer?.let { le ->
+            try {
+                val totalGainDb = (s.loudnessGainDb + s.preampDb.coerceAtLeast(0f)).coerceIn(0f, 18f)
+                val active = s.isEnabled && totalGainDb > 0.05f
+                le.enabled = active
+                if (active) {
+                    val targetMb = (totalGainDb * 100f).roundToInt()
+                    le.setTargetGain(targetMb)
+                } else {
+                    le.setTargetGain(0)
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Error applying LoudnessEnhancer: ${e.message}")
+            }
+        }
+
+        // 6. Apply PresetReverb
+        presetReverb?.let { rev ->
+            try {
+                val active = s.isEnabled && s.reverbPreset > 0
+                rev.enabled = active
+                if (active) {
+                    rev.preset = s.reverbPreset.toShort()
+                }
+            } catch (e: Throwable) {
+                // Ignore reverb unsupported
+            }
+        }
+    }
+
+    private fun interpolateGainForFrequency(freqHz: Float, gainsDb: FloatArray): Float {
+        val freqs = STANDARD_10_BANDS
+        if (freqHz <= freqs.first()) return gainsDb.first()
+        if (freqHz >= freqs.last()) return gainsDb.last()
+
+        for (i in 0 until freqs.size - 1) {
+            val f1 = freqs[i].toFloat()
+            val f2 = freqs[i + 1].toFloat()
+            if (freqHz in f1..f2) {
+                val t = (freqHz - f1) / (f2 - f1)
+                return gainsDb[i] + t * (gainsDb[i + 1] - gainsDb[i])
+            }
+        }
+        return 0f
+    }
+
+    private fun releaseEffectsInternal() {
+        try { dynamicsProcessing?.release() } catch (_: Throwable) {}
+        try { systemEqualizer?.release() } catch (_: Throwable) {}
+        try { bassBoost?.release() } catch (_: Throwable) {}
+        try { virtualizer?.release() } catch (_: Throwable) {}
+        try { loudnessEnhancer?.release() } catch (_: Throwable) {}
+        try { presetReverb?.release() } catch (_: Throwable) {}
+
+        dynamicsProcessing = null
+        systemEqualizer = null
+        bassBoost = null
+        virtualizer = null
+        loudnessEnhancer = null
+        presetReverb = null
+    }
+
+    fun release() {
+        releaseEffectsInternal()
+    }
+
+    companion object {
+        private const val TAG = "AuraDspController"
+        const val BAND_COUNT = 10
+        const val MAX_DB_RANGE = 15f
+
+        val STANDARD_10_BANDS = listOf(31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000)
+
+        private val CUTOFF_FREQUENCIES = floatArrayOf(
+            45f, 90f, 180f, 355f, 710f, 1400f, 2800f, 5600f, 11200f, 20000f
+        )
+
+        @Volatile
+        private var INSTANCE: AuraDspController? = null
+
+        fun getInstance(audioSessionId: Int = 0): AuraDspController {
+            return INSTANCE?.also {
+                if (audioSessionId > 0 && it.currentSessionId != audioSessionId) {
+                    it.attachToSession(audioSessionId)
+                }
+            } ?: synchronized(this) {
+                INSTANCE ?: AuraDspController(audioSessionId).also { INSTANCE = it }
+            }
+        }
+
+        val BUILT_IN_PRESETS = listOf(
+            EqPreset(
+                id = "flat",
+                nameFa = "استودیو (Flat)",
+                nameEn = "Flat Studio",
+                bands = listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f),
+                bassBoost = 0f, virtualizer = 0f, loudnessDb = 0f, clarity = 0f
+            ),
+            EqPreset(
+                id = "aura_signature",
+                nameFa = "امضای Aura Pro",
+                nameEn = "Aura Signature",
+                bands = listOf(6.5f, 5.5f, 2.5f, -1.0f, -0.5f, 1.5f, 3.5f, 5.0f, 6.0f, 5.5f),
+                bassBoost = 0.55f, virtualizer = 0.45f, loudnessDb = 3.5f, clarity = 0.5f
+            ),
+            EqPreset(
+                id = "bass_extreme",
+                nameFa = "بیس فوق‌سنگین",
+                nameEn = "Extreme Sub-Bass",
+                bands = listOf(11.0f, 9.5f, 6.5f, 2.0f, -1.5f, -1.0f, 1.5f, 3.0f, 4.0f, 3.5f),
+                bassBoost = 0.90f, virtualizer = 0.35f, loudnessDb = 4.5f, clarity = 0.35f
+            ),
+            EqPreset(
+                id = "persian_pop",
+                nameFa = "پاپ ایرانی",
+                nameEn = "Persian Pop",
+                bands = listOf(5.5f, 6.0f, 3.0f, 0.0f, 1.5f, 3.5f, 4.5f, 4.0f, 5.5f, 5.0f),
+                bassBoost = 0.50f, virtualizer = 0.40f, loudnessDb = 3.0f, clarity = 0.60f
+            ),
+            EqPreset(
+                id = "hiphop_trap",
+                nameFa = "هیپ‌هاپ و ترپ",
+                nameEn = "Hip-Hop & Trap",
+                bands = listOf(9.5f, 8.5f, 4.5f, 0.5f, -1.5f, 0.5f, 2.5f, 4.5f, 6.5f, 7.0f),
+                bassBoost = 0.80f, virtualizer = 0.50f, loudnessDb = 4.0f, clarity = 0.45f
+            ),
+            EqPreset(
+                id = "car_audio",
+                nameFa = "سیستم ماشین",
+                nameEn = "Car Audio System",
+                bands = listOf(8.5f, 7.5f, 4.0f, -1.5f, -2.0f, 1.0f, 3.5f, 5.5f, 7.5f, 8.0f),
+                bassBoost = 0.75f, virtualizer = 0.65f, loudnessDb = 5.0f, clarity = 0.55f
+            ),
+            EqPreset(
+                id = "edm_club",
+                nameFa = "الکترونیک و کلاب",
+                nameEn = "EDM & Club",
+                bands = listOf(8.0f, 7.0f, 3.5f, -1.0f, -2.0f, 0.5f, 3.0f, 5.5f, 7.0f, 7.5f),
+                bassBoost = 0.70f, virtualizer = 0.60f, loudnessDb = 4.0f, clarity = 0.50f
+            ),
+            EqPreset(
+                id = "vocal_crystal",
+                nameFa = "شفافیت وکال",
+                nameEn = "Crystal Vocal",
+                bands = listOf(-2.0f, -1.0f, 0.5f, 2.5f, 4.5f, 6.0f, 5.5f, 4.0f, 2.5f, 1.5f),
+                bassBoost = 0.10f, virtualizer = 0.25f, loudnessDb = 2.5f, clarity = 0.85f
+            ),
+            EqPreset(
+                id = "rock_metal",
+                nameFa = "راک و متال",
+                nameEn = "Rock & Metal",
+                bands = listOf(6.0f, 5.0f, 3.0f, -1.5f, -2.5f, 1.5f, 4.5f, 6.5f, 7.0f, 6.5f),
+                bassBoost = 0.45f, virtualizer = 0.40f, loudnessDb = 3.5f, clarity = 0.60f
+            ),
+            EqPreset(
+                id = "spatial_3d",
+                nameFa = "سه‌بعدی فضایی",
+                nameEn = "3D Spatial Hall",
+                bands = listOf(4.5f, 4.0f, 1.5f, -0.5f, 0.5f, 2.0f, 4.5f, 6.5f, 8.0f, 8.5f),
+                bassBoost = 0.40f, virtualizer = 1.00f, loudnessDb = 3.0f, clarity = 0.75f
+            )
+        )
+    }
+}
+
+مسیر فایل: app/src/main/java/com/example/ui/components/EqualizerSheet.kt
+package com.example.ui.components
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.audio.AuraDspController
+import com.example.audio.EqPreset
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EqualizerSheet(
+    onDismiss: () -> Unit = {},
+    audioSessionId: Int = 0,
+    dspController: AuraDspController = remember(audioSessionId) {
+        AuraDspController.getInstance(audioSessionId)
+    },
+    isPersian: Boolean = true,
+    accentColor: Color = Color(0xFF00E5FF),
+    secondaryAccent: Color = Color(0xFF7C4DFF),
+    onBandsChanged: ((List<Float>) -> Unit)? = null,
+    onBassBoostChanged: ((Float) -> Unit)? = null,
+    onVirtualizerChanged: ((Float) -> Unit)? = null
+) {
+    val dspState by dspController.state.collectAsState()
+
+    LaunchedEffect(audioSessionId) {
+        if (audioSessionId > 0) {
+            dspController.attachToSession(audioSessionId)
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF0B0E17),
+        contentColor = Color.White,
+        scrimColor = Color.Black.copy(alpha = 0.72f),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(top = 12.dp, bottom = 6.dp)
+                    .size(width = 44.dp, height = 4.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.25f))
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.92f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // 1. Header Bar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(accentColor.copy(alpha = 0.25f), secondaryAccent.copy(alpha = 0.25f))
+                                )
+                            )
+                            .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GraphicEq,
+                            contentDescription = null,
+                            tint = accentColor
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = if (isPersian) "موتور پردازش صدای AURA DSP" else "AURA STUDIO MASTERING DSP",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = if (isPersian) "۱۰ باند پارامتریک + کمپرسور چندبانده + لیمیتر" else "10-Band Parametric • Multi-Band MBC • Brickwall Limiter",
+                            fontSize = 11.sp,
+                            color = Color.White.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    IconButton(
+                        onClick = {
+                            dspController.resetToFlat()
+                            onBandsChanged?.invoke(List(10) { 0f })
+                            onBassBoostChanged?.invoke(0f)
+                            onVirtualizerChanged?.invoke(0f)
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Reset",
+                            tint = Color.White.copy(alpha = 0.75f)
+                        )
+                    }
+
+                    Switch(
+                        checked = dspState.isEnabled,
+                        onCheckedChange = { dspController.setEnabled(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.Black,
+                            checkedTrackColor = accentColor,
+                            uncheckedThumbColor = Color.White.copy(alpha = 0.6f),
+                            uncheckedTrackColor = Color.White.copy(alpha = 0.12f)
+                        )
+                    )
+
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = Color.White.copy(alpha = 0.75f)
+                        )
+                    }
+                }
+            }
+
+            // 2. Presets Horizontal Ribbon
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                AuraDspController.BUILT_IN_PRESETS.forEach { preset ->
+                    val isSelected = dspState.activePresetId == preset.id
+                    PresetChip(
+                        preset = preset,
+                        isSelected = isSelected,
+                        isPersian = isPersian,
+                        accentColor = accentColor,
+                        secondaryAccent = secondaryAccent,
+                        onClick = {
+                            dspController.applyPreset(preset)
+                            onBandsChanged?.invoke(preset.bands)
+                            onBassBoostChanged?.invoke(preset.bassBoost)
+                            onVirtualizerChanged?.invoke(preset.virtualizer)
+                        }
+                    )
+                }
+            }
+
+            // 3. Interactive Spline Frequency Curve Visualizer
+            SplineResponseVisualizer(
+                bandsDb = dspState.bandLevelsDb,
+                bassBoost = dspState.bassBoostStrength,
+                clarity = dspState.vocalClarity,
+                isEnabled = dspState.isEnabled,
+                accentColor = accentColor,
+                secondaryAccent = secondaryAccent
+            )
+
+            // 4. 10-Band Precision Vertical Graphic Sliders + Preamp
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(Color(0xFF121726))
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(22.dp))
+                    .padding(vertical = 14.dp, horizontal = 8.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isPersian) "اکولایزر گرافیکی ۱۰ باند (±15 dB)" else "10-Band Graphic Equalizer (±15 dB)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White.copy(alpha = 0.85f)
+                        )
+                        Text(
+                            text = "Pre-Amp: ${if (dspState.preampDb >= 0) "+" else ""}${"%.1f".format(dspState.preampDb)} dB",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = accentColor
+                        )
+                    }
+
+                    // Pre-Amp Horizontal Bar
+                    Slider(
+                        value = dspState.preampDb,
+                        onValueChange = { dspController.setPreampDb(it) },
+                        valueRange = -12f..12f,
+                        enabled = dspState.isEnabled,
+                        colors = SliderDefaults.colors(
+                            thumbColor = accentColor,
+                            activeTrackColor = accentColor,
+                            inactiveTrackColor = Color.White.copy(alpha = 0.12f)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(26.dp)
+                            .padding(horizontal = 8.dp)
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(220.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        dspState.bandFrequencies.forEachIndexed { index, freqHz ->
+                            val gainDb = dspState.bandLevelsDb.getOrElse(index) { 0f }
+                            VerticalEqBandSlider(
+                                frequencyHz = freqHz,
+                                gainDb = gainDb,
+                                isEnabled = dspState.isEnabled,
+                                accentColor = accentColor,
+                                secondaryAccent = secondaryAccent,
+                                onGainChange = { newGain ->
+                                    dspController.setBandLevel(index, newGain)
+                                    onBandsChanged?.invoke(dspController.state.value.bandLevelsDb)
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 5. 4 Studio Rotary Knobs (Sub-Bass, 3D Spatial, X-Loudness, Vocal Clarity)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(Color(0xFF121726))
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(22.dp))
+                    .padding(16.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = if (isPersian) "پردازشگرهای آکوستیک و فضایی" else "Psychoacoustic & Mastering Controls",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        RotaryDspKnob(
+                            label = if (isPersian) "توربو بیس" else "Sub-Bass",
+                            valueText = "${(dspState.bassBoostStrength * 100).roundToInt()}%",
+                            progress = dspState.bassBoostStrength,
+                            enabled = dspState.isEnabled,
+                            accentColor = Color(0xFFFF3D71),
+                            onValueChange = {
+                                dspController.setBassBoost(it)
+                                onBassBoostChanged?.invoke(it)
+                            }
+                        )
+
+                        RotaryDspKnob(
+                            label = if (isPersian) "صدای 3D" else "3D Spatial",
+                            valueText = "${(dspState.virtualizerStrength * 100).roundToInt()}%",
+                            progress = dspState.virtualizerStrength,
+                            enabled = dspState.isEnabled,
+                            accentColor = accentColor,
+                            onValueChange = {
+                                dspController.setVirtualizer(it)
+                                onVirtualizerChanged?.invoke(it)
+                            }
+                        )
+
+                        RotaryDspKnob(
+                            label = if (isPersian) "قدرت صدا" else "X-Loudness",
+                            valueText = "+${"%.1f".format(dspState.loudnessGainDb)}dB",
+                            progress = (dspState.loudnessGainDb / 15f).coerceIn(0f, 1f),
+                            enabled = dspState.isEnabled,
+                            accentColor = Color(0xFFFFAA00),
+                            onValueChange = {
+                                dspController.setLoudnessGain(it * 15f)
+                            }
+                        )
+
+                        RotaryDspKnob(
+                            label = if (isPersian) "شفافیت وکال" else "Vocal Air",
+                            valueText = "${(dspState.vocalClarity * 100).roundToInt()}%",
+                            progress = dspState.vocalClarity,
+                            enabled = dspState.isEnabled,
+                            accentColor = Color(0xFF00E096),
+                            onValueChange = {
+                                dspController.setVocalClarity(it)
+                            }
+                        )
+                    }
+
+                    // Sub-Bass Punch Slider
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = if (isPersian) "کوبش ساب‌ووفر (Sub-Harmonic Punch)" else "Sub-Harmonic Punch (31Hz - 90Hz)",
+                                fontSize = 12.sp,
+                                color = Color.White.copy(alpha = 0.8f)
+                            )
+                            Text(
+                                text = "${(dspState.subBassPunch * 100).roundToInt()}%",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFFF3D71)
+                            )
+                        }
+                        Slider(
+                            value = dspState.subBassPunch,
+                            onValueChange = { dspController.setSubBassPunch(it) },
+                            valueRange = 0f..1f,
+                            enabled = dspState.isEnabled,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFFFF3D71),
+                                activeTrackColor = Color(0xFFFF3D71),
+                                inactiveTrackColor = Color.White.copy(alpha = 0.12f)
+                            )
+                        )
+                    }
+                }
+            }
+
+            // 6. Mastering Hardware Stage Toggles (Multi-Band Compressor & Brickwall Limiter)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                MasteringToggleCard(
+                    title = if (isPersian) "کمپرسور چندبانده (MBC)" else "Multi-Band MBC",
+                    subtitle = if (isPersian) "تفکیک و پانچ استودیویی" else "Dynamic Punch & Warmth",
+                    checked = dspState.multibandCompressorEnabled,
+                    enabled = dspState.isEnabled,
+                    accentColor = accentColor,
+                    onCheckedChange = { dspController.setMultibandCompressor(it) },
+                    modifier = Modifier.weight(1f)
+                )
+
+                MasteringToggleCard(
+                    title = if (isPersian) "لیمیتر ضد خش (Limiter)" else "Brickwall Limiter",
+                    subtitle = if (isPersian) "جلوگیری از دیستورت در بیس بالا" else "Zero Clipping Protection",
+                    checked = dspState.brickwallLimiterEnabled,
+                    enabled = dspState.isEnabled,
+                    accentColor = Color(0xFF00E096),
+                    onCheckedChange = { dspController.setBrickwallLimiter(it) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun PresetChip(
+    preset: EqPreset,
+    isSelected: Boolean,
+    isPersian: Boolean,
+    accentColor: Color,
+    secondaryAccent: Color,
+    onClick: () -> Unit
+) {
+    val bgColor by animateColorAsState(
+        targetValue = if (isSelected) accentColor.copy(alpha = 0.22f) else Color(0xFF151B2C),
+        label = "chipBg"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isSelected) accentColor else Color.White.copy(alpha = 0.10f),
+        label = "chipBorder"
+    )
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(bgColor)
+            .border(1.dp, borderColor, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = if (isPersian) preset.nameFa else preset.nameEn,
+            fontSize = 12.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            color = if (isSelected) accentColor else Color.White.copy(alpha = 0.8f)
+        )
+    }
+}
+
+@Composable
+private fun SplineResponseVisualizer(
+    bandsDb: List<Float>,
+    bassBoost: Float,
+    clarity: Float,
+    isEnabled: Boolean,
+    accentColor: Color,
+    secondaryAccent: Color
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(125.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color(0xFF0E1322))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+            .padding(12.dp)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val midY = h / 2f
+
+            // Reference dB grid lines (+15, 0, -15)
+            val gridColor = Color.White.copy(alpha = 0.07f)
+            drawLine(gridColor, Offset(0f, 0f), Offset(w, 0f), strokeWidth = 1f)
+            drawLine(
+                Color.White.copy(alpha = 0.18f),
+                Offset(0f, midY),
+                Offset(w, midY),
+                strokeWidth = 1.2f,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f))
+            )
+            drawLine(gridColor, Offset(0f, h), Offset(w, h), strokeWidth = 1f)
+
+            val points = bandsDb.mapIndexed { idx, db ->
+                val extra = when (idx) {
+                    0 -> bassBoost * 5f
+                    1 -> bassBoost * 3.5f
+                    8, 9 -> clarity * 3.5f
+                    else -> 0f
+                }
+                val totalDb = if (isEnabled) (db + extra).coerceIn(-15f, 15f) else 0f
+                val x = (idx.toFloat() / (bandsDb.size - 1).coerceAtLeast(1)) * w
+                val y = midY - (totalDb / 15f) * (midY * 0.88f)
+                Offset(x, y)
+            }
+
+            if (points.size >= 2) {
+                val strokePath = Path().apply {
+                    moveTo(points.first().x, points.first().y)
+                    for (i in 0 until points.size - 1) {
+                        val p0 = points[i]
+                        val p1 = points[i + 1]
+                        val ctrlX = (p0.x + p1.x) / 2f
+                        cubicTo(ctrlX, p0.y, ctrlX, p1.y, p1.x, p1.y)
+                    }
+                }
+
+                val fillPath = Path().apply {
+                    addPath(strokePath)
+                    lineTo(w, h)
+                    lineTo(0f, h)
+                    close()
+                }
+
+                val activeColor = if (isEnabled) accentColor else Color.Gray
+                drawPath(
+                    path = fillPath,
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            activeColor.copy(alpha = 0.36f),
+                            secondaryAccent.copy(alpha = 0.12f),
+                            Color.Transparent
+                        )
+                    )
+                )
+
+                drawPath(
+                    path = strokePath,
+                    brush = Brush.horizontalGradient(listOf(accentColor, secondaryAccent, accentColor)),
+                    style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                )
+
+                points.forEach { pt ->
+                    drawCircle(
+                        color = Color(0xFF0E1322),
+                        radius = 5.dp.toPx(),
+                        center = pt
+                    )
+                    drawCircle(
+                        color = activeColor,
+                        radius = 3.5.dp.toPx(),
+                        center = pt
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VerticalEqBandSlider(
+    frequencyHz: Int,
+    gainDb: Float,
+    isEnabled: Boolean,
+    accentColor: Color,
+    secondaryAccent: Color,
+    onGainChange: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val freqLabel = remember(frequencyHz) {
+        if (frequencyHz >= 1000) "${frequencyHz / 1000}k" else "$frequencyHz"
+    }
+
+    Column(
+        modifier = modifier.fillMaxHeight(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = "${if (gainDb > 0.05f) "+" else ""}${gainDb.roundToInt()}",
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (gainDb != 0f && isEnabled) accentColor else Color.White.copy(alpha = 0.45f),
+            textAlign = TextAlign.Center
+        )
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(vertical = 6.dp)
+                .pointerInput(isEnabled) {
+                    if (!isEnabled) return@pointerInput
+                    detectTapGestures(
+                        onDoubleTap = { onGainChange(0f) },
+                        onPress = { offset ->
+                            val norm = 1f - (offset.y / size.height).coerceIn(0f, 1f)
+                            val newDb = (norm * 30f) - 15f
+                            onGainChange(newDb)
+                        }
+                    )
+                }
+                .pointerInput(isEnabled) {
+                    if (!isEnabled) return@pointerInput
+                    detectDragGestures { change, _ ->
+                        change.consume()
+                        val norm = 1f - (change.position.y / size.height).coerceIn(0f, 1f)
+                        val newDb = (norm * 30f) - 15f
+                        onGainChange(newDb)
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val centerX = size.width / 2f
+                val trackTop = 8.dp.toPx()
+                val trackBottom = size.height - 8.dp.toPx()
+                val trackHeight = (trackBottom - trackTop).coerceAtLeast(1f)
+                val midY = trackTop + trackHeight / 2f
+
+                // Background Track
+                drawLine(
+                    color = Color.White.copy(alpha = 0.12f),
+                    start = Offset(centerX, trackTop),
+                    end = Offset(centerX, trackBottom),
+                    strokeWidth = 5.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+
+                val normalized = ((gainDb + 15f) / 30f).coerceIn(0f, 1f)
+                val thumbY = trackBottom - normalized * trackHeight
+
+                // Active Fill from 0 dB center
+                val activeColor = if (isEnabled) accentColor else Color.Gray
+                drawLine(
+                    brush = Brush.verticalGradient(listOf(accentColor, secondaryAccent)),
+                    start = Offset(centerX, midY),
+                    end = Offset(centerX, thumbY),
+                    strokeWidth = 5.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+
+                // Thumb Glow & Cap
+                drawCircle(
+                    color = activeColor.copy(alpha = 0.28f),
+                    radius = 10.dp.toPx(),
+                    center = Offset(centerX, thumbY)
+                )
+                drawCircle(
+                    color = activeColor,
+                    radius = 6.dp.toPx(),
+                    center = Offset(centerX, thumbY)
+                )
+                drawCircle(
+                    color = Color.White,
+                    radius = 2.5.dp.toPx(),
+                    center = Offset(centerX, thumbY)
+                )
+            }
+        }
+
+        Text(
+            text = freqLabel,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.White.copy(alpha = 0.65f),
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun RotaryDspKnob(
+    label: String,
+    valueText: String,
+    progress: Float,
+    enabled: Boolean,
+    accentColor: Color,
+    onValueChange: (Float) -> Unit
+) {
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress.coerceIn(0f, 1f),
+        animationSpec = tween(120, easing = FastOutSlowInEasing),
+        label = "knobProgress"
+    )
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(72.dp)
+                .pointerInput(enabled) {
+                    if (!enabled) return@pointerInput
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        val center = Offset(size.width / 2f, size.height / 2f)
+                        val pos = change.position
+                        val angle = Math.toDegrees(
+                            atan2(
+                                (pos.y - center.y).toDouble(),
+                                (pos.x - center.x).toDouble()
+                            )
+                        ).toFloat()
+                        // Map angle (-225..45 degrees) or vertical drag
+                        val delta = (-dragAmount.y + dragAmount.x * 0.5f) / 140f
+                        onValueChange((progress + delta).coerceIn(0f, 1f))
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val strokeWidth = 6.dp.toPx()
+                val arcPadding = strokeWidth + 4.dp.toPx()
+                val arcSize = Size(size.width - arcPadding * 2, size.height - arcPadding * 2)
+                val topLeft = Offset(arcPadding, arcPadding)
+
+                // Background Arc (135 deg to 405 deg -> 270 deg sweep)
+                drawArc(
+                    color = Color.White.copy(alpha = 0.10f),
+                    startAngle = 135f,
+                    sweepAngle = 270f,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                )
+
+                val activeColor = if (enabled) accentColor else Color.Gray
+                drawArc(
+                    color = activeColor,
+                    startAngle = 135f,
+                    sweepAngle = 270f * animatedProgress,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                )
+
+                // Inner Knob Dial
+                val radius = (size.minDimension / 2f) - arcPadding - 6.dp.toPx()
+                drawCircle(
+                    color = Color(0xFF1A2136),
+                    radius = radius,
+                    center = center
+                )
+
+                // Indicator Dot
+                val angleRad = Math.toRadians((135f + 270f * animatedProgress).toDouble())
+                val indicatorDist = radius * 0.68f
+                val indicatorPos = Offset(
+                    x = center.x + (cos(angleRad) * indicatorDist).toFloat(),
+                    y = center.y + (sin(angleRad) * indicatorDist).toFloat()
+                )
+                drawCircle(
+                    color = activeColor,
+                    radius = 3.dp.toPx(),
+                    center = indicatorPos
+                )
+            }
+
+            Text(
+                text = valueText,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (enabled) Color.White else Color.White.copy(alpha = 0.4f)
+            )
+        }
+
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White.copy(alpha = 0.8f)
+        )
+    }
+}
+
+@Composable
+private fun MasteringToggleCard(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    enabled: Boolean,
+    accentColor: Color,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0xFF121726))
+            .border(
+                width = 1.dp,
+                color = if (checked && enabled) accentColor.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(18.dp)
+            )
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            Text(
+                text = subtitle,
+                fontSize = 10.sp,
+                color = Color.White.copy(alpha = 0.55f)
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.Black,
+                checkedTrackColor = accentColor
+            )
+        )
+    }
+}
+

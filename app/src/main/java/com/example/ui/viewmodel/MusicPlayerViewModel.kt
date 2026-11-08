@@ -164,8 +164,13 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private var activePlayingTrackRef: Track? = null
     private var previousDeviceName: String? = null
 
-    // این متغیر چک می‌کند که آیا تبلیغ برای این آهنگِ در حال پخش شمرده شده است یا خیر
+    // متغیرهای ردیابی دقیق «نصف آهنگ» (۵۰٪) برای تبلیغ و کارنامه شنیداری (وارپ)
     private var hasCountedCurrentTrackForAd = false
+    private var lastObservedPositionMs: Long = 0L
+    private var activeActualListenedMs: Long = 0L
+    private var hasCountedCurrentTrackForWrapped = false
+    private var activeWrappedEventId: Long = 0L
+    private var lastWrappedDbSyncMs: Long = 0L
 
     init {
         _activePalette.value = ArtworkPaletteExtractor.extract(null, _appSettings.value, app)
@@ -200,21 +205,97 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             handleTrackError()
         }
 
-        // بررسی هوشمند شرط «نصف آهنگ» (totalDuration / 2) برای شمارش تبلیغ تپسل
+        // بررسی هوشمند و لحظه‌ای شرط «نصف آهنگ» (totalDuration / 2) برای وارپ و تبلیغ تپسل
         viewModelScope.launch {
             audioEngine.currentPosition.collect { currentPosition ->
-                val totalDuration = _playbackState.value.durationMs.takeIf { it > 0L }
-                    ?: _playbackState.value.currentTrack?.durationMs ?: 0L
+                _playbackState.update { it.copy(currentPositionMs = currentPosition) }
 
-                // فقط برای کاربران عادی (غیر VIP) و فقط اگر برای این آهنگ هنوز شمرده نشده باشد
-                if (!com.example.monetization.EntitlementManager.isPremium.value && !hasCountedCurrentTrackForAd) {
-                    // شرط اصلی: آیا طول کل آهنگ مشخص است و کاربر حداقل نصف آن را گوش داده است؟
-                    if (totalDuration > 0L && currentPosition >= (totalDuration / 2)) {
-                        hasCountedCurrentTrackForAd = true
-                        com.example.monetization.TapsellPlus.onTrackPlayed(
-                            context = getApplication(),
-                            zoneId = "" // TODO: Insert Interstitial Zone ID
-                        )
+                val isPlayingNow = audioEngine.status.value == PlayerStatus.PLAYING
+                val posDelta = currentPosition - lastObservedPositionMs
+                lastObservedPositionMs = currentPosition
+                if (isPlayingNow && posDelta in 1L..1500L) {
+                    activeActualListenedMs += posDelta
+                }
+
+                val currentTrack = activePlayingTrackRef ?: _playbackState.value.currentTrack
+                val totalDuration = audioEngine.duration.value.takeIf { it > 1000L }
+                    ?: _playbackState.value.durationMs.takeIf { it > 1000L }
+                    ?: currentTrack?.durationMs?.takeIf { it > 1000L }
+                    ?: 0L
+
+                if (totalDuration > 0L && currentTrack != null) {
+                    val halfDurationMs = (totalDuration / 2L).coerceAtLeast(10_000L)
+                    val reachedHalfPosition = currentPosition >= halfDurationMs
+                    val listenedHalfDuration = activeActualListenedMs >= (halfDurationMs * 95L / 100L)
+
+                    // ۱. فقط برای کاربران عادی (غیر VIP) و فقط پس از گوش دادن واقعی به نصف آهنگ
+                    if (!com.example.monetization.EntitlementManager.isPremium.value && !hasCountedCurrentTrackForAd) {
+                        if (reachedHalfPosition && listenedHalfDuration) {
+                            hasCountedCurrentTrackForAd = true
+                            com.example.monetization.TapsellPlus.onTrackPlayed(
+                                context = getApplication(),
+                                zoneId = ""
+                            )
+                        }
+                    }
+
+                    // ۲. ثبت در وارپ (Wrapped) و تاریخچه پخش: اکیداً فقط وقتی که حداقل نصف آهنگ واقعاً گوش داده شده باشد!
+                    if (!hasCountedCurrentTrackForWrapped && reachedHalfPosition && listenedHalfDuration) {
+                        hasCountedCurrentTrackForWrapped = true
+                        val trackWithRealDuration = currentTrack.copy(durationMs = totalDuration)
+                        val listenedSnapshot = maxOf(activeActualListenedMs, halfDurationMs).coerceAtMost(totalDuration)
+                        val sessionTs = trackStartPlayTimestamp.takeIf { it > 0L } ?: System.currentTimeMillis()
+                        lastWrappedDbSyncMs = listenedSnapshot
+
+                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            val insertedId = repository.recordPlaybackSession(
+                                track = trackWithRealDuration,
+                                durationListenedMs = listenedSnapshot,
+                                fullTrackDurationMs = totalDuration,
+                                wasSkipped = false,
+                                eventId = 0L,
+                                sessionTimestamp = sessionTs
+                            )
+                            if (insertedId > 0L) {
+                                activeWrappedEventId = insertedId
+                            }
+                            repository.recordPlay(trackWithRealDuration.id)
+                            if (
+                                trackWithRealDuration.uri.startsWith("http") ||
+                                trackWithRealDuration.id.startsWith("online_") ||
+                                trackWithRealDuration.id.startsWith("cf_")
+                            ) {
+                                OnlineTasteEngine.recordTrackListen(app, trackWithRealDuration)
+                                _onlineRecentTracks.value = OnlineTasteEngine.getRecentOnlineTracks(app)
+                                _userTopArtists.value = OnlineTasteEngine.getTopArtistsForUser(
+                                    app,
+                                    recentlyPlayed.value,
+                                    favoriteTracks.value
+                                )
+                            }
+                            UserProfileManager.refreshProfileWithDatabase(app, repository)
+                            refreshCurrentWrappedStats()
+                        }
+                    } else if (hasCountedCurrentTrackForWrapped && activeWrappedEventId > 0L) {
+                        // بروزرسانی زمان واقعی گوش دادن پس از رد کردن نیمه آهنگ (بدون شمارش تکراری تعداد پخش)
+                        val clampedListened = activeActualListenedMs.coerceAtMost(totalDuration)
+                        if (clampedListened - lastWrappedDbSyncMs >= 5_000L) {
+                            lastWrappedDbSyncMs = clampedListened
+                            val trackWithRealDuration = currentTrack.copy(durationMs = totalDuration)
+                            val eventIdSnapshot = activeWrappedEventId
+                            val sessionTs = trackStartPlayTimestamp.takeIf { it > 0L } ?: System.currentTimeMillis()
+                            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                repository.recordPlaybackSession(
+                                    track = trackWithRealDuration,
+                                    durationListenedMs = clampedListened,
+                                    fullTrackDurationMs = totalDuration,
+                                    wasSkipped = false,
+                                    eventId = eventIdSnapshot,
+                                    sessionTimestamp = sessionTs
+                                )
+                                refreshCurrentWrappedStats()
+                            }
+                        }
                     }
                 }
             }
@@ -223,6 +304,9 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         // Maintain duration and status
         viewModelScope.launch {
             audioEngine.duration.collect { dur ->
+                if (dur > 1000L && activePlayingTrackRef != null && activePlayingTrackRef?.durationMs != dur) {
+                    activePlayingTrackRef = activePlayingTrackRef?.copy(durationMs = dur)
+                }
                 _playbackState.update { state ->
                     val updatedTrack = if (dur > 1000L && state.currentTrack != null && state.currentTrack.durationMs != dur) {
                         state.currentTrack.copy(durationMs = dur)
@@ -498,48 +582,99 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     /**
-     * ثبت دقیق زمان واقعی گوش دادن به آهنگ:
-     * اگر کاربر آهنگ را زیر ۲۵ ثانیه رد (Skip) کند، به عنوان آهنگ گوشدادهشده ثبت نمیشود!
+     * نهایی‌سازی جلسه گوش دادن به آهنگ فعلی هنگام تعویض یا اتمام آهنگ:
+     * تا وقتی که آهنگ حداقل تا نیمه (۵۰٪) گوش داده نشده باشد، مطلقاً در وارپ ثبت نمی‌شود.
      */
     private fun commitActiveListeningSession(wasSkipped: Boolean) {
         val prevTrack = activePlayingTrackRef ?: return
         val startTs = trackStartPlayTimestamp
-        if (startTs <= 0L) return
-
-        val wallElapsedMs = (System.currentTimeMillis() - startTs).coerceAtLeast(0L)
+        val totalDuration = audioEngine.duration.value.takeIf { it > 1000L }
+            ?: _playbackState.value.durationMs.takeIf { it > 1000L }
+            ?: prevTrack.durationMs.takeIf { it > 1000L }
+            ?: 180_000L
+        val halfDurationMs = (totalDuration / 2L).coerceAtLeast(10_000L)
         val playerPosMs = audioEngine.currentPosition.value.coerceAtLeast(0L)
-        // زمان واقعی گوش دادن (حداکثر تا طول خود آهنگ)
-        val actualListenedMs = minOf(wallElapsedMs, prevTrack.durationMs.coerceAtLeast(180_000L))
-            .coerceAtLeast(if (!wasSkipped) prevTrack.durationMs else minOf(wallElapsedMs, playerPosMs))
+        val listenedMs = activeActualListenedMs.coerceIn(0L, totalDuration)
 
-        // شرط ضد-اسکیپ: حداقل ۳۰ ثانیه یا ۴۰٪ کل زمان آهنگ باید واقعاً گوش داده شده باشد
-        val minRequiredMs = minOf(30_000L, (prevTrack.durationMs * 0.40f).toLong().coerceAtLeast(15_000L))
-        val isGenuineListen = actualListenedMs >= minRequiredMs
+        val wasAlreadyCounted = hasCountedCurrentTrackForWrapped
+        val existingEventId = activeWrappedEventId
+        val qualifiedNow = !wasAlreadyCounted &&
+            playerPosMs >= halfDurationMs &&
+            listenedMs >= (halfDurationMs * 95L / 100L)
 
+        // ریست متغیرهای جلسه برای آهنگ بعدی
         trackStartPlayTimestamp = 0L
         activePlayingTrackRef = null
+        lastObservedPositionMs = 0L
+        activeActualListenedMs = 0L
+        hasCountedCurrentTrackForWrapped = false
+        activeWrappedEventId = 0L
+        lastWrappedDbSyncMs = 0L
+
+        if (!wasAlreadyCounted && !qualifiedNow) {
+            // کاربر قبل از رسیدن به نصف آهنگ آن را رد کرده است -> مطلقاً در وارپ ثبت نشود!
+            return
+        }
+
+        val finalListenedMs = if (!wasSkipped && listenedMs >= (halfDurationMs * 95L / 100L)) {
+            maxOf(listenedMs, totalDuration)
+        } else {
+            maxOf(listenedMs, halfDurationMs).coerceAtMost(totalDuration)
+        }
+        val trackSnapshot = prevTrack.copy(durationMs = totalDuration)
+        val sessionTimestamp = startTs.takeIf { it > 0L } ?: System.currentTimeMillis()
 
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            if (isGenuineListen) {
-                repository.recordPlay(prevTrack.id)
+            if (wasAlreadyCounted && existingEventId > 0L) {
+                // فقط مدت زمان نهایی گوش دادن همان رکورد ثبت‌شده را آپدیت کن (بدون افزایش مجدد تعداد پخش)
                 repository.recordPlaybackSession(
-                    track = prevTrack,
-                    durationListenedMs = actualListenedMs,
-                    wasSkipped = wasSkipped
+                    track = trackSnapshot,
+                    durationListenedMs = finalListenedMs,
+                    fullTrackDurationMs = totalDuration,
+                    wasSkipped = wasSkipped,
+                    eventId = existingEventId,
+                    sessionTimestamp = sessionTimestamp
                 )
-                UserProfileManager.refreshProfileWithDatabase(app, repository)
-                refreshCurrentWrappedStats()
+            } else if (qualifiedNow) {
+                repository.recordPlay(trackSnapshot.id)
+                repository.recordPlaybackSession(
+                    track = trackSnapshot,
+                    durationListenedMs = finalListenedMs,
+                    fullTrackDurationMs = totalDuration,
+                    wasSkipped = wasSkipped,
+                    eventId = 0L,
+                    sessionTimestamp = sessionTimestamp
+                )
+                if (
+                    trackSnapshot.uri.startsWith("http") ||
+                    trackSnapshot.id.startsWith("online_") ||
+                    trackSnapshot.id.startsWith("cf_")
+                ) {
+                    OnlineTasteEngine.recordTrackListen(app, trackSnapshot)
+                    _onlineRecentTracks.value = OnlineTasteEngine.getRecentOnlineTracks(app)
+                    _userTopArtists.value = OnlineTasteEngine.getTopArtistsForUser(
+                        app,
+                        recentlyPlayed.value,
+                        favoriteTracks.value
+                    )
+                }
             }
+            UserProfileManager.refreshProfileWithDatabase(app, repository)
+            refreshCurrentWrappedStats()
         }
     }
 
     private fun playTrackInternal(track: Track, queue: List<Track>, queueIndex: Int, startPositionMs: Long = 0L) {
-        // وقتی آهنگ جدیدی استارت می‌خورد، شمارنده تبلیغ این آهنگ ریست می‌شود
-        hasCountedCurrentTrackForAd = false
-
-        // ۱. بررسی آهنگ قبلی: فقط اگر واقعاً گوش داده شده باشد ثبت میشود و اگر سریع اسکیپ شده باشد نادیده گرفته میشود
+        // ۱. نهایی‌سازی آهنگ قبلی (اگر زیر ۵۰٪ بوده، کاملاً نادیده گرفته می‌شود)
         commitActiveListeningSession(wasSkipped = true)
 
+        // ۲. ریست کامل شمارنده‌ها برای آهنگ جدید
+        hasCountedCurrentTrackForAd = false
+        hasCountedCurrentTrackForWrapped = false
+        activeWrappedEventId = 0L
+        lastWrappedDbSyncMs = 0L
+        lastObservedPositionMs = startPositionMs
+        activeActualListenedMs = 0L
         activePlayingTrackRef = track
         trackStartPlayTimestamp = System.currentTimeMillis()
 
@@ -560,7 +695,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             )
         }
 
-        // ۲. شروع بلافاصله پخش صوتی از ثانیه صفر (seekTo(0L)) + بافر استریم در پس‌زمینه
+        // ۳. شروع بلافاصله پخش صوتی از ثانیه صفر + بافر استریم در پس‌زمینه
         val cachedFile = OnlineCacheHolder.getCachedFileIfPresent(app, track.id)
             ?: OnlineCacheHolder.getStreamBufferFileIfPresent(app, track.id)
         if (cachedFile != null) {
@@ -571,7 +706,6 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             if (track.uri.startsWith("http://") || track.uri.startsWith("https://")) {
                 OnlineCacheHolder.warmStreamBufferInBackground(app, track) { bufferedFile ->
                     if (bufferedFile != null && _playbackState.value.currentTrack?.id == track.id) {
-                        // فقط در صورتی که استریم آنلاین با خطا مواجه شده باشد از فایل بافر شده استفاده کن و همیشه از ثانیه ۰ شروع کن تا وسط آهنگ نپرد
                         if (audioEngine.status.value == PlayerStatus.ERROR) {
                             audioEngine.playTrack(
                                 track.copy(uri = bufferedFile.absolutePath),
@@ -584,12 +718,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
 
-        // ثبت در پروفایل سلیقه آنلاین و لیست پخش‌های اخیر کاربر در پس‌زمینه
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            OnlineTasteEngine.recordTrackListen(app, track)
-            _onlineRecentTracks.value = OnlineTasteEngine.getRecentOnlineTracks(app)
-            _userTopArtists.value = OnlineTasteEngine.getTopArtistsForUser(app, recentlyPlayed.value, favoriteTracks.value)
-        }
+        // توجه مهم: در لحظه کلیک روی آهنگ هیچ چیزی در OnlineTasteEngine یا Wrapped ثبت نمی‌شود
+        // تا زمانی که کاربر واقعاً حداقل نصف آهنگ (۵۰٪) را گوش دهد!
 
         loadLyricsForTrack(track)
 
@@ -840,6 +970,7 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun seekTo(positionMs: Long) {
+        lastObservedPositionMs = positionMs
         audioEngine.seekTo(positionMs)
         _playbackState.update { it.copy(currentPositionMs = positionMs) }
         _playbackState.value.currentTrack?.let { track ->
@@ -1470,8 +1601,16 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val periods = repository.getAvailableWrappedPeriods()
             _wrappedPeriods.value = periods
-            if (_selectedWrappedPeriod.value == null && periods.isNotEmpty()) {
-                selectWrappedPeriod(periods.first())
+            val currentSelected = _selectedWrappedPeriod.value
+            val targetPeriod = if (currentSelected != null) {
+                periods.firstOrNull { it.timeframe == currentSelected.timeframe } ?: periods.firstOrNull()
+            } else {
+                periods.firstOrNull()
+            }
+            if (targetPeriod != null) {
+                _selectedWrappedPeriod.value = targetPeriod
+                val stats = repository.getWrappedStats(targetPeriod)
+                _wrappedStats.value = stats
             }
         }
     }
@@ -1491,6 +1630,8 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 val stats = repository.getWrappedStats(period)
                 _wrappedStats.value = stats
             }
+        } else {
+            refreshWrappedPeriods()
         }
     }
 

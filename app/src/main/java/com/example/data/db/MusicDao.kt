@@ -113,7 +113,10 @@ interface MusicDao {
 
     // Playback Events for Listening Wrapped Analysis
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertPlaybackEvent(event: PlaybackEvent)
+    suspend fun insertPlaybackEvent(event: PlaybackEvent): Long
+
+    @Query("DELETE FROM playback_events WHERE fullTrackDurationMs > 0 AND durationListenedMs < (fullTrackDurationMs * 47 / 100)")
+    suspend fun purgeInvalidShortPlaybackEvents()
 
     @Query("SELECT COUNT(*) FROM tracks WHERE isFavorite = 1 AND isHiddenDuplicate = 0")
     suspend fun getFavoriteCount(): Int

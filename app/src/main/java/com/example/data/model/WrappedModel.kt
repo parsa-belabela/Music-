@@ -77,6 +77,8 @@ data class WrappedStats(
     val uniqueTracksCount: Int = 0,
     val uniqueArtistsCount: Int = 0
 ) {
-    val totalListeningMinutes: Long get() = (totalListeningTimeMs / (1000 * 60)).coerceAtLeast(if (totalTracksPlayed > 0) 1L else 0L)
+    val totalListeningMinutes: Long
+        get() = if (totalListeningTimeMs <= 0L || totalTracksPlayed <= 0) 0L
+        else ((totalListeningTimeMs + 30_000L) / 60_000L).coerceAtLeast(1L)
     val totalListeningHours: Float get() = totalListeningTimeMs / (1000f * 60f * 60f)
 }

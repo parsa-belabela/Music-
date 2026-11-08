@@ -113,12 +113,19 @@ object WrappedEngine {
 
         val dayMs = 24L * 60L * 60L * 1000L
 
+        val todayStartCal = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val todayStartMs = todayStartCal.timeInMillis
+
         // =========================================================================
         // ۱. رپد هفتگی (قفل تا روز جمعه - فقط در روز جمعه باز میشود)
         // =========================================================================
         val daysSinceSaturday = if (dayOfWeek == Calendar.SATURDAY) 0 else dayOfWeek
         val daysUntilFriday = (6 - daysSinceSaturday).coerceAtLeast(0)
-        val isTodayFriday = (dayOfWeek == Calendar.FRIDAY)
 
         val currentWeekStartCal = Calendar.getInstance().apply {
             add(Calendar.DAY_OF_YEAR, -daysSinceSaturday)
@@ -149,7 +156,7 @@ object WrappedEngine {
                 month = jalaliNow.month,
                 startTimestamp = currentWeekStartMs,
                 endTimestamp = currentWeekEndMs,
-                isLocked = !isWeeklyUnlocked48h, // قفل تا روز جمعه (فقط به مدت ۴۸ ساعت باز می‌شود)
+                isLocked = !isWeeklyUnlocked48h,
                 daysRemainingUntilUnlock = safeDaysUntilFriday,
                 unlockTargetDateEn = "Unlocks Friday (Limited 48h Window)",
                 unlockTargetDateFa = "بازگشایی: روز جمعه هر هفته (به مدت محدود ۴۸ ساعت)",
@@ -166,7 +173,7 @@ object WrappedEngine {
         val isMonthlyUnlocked48h = (daysLeftInJalaliMonth == 0 || jalaliNow.day == 1)
         val safeDaysUntilMonthEnd = if (isMonthlyUnlocked48h) 0 else daysLeftInJalaliMonth.coerceAtLeast(1)
 
-        val currentMonthStartMs = nowMs - ((jalaliNow.day - 1) * dayMs)
+        val currentMonthStartMs = todayStartMs - ((jalaliNow.day - 1) * dayMs)
         val currentMonthEndMs = currentMonthStartMs + (jalaliNow.totalDaysInMonth * dayMs) - 1L
         val gMonthName = getEnglishMonthName(gMonth)
 
@@ -180,7 +187,7 @@ object WrappedEngine {
                 month = jalaliNow.month,
                 startTimestamp = currentMonthStartMs,
                 endTimestamp = currentMonthEndMs,
-                isLocked = !isMonthlyUnlocked48h, // قفل تا روز آخر ماه (فقط به مدت ۴۸ ساعت باز می‌شود)
+                isLocked = !isMonthlyUnlocked48h,
                 daysRemainingUntilUnlock = safeDaysUntilMonthEnd,
                 unlockTargetDateEn = "Unlocks Last Day of $gMonthName (48h Window)",
                 unlockTargetDateFa = toPersianDigits("بازگشایی: روز آخر ${jalaliNow.monthNameFa} (${jalaliNow.totalDaysInMonth} ${jalaliNow.monthNameFa} • به مدت ۴۸ ساعت)"),
@@ -203,7 +210,7 @@ object WrappedEngine {
         val isYearlyUnlocked48h = (daysLeftInYear == 0 || dayOfYearJalali == 1)
         val safeDaysUntilYearEnd = if (isYearlyUnlocked48h) 0 else daysLeftInYear.coerceAtLeast(1)
 
-        val yearStartMs = nowMs - ((dayOfYearJalali - 1) * dayMs)
+        val yearStartMs = todayStartMs - ((dayOfYearJalali - 1) * dayMs)
         val yearEndMs = yearStartMs + (totalDaysInJalaliYear * dayMs) - 1L
 
         periods.add(
@@ -216,7 +223,7 @@ object WrappedEngine {
                 month = 0,
                 startTimestamp = yearStartMs,
                 endTimestamp = yearEndMs,
-                isLocked = !isYearlyUnlocked48h, // قفل تا روز آخر سال (فقط به مدت ۴۸ ساعت باز می‌شود)
+                isLocked = !isYearlyUnlocked48h,
                 daysRemainingUntilUnlock = safeDaysUntilYearEnd,
                 unlockTargetDateEn = "Unlocks Last Day of Year (Limited 48h Window)",
                 unlockTargetDateFa = toPersianDigits("بازگشایی: روز آخر سال ${jalaliNow.year} (به مدت محدود ۴۸ ساعت)"),
@@ -230,7 +237,8 @@ object WrappedEngine {
     }
 
     /**
-     * محاسبه آمار بر اساس «دقیقه واقعی گوش دادن» (Minutes Listened) و نادیده گرفتن آهنگهای اسکیپشده کوتاه
+     * محاسبه دقیق آمار بر اساس آهنگ‌هایی که حداقل تا نیمه (۵۰٪) گوش داده شده‌اند.
+     * هیچ آمار ساختگی یا کلیک‌های زیر ۵۰٪ در این بخش لحاظ نمی‌شود.
      */
     fun computeStats(
         period: WrappedPeriod,
@@ -238,14 +246,18 @@ object WrappedEngine {
         allTracks: List<Track>,
         firstTimestamp: Long
     ): WrappedStats {
-        val rawPeriodEvents = events.filter { it.timestamp in period.startTimestamp..period.endTimestamp }
+        val effectiveEndMs = maxOf(period.endTimestamp, System.currentTimeMillis())
+        val rawPeriodEvents = events.filter { it.timestamp in period.startTimestamp..effectiveEndMs }
         val trackMap = allTracks.associateBy { it.id }
 
         var totalSkips = 0
-        // فیلتر کردن آهنگهایی که کاربر سریع رد (Skip) کرده تا در آمار آهنگهای گوشدادهشده حساب نشوند
+        // قانون سخت‌گیرانه ۵۰٪: فقط آهنگ‌هایی که حداقل تا نصف (۵۰٪) مدت زمانشان گوش داده شده‌اند حساب می‌شوند
         val validListenEvents = rawPeriodEvents.filter { ev ->
-            val minThreshold = minOf(25_000L, (ev.fullTrackDurationMs * 0.35f).toLong().coerceAtLeast(12_000L))
-            if (ev.wasSkipped && ev.durationListenedMs < minThreshold) {
+            val fullDur = ev.fullTrackDurationMs.takeIf { it > 0L }
+                ?: trackMap[ev.trackId]?.durationMs?.takeIf { it > 0L }
+                ?: 180_000L
+            val halfDur = (fullDur / 2L).coerceAtLeast(10_000L)
+            if (ev.durationListenedMs < (halfDur * 95L / 100L)) {
                 totalSkips++
                 false
             } else {
@@ -267,91 +279,85 @@ object WrappedEngine {
 
         val cal = Calendar.getInstance()
 
-        if (validListenEvents.isNotEmpty()) {
-            for (event in validListenEvents) {
-                val listenedMs = event.durationListenedMs.coerceAtLeast(1000L)
-                totalListeningTimeMs += listenedMs
+        for (event in validListenEvents) {
+            val trk = trackMap[event.trackId]
+            val fullDur = event.fullTrackDurationMs.takeIf { it > 0L }
+                ?: trk?.durationMs?.takeIf { it > 0L }
+                ?: 180_000L
+            val listenedMs = event.durationListenedMs.coerceIn(1000L, fullDur)
+            totalListeningTimeMs += listenedMs
 
-                trackListeningTime[event.trackId] = (trackListeningTime[event.trackId] ?: 0L) + listenedMs
-                trackPlayCount[event.trackId] = (trackPlayCount[event.trackId] ?: 0) + 1
+            trackListeningTime[event.trackId] = (trackListeningTime[event.trackId] ?: 0L) + listenedMs
+            trackPlayCount[event.trackId] = (trackPlayCount[event.trackId] ?: 0) + 1
 
-                val trk = trackMap[event.trackId]
-                val cleanArtist = (trk?.artist ?: event.artist).trim()
-                if (cleanArtist.isNotBlank() && !cleanArtist.equals("Unknown Artist", ignoreCase = true)) {
-                    artistListeningTime[cleanArtist] = (artistListeningTime[cleanArtist] ?: 0L) + listenedMs
-                    artistPlayCount[cleanArtist] = (artistPlayCount[cleanArtist] ?: 0) + 1
-                    if (!trk?.artworkUri.isNullOrBlank() && !artistArtworkMap.containsKey(cleanArtist)) {
-                        artistArtworkMap[cleanArtist] = trk!!.artworkUri!!
-                    }
+            val resolvedArtwork = trk?.artworkUri?.takeIf { it.isNotBlank() }
+                ?: try {
+                    com.example.OnlineMusicRepository.getCoverUrlForTrack(event.trackId)?.takeIf { it.isNotBlank() }
+                } catch (_: Exception) {
+                    null
                 }
 
-                val cleanAlbum = (trk?.album ?: event.album).trim()
-                if (cleanAlbum.isNotBlank() && !cleanAlbum.equals("Unknown Album", ignoreCase = true)) {
-                    albumListeningTime[cleanAlbum] = (albumListeningTime[cleanAlbum] ?: 0L) + listenedMs
-                    albumPlayCount[cleanAlbum] = (albumPlayCount[cleanAlbum] ?: 0) + 1
+            val cleanArtist = (trk?.artist ?: event.artist).trim()
+            if (cleanArtist.isNotBlank() && !cleanArtist.equals("Unknown Artist", ignoreCase = true)) {
+                artistListeningTime[cleanArtist] = (artistListeningTime[cleanArtist] ?: 0L) + listenedMs
+                artistPlayCount[cleanArtist] = (artistPlayCount[cleanArtist] ?: 0) + 1
+                if (!resolvedArtwork.isNullOrBlank() && !artistArtworkMap.containsKey(cleanArtist)) {
+                    artistArtworkMap[cleanArtist] = resolvedArtwork
                 }
-
-                val resolvedGenre = resolveRealGenreForStats(trk, event.genre)
-                genreListeningTime[resolvedGenre] = (genreListeningTime[resolvedGenre] ?: 0L) + listenedMs
-                genrePlayCount[resolvedGenre] = (genrePlayCount[resolvedGenre] ?: 0) + 1
-
-                cal.timeInMillis = event.timestamp
-                val hour = cal.get(Calendar.HOUR_OF_DAY)
-                hourDistribution[hour] += (listenedMs / 60_000L).toInt().coerceAtLeast(1)
             }
-        } else {
-            val playedTracks = allTracks.filter { it.playCount > 0 }
-            for (trk in playedTracks) {
-                val plays = trk.playCount
-                val listenedMs = trk.durationMs * plays
-                totalListeningTimeMs += listenedMs
-                trackListeningTime[trk.id] = listenedMs
-                trackPlayCount[trk.id] = plays
 
-                if (trk.artist.isNotBlank() && !trk.artist.equals("Unknown Artist", ignoreCase = true)) {
-                    artistListeningTime[trk.artist] = (artistListeningTime[trk.artist] ?: 0L) + listenedMs
-                    artistPlayCount[trk.artist] = (artistPlayCount[trk.artist] ?: 0) + plays
-                    if (!trk.artworkUri.isNullOrBlank() && !artistArtworkMap.containsKey(trk.artist)) {
-                        artistArtworkMap[trk.artist] = trk.artworkUri
-                    }
-                }
-                if (trk.album.isNotBlank() && !trk.album.equals("Unknown Album", ignoreCase = true)) {
-                    albumListeningTime[trk.album] = (albumListeningTime[trk.album] ?: 0L) + listenedMs
-                    albumPlayCount[trk.album] = (albumPlayCount[trk.album] ?: 0) + plays
-                }
-                val resolvedGenre = resolveRealGenreForStats(trk, trk.genre)
-                genreListeningTime[resolvedGenre] = (genreListeningTime[resolvedGenre] ?: 0L) + listenedMs
-                genrePlayCount[resolvedGenre] = (genrePlayCount[resolvedGenre] ?: 0) + plays
-                hourDistribution[21] += (listenedMs / 60_000L).toInt().coerceAtLeast(1)
+            val cleanAlbum = (trk?.album ?: event.album).trim()
+            if (cleanAlbum.isNotBlank() && !cleanAlbum.equals("Unknown Album", ignoreCase = true)) {
+                albumListeningTime[cleanAlbum] = (albumListeningTime[cleanAlbum] ?: 0L) + listenedMs
+                albumPlayCount[cleanAlbum] = (albumPlayCount[cleanAlbum] ?: 0) + 1
             }
+
+            val resolvedGenre = resolveRealGenreForStats(trk, event.genre)
+            genreListeningTime[resolvedGenre] = (genreListeningTime[resolvedGenre] ?: 0L) + listenedMs
+            genrePlayCount[resolvedGenre] = (genrePlayCount[resolvedGenre] ?: 0) + 1
+
+            cal.timeInMillis = event.timestamp
+            val hour = cal.get(Calendar.HOUR_OF_DAY)
+            hourDistribution[hour] += ((listenedMs + 30_000L) / 60_000L).toInt().coerceAtLeast(1)
         }
 
-        // رتبهبندی ۵ آهنگ برتر دقیقاً بر اساس «دقیقه گوش دادن» (totalListeningTimeMs)
+        // رتبه‌بندی ۵ آهنگ برتر بر اساس دفعات پخش معتبر (>=50%) و زمان واقعی گوش دادن
         val topSongs = trackListeningTime.entries
-            .sortedByDescending { it.value }
+            .sortedWith(
+                compareByDescending<Map.Entry<String, Long>> { trackPlayCount[it.key] ?: 0 }
+                    .thenByDescending { it.value }
+            )
             .take(5)
             .mapIndexed { index, entry ->
                 val track = trackMap[entry.key]
                 val matchingEvent = validListenEvents.firstOrNull { it.trackId == entry.key }
+                val resolvedArtwork = track?.artworkUri?.takeIf { it.isNotBlank() }
+                    ?: try {
+                        com.example.OnlineMusicRepository.getCoverUrlForTrack(entry.key)?.takeIf { it.isNotBlank() }
+                    } catch (_: Exception) {
+                        null
+                    }
                 TopSongItem(
                     trackId = entry.key,
                     title = track?.title ?: matchingEvent?.trackTitle ?: "Track",
                     artist = track?.artist ?: matchingEvent?.artist ?: "Artist",
                     album = track?.album ?: matchingEvent?.album ?: "Album",
-                    artworkUri = track?.artworkUri,
+                    artworkUri = resolvedArtwork,
                     playCount = trackPlayCount[entry.key] ?: 1,
                     totalDurationMs = entry.value,
                     rank = index + 1
                 )
             }
 
-        // رتبهبندی هنرمندان برتر بر اساس مجموع دقایق گوش دادن
         val totalArtistMs = artistListeningTime.values.sum().coerceAtLeast(1L)
         val topArtists = artistListeningTime.entries
-            .sortedByDescending { it.value }
+            .sortedWith(
+                compareByDescending<Map.Entry<String, Long>> { artistPlayCount[it.key] ?: 0 }
+                    .thenByDescending { it.value }
+            )
             .take(5)
             .map { entry ->
-                val mins = (entry.value / 60_000L).coerceAtLeast(1L)
+                val mins = ((entry.value + 30_000L) / 60_000L).coerceAtLeast(1L)
                 TopStatItem(
                     name = entry.key,
                     count = artistPlayCount[entry.key] ?: 1,
@@ -365,7 +371,7 @@ object WrappedEngine {
             .sortedByDescending { it.value }
             .take(5)
             .map { entry ->
-                val mins = (entry.value / 60_000L).coerceAtLeast(1L)
+                val mins = ((entry.value + 30_000L) / 60_000L).coerceAtLeast(1L)
                 TopStatItem(
                     name = entry.key,
                     count = albumPlayCount[entry.key] ?: 1,
@@ -378,7 +384,7 @@ object WrappedEngine {
             .sortedByDescending { it.value }
             .take(5)
             .map { entry ->
-                val mins = (entry.value / 60_000L).coerceAtLeast(1L)
+                val mins = ((entry.value + 30_000L) / 60_000L).coerceAtLeast(1L)
                 TopStatItem(
                     name = entry.key,
                     count = genrePlayCount[entry.key] ?: 1,
@@ -393,9 +399,9 @@ object WrappedEngine {
         val nightScore = (22..23).sumOf { hourDistribution[it] } + (0..4).sumOf { hourDistribution[it] }
 
         val primeTimeSlot = when {
-            morningScore >= maxOf(afternoonScore, eveningScore, nightScore) -> ListeningTimeSlot.MORNING
-            afternoonScore >= maxOf(morningScore, eveningScore, nightScore) -> ListeningTimeSlot.AFTERNOON
-            eveningScore >= maxOf(morningScore, afternoonScore, nightScore) -> ListeningTimeSlot.EVENING
+            morningScore >= maxOf(afternoonScore, eveningScore, nightScore) && morningScore > 0 -> ListeningTimeSlot.MORNING
+            afternoonScore >= maxOf(morningScore, eveningScore, nightScore) && afternoonScore > 0 -> ListeningTimeSlot.AFTERNOON
+            eveningScore >= maxOf(morningScore, afternoonScore, nightScore) && eveningScore > 0 -> ListeningTimeSlot.EVENING
             else -> ListeningTimeSlot.NIGHT
         }
 
@@ -431,17 +437,20 @@ object WrappedEngine {
             max(1, ((System.currentTimeMillis() - firstTimestamp) / (1000L * 60 * 60 * 24)).toInt())
         } else 1
 
-        val completionRate = if (rawPeriodEvents.isNotEmpty()) {
-            val unSkipped = rawPeriodEvents.count { !it.wasSkipped }
-            (unSkipped.toFloat() / rawPeriodEvents.size.toFloat()).coerceIn(0f, 1f)
-        } else 1.0f
+        val completionRate = if (validListenEvents.isNotEmpty()) {
+            val avgRatio = validListenEvents.map { ev ->
+                val full = ev.fullTrackDurationMs.takeIf { it > 0L } ?: 180_000L
+                (ev.durationListenedMs.toFloat() / full.toFloat()).coerceIn(0.5f, 1f)
+            }.average().toFloat()
+            avgRatio.coerceIn(0.5f, 1f)
+        } else 0f
 
         return WrappedStats(
             period = period,
             totalListeningTimeMs = totalListeningTimeMs,
-            totalTracksPlayed = validListenEvents.size.coerceAtLeast(trackPlayCount.values.sum()),
+            totalTracksPlayed = validListenEvents.size,
             totalSkips = totalSkips,
-            listeningStreakDays = streak.coerceAtLeast(if (totalListeningTimeMs > 0L) 1 else 0),
+            listeningStreakDays = if (validListenEvents.isNotEmpty()) streak.coerceAtLeast(1) else 0,
             topSongs = topSongs,
             topArtists = topArtists,
             topAlbums = topAlbums,
@@ -454,7 +463,7 @@ object WrappedEngine {
             audioPersonalityDescFa = descFa,
             completionRate = completionRate,
             hourlyDistribution = hourDistribution.toList(),
-            peakHour = hourDistribution.indices.maxByOrNull { hourDistribution[it] } ?: 21,
+            peakHour = if (validListenEvents.isNotEmpty()) (hourDistribution.indices.maxByOrNull { hourDistribution[it] } ?: 21) else 21,
             uniqueTracksCount = trackPlayCount.size,
             uniqueArtistsCount = artistPlayCount.size
         )
