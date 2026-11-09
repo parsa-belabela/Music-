@@ -13,9 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import android.graphics.Bitmap
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -23,8 +21,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import coil.size.Size
 import com.example.CloudflareMusicApi
 import com.example.CloudflareTrack
 import com.example.OnlineMusicRepository
@@ -158,22 +154,11 @@ fun TrackListItem(track: CloudflareTrack, onClick: () -> Unit) {
             contentAlignment = Alignment.Center
         ) {
             if (!track.coverUrl.isNullOrBlank()) {
-                val context = LocalContext.current
-                val hiResUrl = remember(track.coverUrl) {
-                    OnlineMusicRepository.upgradeToHighResImageUrl(track.coverUrl)
-                }
                 AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(hiResUrl)
-                        .size(Size.ORIGINAL)
-                        .bitmapConfig(Bitmap.Config.ARGB_8888)
-                        .allowRgb565(false)
-                        .crossfade(true)
-                        .build(),
+                    model = track.coverUrl,
                     contentDescription = track.title,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    filterQuality = FilterQuality.High
+                    contentScale = ContentScale.Crop
                 )
             } else {
                 Text("🎵", fontSize = 24.sp)
@@ -230,21 +215,22 @@ fun SearchScreen(
     val isVip by entitlementManager.isVip.collectAsState()
     val isPremium by EntitlementManager.isPremium.collectAsState()
 
+    val repoTracks by OnlineMusicRepository.onlineTracksFlow.collectAsState()
     var onlineTracks by remember {
         mutableStateOf(OnlineMusicRepository.getMemoryCachedAppTracks())
     }
-    var isLoadingOnline by remember { mutableStateOf(onlineTracks.isEmpty()) }
+    var isLoadingOnline by remember { mutableStateOf(onlineTracks.isEmpty() && repoTracks.isEmpty()) }
     var refreshTrigger by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(isLoadingOnline) {
-        if (isLoadingOnline) {
-            delay(5000L)
+    LaunchedEffect(repoTracks) {
+        if (repoTracks.isNotEmpty()) {
+            onlineTracks = repoTracks
             isLoadingOnline = false
         }
     }
 
     LaunchedEffect(refreshTrigger, isVip, isPremium) {
-        if (onlineTracks.isEmpty()) {
+        if (onlineTracks.isEmpty() && repoTracks.isEmpty()) {
             isLoadingOnline = true
             val diskTracks = OnlineMusicRepository.loadCachedAppTracksAsync()
             if (diskTracks.isNotEmpty()) {
@@ -252,15 +238,20 @@ fun SearchScreen(
                 isLoadingOnline = false
             }
         }
+        // اگر کاتالوگ قبلاً در حافظه لود شده و کاربر دکمه رفرش را نزده است، دوباره ۲۸ مگابایت را دانلود نکن تا صفحه سرچ آنی باز شود
+        if (refreshTrigger == 0 && (onlineTracks.isNotEmpty() || repoTracks.isNotEmpty())) {
+            isLoadingOnline = false
+            return@LaunchedEffect
+        }
         try {
-            val response = OnlineMusicRepository.fetchFromWorker()
+            val response = OnlineMusicRepository.fetchFromWorker(forceRefresh = refreshTrigger > 0)
             if (response.tracks.isNotEmpty()) {
                 val mapped = withContext(Dispatchers.Default) {
                     response.tracks.map { it.toAppTrack() }
                 }
                 OnlineMusicRepository.setMemoryCachedAppTracks(mapped)
                 onlineTracks = mapped
-            } else {
+            } else if (onlineTracks.isEmpty() && repoTracks.isEmpty()) {
                 val cfResult = CloudflareMusicApi.searchOrFetchTracks("", entitlementManager.getDeviceId())
                 cfResult.onSuccess { cfTracks ->
                     if (cfTracks.isNotEmpty()) {
@@ -279,17 +270,18 @@ fun SearchScreen(
         }
     }
 
+    val effectiveTracks = if (onlineTracks.isNotEmpty()) onlineTracks else repoTracks
     val isPersian = appSettings.language == AppLanguage.PERSIAN
 
-    LaunchedEffect(onlineTracks, isPersian) {
-        if (onlineTracks.isNotEmpty()) {
-            OnlineMusicRepository.computeHubDataAsync(onlineTracks, isPersian)
+    LaunchedEffect(effectiveTracks, isPersian) {
+        if (effectiveTracks.isNotEmpty()) {
+            OnlineMusicRepository.computeHubDataAsync(effectiveTracks, isPersian)
         }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
         OnlineMusicScreen(
-            onlineTracks = onlineTracks,
+            onlineTracks = effectiveTracks,
             isLoading = isLoadingOnline,
             currentPlayingTrack = playbackState.currentTrack,
             isPersian = isPersian,

@@ -34,12 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import android.graphics.Bitmap
-import androidx.compose.ui.graphics.FilterQuality
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import coil.size.Size as CoilSize
-import com.example.OnlineMusicRepository
 import com.example.audio.AmbientPalette
 import com.example.data.model.AppLanguage
 import com.example.data.model.LyricsLine
@@ -203,21 +198,11 @@ fun ShareSongDialog(
                             shape = RoundedCornerShape(32.dp)
                         )
                 ) {
-                    val hiResArtworkUri = remember(track.artworkUri) {
-                        OnlineMusicRepository.upgradeToHighResImageUrl(track.artworkUri)
-                    }
-                    if (!hiResArtworkUri.isNullOrEmpty()) {
+                    if (!track.artworkUri.isNullOrEmpty()) {
                         AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(hiResArtworkUri)
-                                .size(CoilSize.ORIGINAL)
-                                .bitmapConfig(Bitmap.Config.ARGB_8888)
-                                .allowRgb565(false)
-                                .crossfade(true)
-                                .build(),
+                            model = track.artworkUri,
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
-                            filterQuality = FilterQuality.High,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .blur(45.dp),
@@ -269,18 +254,11 @@ fun ShareSongDialog(
                                 .border(1.5.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(24.dp)),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (!hiResArtworkUri.isNullOrEmpty()) {
+                            if (!track.artworkUri.isNullOrEmpty()) {
                                 AsyncImage(
-                                    model = ImageRequest.Builder(context)
-                                        .data(hiResArtworkUri)
-                                        .size(CoilSize.ORIGINAL)
-                                        .bitmapConfig(Bitmap.Config.ARGB_8888)
-                                        .allowRgb565(false)
-                                        .crossfade(true)
-                                        .build(),
+                                    model = track.artworkUri,
                                     contentDescription = track.title,
                                     contentScale = ContentScale.Crop,
-                                    filterQuality = FilterQuality.High,
                                     modifier = Modifier.fillMaxSize()
                                 )
                             } else {

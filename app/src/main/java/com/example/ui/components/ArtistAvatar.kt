@@ -22,7 +22,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -49,25 +48,30 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 
 /**
- * مدیریت کش خصوصی و دائمی تصاویر پروفایل هنرمندان با کیفیت بالا (HD / ARGB_8888) در حافظه داخلی برنامه (filesDir)
+ * مدیریت کش خصوصی و دائمی تصاویر پروفایل هنرمندان در حافظه داخلی برنامه (filesDir)
+ * - ۱۰۰٪ از طریق سرور کلادفلر بدون نیاز به فیلترشکن
+ * - کاملاً خصوصی + فایل .nomedia (هرگز وارد گالری گوشی نمی‌شود)
+ * - فشرده‌سازی و Downsample هوشمند برای جلوگیری از مصرف رم، لگ و کرش
  */
 object ArtistAvatarDiskCache {
     const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev/"
     private const val WORKER_BASE = "https://alubm.parsaghorbani8861.workers.dev"
     private val WORKER_HOST_REGEX = Regex("https?://[^/]+\\.workers\\.dev", RegexOption.IGNORE_CASE)
-    private const val PREFS_NAME = "aura_private_artist_avatars_prefs_v6"
-    private const val DIR_NAME = "artist_avatars_private_cache_v6"
+    private const val PREFS_NAME = "aura_private_artist_avatars_prefs_v8"
+    private const val DIR_NAME = "artist_avatars_private_cache_hd_v8"
     private val LEGACY_DIRS = listOf(
         "artist_avatars_private_cache",
         "artist_avatars_private_cache_v3",
         "artist_avatars_private_cache_v4",
-        "artist_avatars_private_cache_v5"
+        "artist_avatars_private_cache_v5",
+        "artist_avatars_private_cache_v6",
+        "artist_avatars_private_cache_v7"
     )
 
     private val memoryCache = object : LruCache<String, Bitmap>(180) {}
     private val failedUrls = ConcurrentHashMap.newKeySet<String>()
     private val inFlightLocks = ConcurrentHashMap<String, Any>()
-    private val ioSemaphore = Semaphore(4)
+    private val ioSemaphore = Semaphore(8)
     private val cleanedLegacyCache = AtomicBoolean(false)
 
     /**
@@ -158,39 +162,25 @@ object ArtistAvatarDiskCache {
         return memoryCache.get(key)
     }
 
-    fun upgradeToHighResUrl(rawUrl: String): String {
-        if (rawUrl.isBlank()) return ""
-        return rawUrl.trim()
-            .replace("size=small", "size=large", ignoreCase = true)
-            .replace("size=thumb", "size=large", ignoreCase = true)
-            .replace("size=medium", "size=large", ignoreCase = true)
-            .replace("picture_small", "picture_xl", ignoreCase = true)
-            .replace("picture_medium", "picture_xl", ignoreCase = true)
-            .replace("cover_small", "cover_xl", ignoreCase = true)
-            .replace("cover_medium", "cover_xl", ignoreCase = true)
-            .replace("56x56", "1000x1000", ignoreCase = true)
-            .replace("100x100", "1000x1000", ignoreCase = true)
-            .replace("120x120", "1000x1000", ignoreCase = true)
-            .replace("200x200", "1000x1000", ignoreCase = true)
-            .replace("250x250", "1000x1000", ignoreCase = true)
-            .replace("300x300", "1000x1000", ignoreCase = true)
-    }
-
     fun resolveCloudflareArtistUrl(artistName: String, candidateUrl: String = ""): String {
         val cleanLower = artistName.trim().lowercase()
         if (cleanLower.isBlank() || ambiguousForeignNamesakes.contains(cleanLower)) return ""
 
-        disambiguatedWorkerArtistUrls[cleanLower]?.let { return upgradeToHighResUrl(it) }
+        disambiguatedWorkerArtistUrls[cleanLower]?.let { return it }
 
-        val trimmed = upgradeToHighResUrl(candidateUrl.trim())
+        val trimmed = candidateUrl.trim()
         if (trimmed.isNotBlank()) {
+            // اگر لینک مستقیم به deezer/dzcdn بود (که بدون فیلترشکن باز نمی‌شود)، آن را به لینک کلادفلر تبدیل کن
             if (trimmed.contains("dzcdn.net") || trimmed.contains("deezer.com")) {
                 val encoded = try { URLEncoder.encode(artistName.trim(), "UTF-8") } catch (_: Exception) { artistName.trim() }
-                return "$WORKER_BASE/artist-cover?name=$encoded&size=large"
+                return "$WORKER_BASE/artist-cover?name=$encoded"
             }
             return when {
                 trimmed.startsWith("http://") || trimmed.startsWith("https://") ->
                     trimmed.replace(WORKER_HOST_REGEX, WORKER_BASE)
+                        .replace("size=small", "size=large")
+                        .replace("size=thumb", "size=large")
+                        .replace("size=medium", "size=large")
                 trimmed.startsWith("file://") || trimmed.startsWith("content://") || trimmed.startsWith("/data/") || trimmed.startsWith("/storage/") -> trimmed
                 trimmed.startsWith("/") -> "$WORKER_BASE$trimmed"
                 else -> "$WORKER_BASE/$trimmed"
@@ -204,7 +194,7 @@ object ArtistAvatarDiskCache {
     fun getSavedArtistUrl(context: Context, artistName: String): String {
         val cleanLower = artistName.trim().lowercase()
         if (ambiguousForeignNamesakes.contains(cleanLower)) return ""
-        disambiguatedWorkerArtistUrls[cleanLower]?.let { return upgradeToHighResUrl(it) }
+        disambiguatedWorkerArtistUrls[cleanLower]?.let { return it }
         val key = normalizeArtistKey(artistName)
         val saved = try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -315,9 +305,7 @@ object ArtistAvatarDiskCache {
                         if (bmp != null) {
                             memoryCache.put(key, bmp)
                             try {
-                                FileOutputStream(localFile).use { out ->
-                                    bmp.compress(Bitmap.CompressFormat.JPEG, 88, out)
-                                }
+                                f.copyTo(localFile, overwrite = true)
                             } catch (_: Exception) {}
                             return@withPermit bmp
                         }
@@ -345,7 +333,9 @@ object ArtistAvatarDiskCache {
                                 saveArtistUrl(context, artistName, effectiveUrl)
                                 try {
                                     val tempFile = File(localFile.parentFile, "${localFile.name}.tmp")
-                                    tempFile.writeBytes(bytes)
+                                    FileOutputStream(tempFile).use { out ->
+                                        out.write(bytes)
+                                    }
                                     if (tempFile.exists() && tempFile.length() > 512L) {
                                         if (localFile.exists()) localFile.delete()
                                         tempFile.renameTo(localFile)
@@ -469,7 +459,7 @@ fun SpotifyArtistAvatar(
                     bitmap = bmp.asImageBitmap(),
                     contentDescription = cleanName,
                     contentScale = ContentScale.Crop,
-                    filterQuality = FilterQuality.High,
+                    filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
                     modifier = Modifier
                         .fillMaxSize()
                         .clip(shape)

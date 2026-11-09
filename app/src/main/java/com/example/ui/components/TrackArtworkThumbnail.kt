@@ -1,6 +1,5 @@
 package com.example.ui.components
 
-import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -12,20 +11,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import coil.size.Size
 import com.example.OnlineMusicRepository
 
 /**
- * High-resolution artwork thumbnail with persistent private disk cache
+ * High-performance, memory-efficient artwork thumbnail with persistent private disk cache
  * for Telegram/Cloudflare track covers and graceful fallback icon.
  */
 @Composable
@@ -43,11 +38,12 @@ fun TrackArtworkThumbnail(
     primaryBorderColor: Color? = null,
     secondaryBorderColor: Color? = null
 ) {
-    val context = LocalContext.current
     val resolvedUrl = remember(artworkUri, trackId, artist) {
         val raw = artworkUri?.takeIf { it.isNotBlank() }
             ?: (trackId?.let { OnlineMusicRepository.getCoverUrlForTrack(it, artist ?: "") }).orEmpty()
-        OnlineMusicRepository.upgradeToHighResImageUrl(raw)
+        raw.replace("size=small", "size=large")
+            .replace("size=thumb", "size=large")
+            .replace("size=medium", "size=large")
     }
     val isContentUri = resolvedUrl.startsWith("content://")
 
@@ -78,21 +74,15 @@ fun TrackArtworkThumbnail(
                 bitmap = bmp.asImageBitmap(),
                 contentDescription = title ?: "Artwork",
                 contentScale = ContentScale.Crop,
-                filterQuality = FilterQuality.High,
+                filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
                 modifier = Modifier.fillMaxSize()
             )
-        } else if (resolvedUrl.isNotBlank()) {
+        } else if (isContentUri) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(resolvedUrl)
-                    .size(Size.ORIGINAL)
-                    .bitmapConfig(Bitmap.Config.ARGB_8888)
-                    .allowRgb565(false)
-                    .crossfade(true)
-                    .build(),
+                model = resolvedUrl,
                 contentDescription = title ?: "Artwork",
                 contentScale = ContentScale.Crop,
-                filterQuality = FilterQuality.High,
+                filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
                 modifier = Modifier.fillMaxSize()
             )
         } else {

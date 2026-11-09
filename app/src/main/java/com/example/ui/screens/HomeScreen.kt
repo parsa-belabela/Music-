@@ -43,12 +43,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.graphics.Bitmap
-import androidx.compose.ui.graphics.FilterQuality
 import coil.compose.rememberAsyncImagePainter
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import coil.size.Size
 import com.example.OnlineCacheHolder
 import com.example.OnlineMusicRepository
 import com.example.OnlineTasteEngine
@@ -249,6 +246,15 @@ fun HomeScreen(
             }
         }
 
+        // بخش آهنگ‌های پیشنهادی برای امروز (بالای صفحه اصلی با بارگذاری فوری)
+        item {
+            HomeCloudflareSpotlightSection(
+                cloudflareTracks = onlineTrendingTracks,
+                isFa = isFa,
+                onPlayTrack = onPlayTrack
+            )
+        }
+
         // Duplicate audio files prompt badge
         if (duplicateCount > 0) {
             item {
@@ -398,13 +404,6 @@ fun HomeScreen(
                     }
                 }
             }
-        }
-
-        // بخش کشف در آرشیو تلگرام و سرور کلادفلر
-        item {
-            HomeCloudflareSpotlightSection(
-                onPlayTrack = onPlayTrack
-            )
         }
 
         // Favorites
@@ -764,22 +763,11 @@ private fun HeroQuickPlayCard(
                         contentAlignment = Alignment.Center
                     ) {
                         if (!heroTrack?.artworkUri.isNullOrEmpty()) {
-                            val context = LocalContext.current
-                            val hiResHeroUri = remember(heroTrack?.artworkUri) {
-                                OnlineMusicRepository.upgradeToHighResImageUrl(heroTrack?.artworkUri)
-                            }
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(hiResHeroUri)
-                                    .size(Size.ORIGINAL)
-                                    .bitmapConfig(Bitmap.Config.ARGB_8888)
-                                    .allowRgb565(false)
-                                    .crossfade(true)
-                                    .build(),
+                            coil.compose.AsyncImage(
+                                model = heroTrack?.artworkUri,
                                 contentDescription = heroTrack?.title,
                                 modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop,
-                                filterQuality = FilterQuality.High
+                                contentScale = ContentScale.Crop
                             )
                         } else {
                             MusicArtworkPlaceholder(
@@ -880,73 +868,116 @@ private fun formatHeroDuration(ms: Long): String {
 }
 
 /**
- * ویجت پیشنهاد هوشمند از آرشیو تلگرام و کلادفلر در صفحه اصلی
+ * ویجت آهنگ‌های پیشنهادی برای امروز در بالای صفحه اصلی با بارگذاری فوری از کش حافظه/دیسک
  */
 @Composable
 fun HomeCloudflareSpotlightSection(
     cloudflareTracks: List<Track> = emptyList(),
+    isFa: Boolean = true,
     onPlayTrack: (Track, List<Track>) -> Unit
 ) {
-    var loadedOnlineTracks by remember { mutableStateOf<List<Track>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(false) }
+    val repoTracks by OnlineMusicRepository.onlineTracksFlow.collectAsState()
+    var loadedOnlineTracks by remember {
+        mutableStateOf(OnlineMusicRepository.getMemoryCachedAppTracks())
+    }
+    var shuffleSeed by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
-        if (loadedOnlineTracks.isEmpty()) {
-            isLoading = true
-            try {
-                val resp = OnlineMusicRepository.fetchFromWorker()
-                if (resp.tracks.isNotEmpty()) {
-                    loadedOnlineTracks = resp.tracks.map { it.toAppTrack(it.resolvedStreamUrl()) }
-                }
-            } catch (_: Exception) {}
-            isLoading = false
+        if (loadedOnlineTracks.isEmpty() && repoTracks.isEmpty() && cloudflareTracks.isEmpty()) {
+            val cached = OnlineMusicRepository.loadCachedAppTracksAsync()
+            if (cached.isNotEmpty()) {
+                loadedOnlineTracks = cached
+            } else {
+                try {
+                    val resp = OnlineMusicRepository.fetchFromWorker()
+                    if (resp.tracks.isNotEmpty()) {
+                        loadedOnlineTracks = resp.tracks.map { it.toAppTrack(it.resolvedStreamUrl()) }
+                    }
+                } catch (_: Exception) {}
+            }
         }
     }
 
-    val displayPool = if (cloudflareTracks.isNotEmpty()) cloudflareTracks else loadedOnlineTracks
-    val spotlightTracks = remember(displayPool) {
-        displayPool.shuffled().take(12)
+    val displayPool = when {
+        repoTracks.isNotEmpty() -> repoTracks
+        loadedOnlineTracks.isNotEmpty() -> loadedOnlineTracks
+        else -> cloudflareTracks
     }
 
-    if (spotlightTracks.isNotEmpty()) {
-        Column(
+    val spotlightTracks = remember(displayPool.size, shuffleSeed) {
+        if (displayPool.isEmpty()) emptyList()
+        else displayPool.shuffled().take(14)
+    }
+
+    // پیش‌بارگذاری فوری کاورهای آهنگ‌های پیشنهادی امروز در پس‌زمینه
+    LaunchedEffect(spotlightTracks) {
+        spotlightTracks.take(8).forEach { track ->
+            val url = track.artworkUri
+            if (!url.isNullOrBlank()) {
+                launch(kotlinx.coroutines.Dispatchers.IO) {
+                    OnlineMusicRepository.loadCoverBitmap(url)
+                }
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp)
+                .padding(horizontal = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.CloudQueue,
-                        contentDescription = null,
-                        tint = Color(0xFF1DB954),
-                        modifier = Modifier.size(20.dp)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = Color(0xFF1DB954),
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = if (isFa) "آهنگ‌های پیشنهادی برای امروز" else "Suggested Songs for Today",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = "کشف در آرشیو تلگرام (Cloudflare)",
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                        Text(
-                            text = "پیشنهادهای هوشمند آماده پخش",
-                            color = Color.White.copy(alpha = 0.6f),
-                            fontSize = 11.sp
-                        )
-                    }
+                    Text(
+                        text = if (isFa) "منتخب روزانه متناسب با سلیقه شما" else "Daily picks tailored for you",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 11.sp
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            if (spotlightTracks.isNotEmpty()) {
+                TextButton(onClick = { shuffleSeed++ }) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        tint = Color(0xFF1DB954),
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (isFa) "پیشنهاد جدید" else "Refresh",
+                        color = Color(0xFF1DB954),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
 
+        Spacer(modifier = Modifier.height(10.dp))
+
+        if (spotlightTracks.isNotEmpty()) {
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -966,39 +997,16 @@ fun HomeCloudflareSpotlightSection(
                             .padding(12.dp)
                     ) {
                         Column {
-                            Box(
-                                modifier = Modifier
-                                    .size(124.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xFF141322)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (!track.artworkUri.isNullOrBlank()) {
-                                    val context = LocalContext.current
-                                    val hiResSpotlightUri = remember(track.artworkUri) {
-                                        OnlineMusicRepository.upgradeToHighResImageUrl(track.artworkUri)
-                                    }
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(hiResSpotlightUri)
-                                            .size(Size.ORIGINAL)
-                                            .bitmapConfig(Bitmap.Config.ARGB_8888)
-                                            .allowRgb565(false)
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = track.title,
-                                        contentScale = ContentScale.Crop,
-                                        filterQuality = FilterQuality.High,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                } else {
-                                    SpotifyArtistAvatar(
-                                        artistName = track.artist,
-                                        size = 124.dp,
-                                        shape = RoundedCornerShape(14.dp)
-                                    )
-                                }
-                            }
+                            TrackArtworkThumbnail(
+                                artworkUri = track.artworkUri,
+                                accentColor = Color(0xFF1DB954),
+                                size = 124.dp,
+                                shape = RoundedCornerShape(14.dp),
+                                iconSize = 38.dp,
+                                title = track.title,
+                                artist = track.artist,
+                                trackId = track.id
+                            )
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
                                 text = track.title,

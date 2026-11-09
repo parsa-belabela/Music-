@@ -5,8 +5,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.Bitmap
 import android.media.AudioManager
+import android.graphics.Bitmap
 import android.os.StrictMode
 import coil.ImageLoader
 import coil.ImageLoaderFactory
@@ -22,14 +22,6 @@ import kotlinx.coroutines.launch
 class AuraApplication : Application(), ImageLoaderFactory {
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    override fun newImageLoader(): ImageLoader {
-        return ImageLoader.Builder(this)
-            .bitmapConfig(Bitmap.Config.ARGB_8888)
-            .allowRgb565(false)
-            .crossfade(true)
-            .build()
-    }
-
     val database by lazy { AppDatabase.getInstance(this) }
     val repository by lazy { MusicRepository(this, database.musicDao()) }
     val audioEngine by lazy { AudioEngine(this) }
@@ -37,11 +29,29 @@ class AuraApplication : Application(), ImageLoaderFactory {
     val trackAnalyzer by lazy { com.example.audio.TrackAnalyzer() }
     val entitlementManager by lazy { com.example.monetization.EntitlementManager.getInstance(this) }
 
+    override fun newImageLoader(): ImageLoader {
+        return ImageLoader.Builder(this)
+            .allowRgb565(false)
+            .bitmapConfig(Bitmap.Config.ARGB_8888)
+            .crossfade(true)
+            .build()
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
         com.example.data.model.UserTrackMetadataStore.init(this)
         entitlementManager.refreshRemoteConfig()
+
+        // پیش‌بارگذاری فوری کاتالوگ آنلاین از کش یا کلادفلر به محض باز شدن برنامه
+        applicationScope.launch(Dispatchers.IO) {
+            try {
+                val cached = OnlineMusicRepository.loadCachedAppTracksAsync()
+                if (cached.isEmpty()) {
+                    OnlineMusicRepository.fetchFromWorker()
+                }
+            } catch (_: Throwable) {}
+        }
 
         // راه‌اندازی تپسل با کلید خالی (بعداً کلید واقعی تپسل را اینجا قرار بده)
         com.example.monetization.TapsellPlus.initialize(

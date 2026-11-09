@@ -28,12 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.graphics.Bitmap
-import androidx.compose.ui.graphics.FilterQuality
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import coil.size.Size
-import com.example.OnlineMusicRepository
 import com.example.data.model.AppLanguage
 import com.example.data.model.SmartTrackMetadataResolver
 import com.example.data.model.Track
@@ -97,20 +92,10 @@ fun MetadataEditorDialog(
                     contentAlignment = Alignment.Center
                 ) {
                     if (selectedArtworkUri != null) {
-                        val hiResUri = remember(selectedArtworkUri) {
-                            OnlineMusicRepository.upgradeToHighResImageUrl(selectedArtworkUri)
-                        }
                         AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(hiResUri)
-                                .size(Size.ORIGINAL)
-                                .bitmapConfig(Bitmap.Config.ARGB_8888)
-                                .allowRgb565(false)
-                                .crossfade(true)
-                                .build(),
+                            model = selectedArtworkUri,
                             contentDescription = "Song Artwork",
                             contentScale = ContentScale.Crop,
-                            filterQuality = FilterQuality.High,
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {

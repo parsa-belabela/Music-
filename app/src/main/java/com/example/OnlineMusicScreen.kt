@@ -49,7 +49,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -87,14 +86,23 @@ import kotlin.math.PI
 import kotlin.math.sin
 import org.json.JSONArray
 import org.json.JSONObject
+import android.util.JsonReader
+import android.util.JsonToken
+import android.util.JsonWriter
+import java.io.BufferedReader
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
+import java.io.StringReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.zip.GZIPInputStream
 
 const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev/"
 
@@ -109,9 +117,7 @@ data class CloudflareTrack(
 ) {
     fun toOnlineTrack(): OnlineTrack {
         val base = CloudflareMusicApi.workerBaseUrl.trimEnd('/')
-        val resolvedCover = OnlineMusicRepository.upgradeToHighResImageUrl(
-            coverUrl?.takeIf { it.isNotBlank() } ?: "$base/cover?id=$id&v=hd9&size=large"
-        )
+        val resolvedCover = coverUrl?.takeIf { it.isNotBlank() } ?: "$base/cover?id=$id&v=hd9"
         return OnlineTrack(
             id = id,
             title = title,
@@ -137,62 +143,64 @@ object CloudflareMusicApi {
             val base = workerBaseUrl.trimEnd('/')
             val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
 
-            val effectiveDeviceId = deviceId.ifBlank {
-                try {
-                    EntitlementManager.getInstance(AuraApplication.instance).getDeviceId()
-                } catch (_: Throwable) {
-                    ""
-                }
-            }
-            val promoParam = if (EntitlementManager.isPremium.value) "&promoCode=57589188&vip=true" else ""
-            // Add deviceId to request if available to pass VIP checks
-            val deviceParam = if (effectiveDeviceId.isNotBlank()) "&deviceId=$effectiveDeviceId$promoParam" else promoParam
+            val queryStringForEmpty = if (deviceId.isNotBlank()) "?deviceId=${URLEncoder.encode(deviceId, "UTF-8")}" else ""
+            val deviceSuffix = if (deviceId.isNotBlank()) "&deviceId=${URLEncoder.encode(deviceId, "UTF-8")}" else ""
 
             val candidateUrls = if (query.isBlank()) {
-                listOf("$base/tracks?$deviceParam", "$base/api/songs?$deviceParam", "$base?$deviceParam")
+                listOf(
+                    "$base/tracks$queryStringForEmpty",
+                    "$base/api/songs$queryStringForEmpty",
+                    "$base$queryStringForEmpty"
+                )
             } else {
                 listOf(
-                    "$base/tracks?q=$encodedQuery$deviceParam",
-                    "$base/search?q=$encodedQuery$deviceParam",
-                    "$base/api/songs?q=$encodedQuery$deviceParam"
+                    "$base/tracks?q=$encodedQuery$deviceSuffix",
+                    "$base/search?q=$encodedQuery$deviceSuffix",
+                    "$base/api/songs?q=$encodedQuery$deviceSuffix"
                 )
             }
 
             var lastError: Exception? = null
 
             for (endpoint in candidateUrls) {
+                var connection: HttpURLConnection? = null
                 try {
-                    val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                    connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                        instanceFollowRedirects = true
                         requestMethod = "GET"
-                        connectTimeout = 8000
-                        readTimeout = 8000
+                        connectTimeout = 15000
+                        readTimeout = 20000
                         setRequestProperty("Accept", "application/json")
-                        if (effectiveDeviceId.isNotBlank()) {
-                            setRequestProperty("X-Device-Id", effectiveDeviceId)
-                        }
-                        if (EntitlementManager.isPremium.value) {
-                            setRequestProperty("X-Promo-Code", "57589188")
+                        setRequestProperty("User-Agent", "Mozilla/5.0")
+                        if (deviceId.isNotBlank()) {
+                            setRequestProperty("X-Device-Id", deviceId)
                         }
                     }
 
                     if (connection.responseCode in 200..299) {
-                        val responseText = connection.inputStream.bufferedReader().use { it.readText() }
-                        val parsedTracks = parseCloudflareJson(responseText, base)
-
+                        val rawStream = connection.inputStream
+                        val decodedStream = if (connection.contentEncoding?.contains("gzip", ignoreCase = true) == true) {
+                            GZIPInputStream(rawStream)
+                        } else {
+                            rawStream
+                        }
+                        val parsedTracks = decodedStream.use { parseCloudflareStream(it, base) }
                         val finalTracks = if (query.isBlank()) {
                             parsedTracks
                         } else {
                             parsedTracks.filter {
                                 it.title.contains(query, ignoreCase = true) ||
-                                        it.artist.contains(query, ignoreCase = true)
+                                    it.artist.contains(query, ignoreCase = true)
                             }.ifEmpty { parsedTracks }
                         }
-                        if (finalTracks.isNotEmpty() || endpoint == candidateUrls.last()) {
+                        if (finalTracks.isNotEmpty() || query.isNotBlank()) {
                             return@withContext Result.success(finalTracks)
                         }
                     }
                 } catch (e: Exception) {
                     lastError = e
+                } finally {
+                    try { connection?.disconnect() } catch (_: Throwable) {}
                 }
             }
 
@@ -202,78 +210,160 @@ object CloudflareMusicApi {
         }
     }
 
-    private fun parseCloudflareJson(jsonString: String, baseUrl: String): List<CloudflareTrack> {
-        val trimmed = jsonString.trim()
-        val jsonArray: JSONArray = when {
-            trimmed.startsWith("[") -> JSONArray(trimmed)
-            trimmed.startsWith("{") -> {
-                val obj = JSONObject(trimmed)
-                obj.optJSONArray("tracks")
-                    ?: obj.optJSONArray("results")
-                    ?: obj.optJSONArray("songs")
-                    ?: obj.optJSONArray("data")
-                    ?: obj.optJSONArray("items")
-                    ?: JSONArray()
+    private fun readJsonScalarAsString(reader: JsonReader): String {
+        return when (reader.peek()) {
+            JsonToken.STRING -> reader.nextString()
+            JsonToken.NUMBER -> reader.nextString()
+            JsonToken.BOOLEAN -> reader.nextBoolean().toString()
+            JsonToken.NULL -> {
+                reader.nextNull()
+                ""
             }
-            else -> JSONArray()
+            else -> {
+                reader.skipValue()
+                ""
+            }
         }
+    }
 
+    private fun parseCloudflareStream(inputStream: InputStream, baseUrl: String): List<CloudflareTrack> {
         val list = mutableListOf<CloudflareTrack>()
-        for (i in 0 until jsonArray.length()) {
-            val item = jsonArray.optJSONObject(i) ?: continue
-            val id = item.optString("id").ifBlank {
-                item.optString("file_id").ifBlank { i.toString() }
+        try {
+            val reader = JsonReader(BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8), 32768)).apply {
+                isLenient = true
             }
-            val title = item.optString("title")
-                .ifBlank { item.optString("name") }
-                .ifBlank { "آهنگ بدون نام" }
-            val artist = item.optString("artist_name")
-                .ifBlank { item.optString("artist") }
-                .ifBlank { item.optString("performer") }
-                .ifBlank { "ناشناس" }
+            when (reader.peek()) {
+                JsonToken.BEGIN_ARRAY -> {
+                    parseTrackArray(reader, baseUrl, list)
+                }
+                JsonToken.BEGIN_OBJECT -> {
+                    reader.beginObject()
+                    while (reader.hasNext()) {
+                        val key = reader.nextName()
+                        if ((key == "tracks" || key == "results" || key == "songs" || key == "data" || key == "items") &&
+                            list.isEmpty() && reader.peek() == JsonToken.BEGIN_ARRAY
+                        ) {
+                            parseTrackArray(reader, baseUrl, list)
+                        } else {
+                            reader.skipValue()
+                        }
+                    }
+                    reader.endObject()
+                }
+                else -> reader.skipValue()
+            }
+        } catch (_: Throwable) {
+        }
+        return list
+    }
 
-            val rawStream = item.optString("stream_url")
-                .ifBlank { item.optString("streamUrl") }
-                .ifBlank { item.optString("audio_url") }
-                .ifBlank { item.optString("url") }
+    private fun parseTrackArray(reader: JsonReader, baseUrl: String, outList: MutableList<CloudflareTrack>) {
+        reader.beginArray()
+        var index = 0
+        while (reader.hasNext()) {
+            if (reader.peek() != JsonToken.BEGIN_OBJECT) {
+                reader.skipValue()
+                continue
+            }
+            reader.beginObject()
+            var id = ""
+            var fileId = ""
+            var messageId = ""
+            var title = ""
+            var name = ""
+            var artist = ""
+            var artistFallback = ""
+            var rawStream = ""
+            var rawCover = ""
+            var durationRaw = 0L
+            var genre = ""
+
+            while (reader.hasNext()) {
+                val field = reader.nextName()
+                if (reader.peek() == JsonToken.NULL) {
+                    reader.nextNull()
+                    continue
+                }
+                when (field) {
+                    "id" -> id = readJsonScalarAsString(reader)
+                    "file_id" -> fileId = readJsonScalarAsString(reader)
+                    "message_id" -> messageId = readJsonScalarAsString(reader)
+                    "title" -> title = readJsonScalarAsString(reader)
+                    "name" -> name = readJsonScalarAsString(reader)
+                    "artist_name", "artistName", "primary_artist", "primaryArtist", "performer" -> {
+                        val v = readJsonScalarAsString(reader)
+                        if (artist.isBlank() && v.isNotBlank()) artist = v
+                    }
+                    "artist" -> {
+                        if (reader.peek() == JsonToken.BEGIN_OBJECT) {
+                            reader.beginObject()
+                            while (reader.hasNext()) {
+                                val ak = reader.nextName()
+                                if (ak == "name" && reader.peek() != JsonToken.NULL) {
+                                    val av = readJsonScalarAsString(reader)
+                                    if (artistFallback.isBlank()) artistFallback = av
+                                } else {
+                                    reader.skipValue()
+                                }
+                            }
+                            reader.endObject()
+                        } else {
+                            val v = readJsonScalarAsString(reader)
+                            if (artistFallback.isBlank()) artistFallback = v
+                        }
+                    }
+                    "stream_url", "streamUrl", "audio_url", "url", "preview" -> {
+                        val v = readJsonScalarAsString(reader)
+                        if (rawStream.isBlank() && v.isNotBlank()) rawStream = v
+                    }
+                    "cover_url", "coverUrl", "cover", "artwork" -> {
+                        val v = readJsonScalarAsString(reader)
+                        if (rawCover.isBlank() && v.isNotBlank()) rawCover = v
+                    }
+                    "duration" -> {
+                        durationRaw = readJsonScalarAsString(reader).toLongOrNull() ?: 0L
+                    }
+                    "genre", "category" -> {
+                        val v = readJsonScalarAsString(reader)
+                        if (genre.isBlank() && v.isNotBlank()) genre = v
+                    }
+                    else -> reader.skipValue()
+                }
+            }
+            reader.endObject()
+
+            val resolvedId = id.ifBlank { fileId.ifBlank { messageId.ifBlank { index.toString() } } }
+            val resolvedTitle = title.ifBlank { name }.ifBlank { "آهنگ بدون نام" }
+            val resolvedArtist = artist.ifBlank { artistFallback }.ifBlank { "ناشناس" }
 
             val streamUrl = when {
                 rawStream.startsWith("http") -> rawStream
                 rawStream.startsWith("/") -> "$baseUrl$rawStream"
-                item.has("file_id") -> "$baseUrl/stream?id=${item.optString("file_id")}"
-                else -> "$baseUrl/stream?id=$id"
+                fileId.isNotBlank() -> "$baseUrl/stream?id=$fileId"
+                else -> "$baseUrl/stream?id=$resolvedId"
             }
 
-            val rawCover = item.optString("cover_xl")
-                .ifBlank { item.optString("cover_big") }
-                .ifBlank { item.optString("picture_xl") }
-                .ifBlank { item.optString("coverUrl") }
-                .ifBlank { item.optString("cover_url") }
-                .ifBlank { item.optString("cover") }
-                .ifBlank { item.optString("artwork") }
+            val coverUrl = when {
+                rawCover.startsWith("http") -> rawCover
+                rawCover.startsWith("/") -> "$baseUrl$rawCover"
+                rawCover.isNotBlank() -> rawCover
+                else -> "$baseUrl/cover?id=$resolvedId&v=hd9"
+            }
 
-            val coverUrl = OnlineMusicRepository.upgradeToHighResImageUrl(
-                when {
-                    rawCover.startsWith("http") -> rawCover
-                    rawCover.startsWith("/") -> "$baseUrl$rawCover"
-                    rawCover.isNotBlank() -> rawCover
-                    else -> "$baseUrl/cover?id=$id&v=hd9&size=large"
-                }
-            )
-
-            list.add(
+            outList.add(
                 CloudflareTrack(
-                    id = id,
-                    title = title,
-                    artist = artist,
+                    id = resolvedId,
+                    title = resolvedTitle,
+                    artist = resolvedArtist,
                     streamUrl = streamUrl,
                     coverUrl = coverUrl.takeIf { it.isNotBlank() },
-                    durationMs = item.optLong("duration", 0L).let { if (it < 1000) it * 1000L else it },
-                    genre = item.optString("genre").takeIf { it.isNotBlank() }
+                    durationMs = durationRaw.let { if (it in 1..999) it * 1000L else it },
+                    genre = genre.takeIf { it.isNotBlank() }
                 )
             )
+            index++
         }
-        return list
+        reader.endArray()
     }
 }
 
@@ -1026,17 +1116,19 @@ data class HubComputedData(
 object OnlineMusicRepository {
     const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev/"
     val BASE_URL: String get() = WORKER_URL.trimEnd('/')
-    private const val PRIVATE_CATALOG_CACHE_FILE = "aura_cloud_catalog_cache_v3.json"
+    private const val PRIVATE_CATALOG_CACHE_FILE = "aura_cloud_catalog_cache_v4.json"
+    private const val LEGACY_CATALOG_CACHE_FILE_V3 = "aura_cloud_catalog_cache_v3.json"
     private const val LEGACY_CATALOG_CACHE_FILE = "aura_cloud_catalog_cache_v2.json"
-    private const val PRIVATE_TRACK_COVERS_DIR = "track_covers_private_cache_hd"
-    private const val LEGACY_TRACK_COVERS_DIR = "track_covers_private_cache"
-    private val cleanedLegacyCoverCache = AtomicBoolean(false)
+    private const val PRIVATE_TRACK_COVERS_DIR = "track_covers_private_cache_hd_v3"
+    private val LEGACY_TRACK_COVERS_DIRS = listOf("track_covers_private_cache", "track_covers_private_cache_v2", "track_covers_private_cache_hd")
     private val WORKER_HOST_REGEX = Regex("https?://[^/]+\\.workers\\.dev", RegexOption.IGNORE_CASE)
 
-    private val imageMemoryCache = object : LruCache<String, Bitmap>(220) {}
+    private val imageMemoryCache = object : LruCache<String, Bitmap>(240) {}
     private val failedCoverUrls = ConcurrentHashMap.newKeySet<String>()
     private val coverDownloadLocks = ConcurrentHashMap<String, Any>()
-    private val coverIoSemaphore = Semaphore(4)
+    private val coverIoSemaphore = Semaphore(10)
+    private val cleanedLegacyTrackCovers = AtomicBoolean(false)
+    private val catalogFetchMutex = kotlinx.coroutines.sync.Mutex()
     private val backgroundWarmScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val backgroundWarmStarted = AtomicBoolean(false)
     private val startupPreloadCompleted = AtomicBoolean(false)
@@ -1053,7 +1145,16 @@ object OnlineMusicRepository {
     private var memoryCachedResponse: WorkerTracksResponse? = null
 
     @Volatile
+    private var lastFullFetchTimeMs: Long = 0L
+
+    @Volatile
     private var memoryCachedAppTracks: List<Track> = emptyList()
+
+    private val _onlineTracksFlow = MutableStateFlow<List<Track>>(emptyList())
+    val onlineTracksFlow: StateFlow<List<Track>> = _onlineTracksFlow.asStateFlow()
+
+    private val _isFetchingFlow = MutableStateFlow(false)
+    val isFetchingFlow: StateFlow<Boolean> = _isFetchingFlow.asStateFlow()
 
     fun isStartupPreloadCompleted(): Boolean = startupPreloadCompleted.get()
 
@@ -1086,15 +1187,22 @@ object OnlineMusicRepository {
     fun setMemoryCachedAppTracks(tracks: List<Track>) {
         if (tracks.isNotEmpty()) {
             memoryCachedAppTracks = tracks
+            _onlineTracksFlow.value = tracks
         }
     }
 
     suspend fun loadCachedAppTracksAsync(): List<Track> = withContext(Dispatchers.IO) {
-        if (memoryCachedAppTracks.isNotEmpty()) return@withContext memoryCachedAppTracks
+        if (memoryCachedAppTracks.isNotEmpty()) {
+            if (_onlineTracksFlow.value.isEmpty()) {
+                _onlineTracksFlow.value = memoryCachedAppTracks
+            }
+            return@withContext memoryCachedAppTracks
+        }
         val cached = loadCachedWorkerCatalog()
         val mapped = cached?.tracks?.map { it.toAppTrack() }.orEmpty()
         if (mapped.isNotEmpty()) {
             memoryCachedAppTracks = mapped
+            _onlineTracksFlow.value = mapped
         }
         mapped
     }
@@ -1291,10 +1399,14 @@ object OnlineMusicRepository {
             if (isPersian) "در حال بارگذاری آرشیو ابری..." else "Loading cloud catalog..."
         )
 
-        // ۱. بارگذاری فوری از کش دیسک یا دریافت از سرور کلادفلر
+        // ۱. بارگذاری فوری از کش دیسک یا دریافت کامل از سرور کلادفلر (بدون قطع کردن درخواست در نیمه راه)
         var onlineAppTracks = loadCachedAppTracksAsync()
         if (onlineAppTracks.isEmpty()) {
-            val fetched = withTimeoutOrNull(4500L) { fetchFromWorker() }
+            val fetched = try {
+                fetchFromWorker()
+            } catch (_: Throwable) {
+                null
+            }
             if (fetched != null && fetched.tracks.isNotEmpty()) {
                 onlineAppTracks = withContext(Dispatchers.Default) {
                     fetched.tracks.map { it.toAppTrack() }
@@ -1332,19 +1444,19 @@ object OnlineMusicRepository {
             if (isPersian) "در حال آماده‌سازی کاور آلبوم‌ها و عکس پروفایل هنرمندان..." else "Preloading album covers & artist profiles..."
         )
 
-        // ۳. پیش‌بارگذاری کاور آلبوم‌های اول و عکس پروفایل هنرمندان برتر در حین لودینگ اولیه (حداکثر ۲.۶ ثانیه)
-        val topArtistsToPreload = hubPrimary.artists.take(18)
+        // ۳. پیش‌بارگذاری سریع کاورهای اول (حداکثر ۰.۸ ثانیه تا ورود به صفحه اصلی فوق‌العاده سریع باشد)
+        val topArtistsToPreload = hubPrimary.artists.take(8)
         val topAlbumCoversToPreload = (
-            hubPrimary.albums.take(18).mapNotNull { it.coverUri } +
-                unifiedTracks.take(15).mapNotNull { it.artworkUri }
-            ).distinct().take(24)
+            hubPrimary.albums.take(10).mapNotNull { it.coverUri } +
+                unifiedTracks.take(10).mapNotNull { it.artworkUri }
+            ).distinct().take(14)
 
         val totalAssets = (topArtistsToPreload.size + topAlbumCoversToPreload.size).coerceAtLeast(1)
         val completedAssets = AtomicInteger(0)
 
-        withTimeoutOrNull(2700L) {
+        withTimeoutOrNull(850L) {
             coroutineScope {
-                val preloaderSemaphore = Semaphore(6)
+                val preloaderSemaphore = Semaphore(8)
                 val artistJobs = topArtistsToPreload.map { artist ->
                     async(Dispatchers.IO) {
                         try {
@@ -1390,7 +1502,15 @@ object OnlineMusicRepository {
         if (backgroundWarmStarted.compareAndSet(false, true)) {
             backgroundWarmScope.launch {
                 val gentleSemaphore = Semaphore(2)
-                for (artist in hubPrimary.artists.drop(18)) {
+                for (album in hubPrimary.albums.take(40)) {
+                    val uri = album.coverUri ?: continue
+                    gentleSemaphore.withPermit {
+                        try {
+                            loadCoverBitmapBlocking(uri)
+                        } catch (_: Throwable) {}
+                    }
+                }
+                for (artist in hubPrimary.artists.drop(8).take(40)) {
                     gentleSemaphore.withPermit {
                         try {
                             ArtistAvatarDiskCache.loadOrDownloadArtistBitmap(
@@ -1398,14 +1518,6 @@ object OnlineMusicRepository {
                                 artistName = artist.name,
                                 remoteUrl = artist.cover.ifBlank { artist.picture }
                             )
-                        } catch (_: Throwable) {}
-                    }
-                }
-                for (album in hubPrimary.albums.drop(18)) {
-                    val uri = album.coverUri ?: continue
-                    gentleSemaphore.withPermit {
-                        try {
-                            loadCoverBitmapBlocking(uri)
                         } catch (_: Throwable) {}
                     }
                 }
@@ -1427,36 +1539,26 @@ object OnlineMusicRepository {
         }
     }
 
-    fun upgradeToHighResImageUrl(rawUrl: String?): String {
-        val trimmed = rawUrl?.trim().orEmpty()
-        if (trimmed.isBlank()) return ""
-        return trimmed
-            .replace("size=small", "size=large", ignoreCase = true)
-            .replace("size=thumb", "size=large", ignoreCase = true)
-            .replace("size=medium", "size=large", ignoreCase = true)
-            .replace("cover_small", "cover_xl", ignoreCase = true)
-            .replace("cover_medium", "cover_xl", ignoreCase = true)
-            .replace("picture_small", "picture_xl", ignoreCase = true)
-            .replace("picture_medium", "picture_xl", ignoreCase = true)
-            .replace("56x56", "1000x1000", ignoreCase = true)
-            .replace("100x100", "1000x1000", ignoreCase = true)
-            .replace("120x120", "1000x1000", ignoreCase = true)
-            .replace("200x200", "1000x1000", ignoreCase = true)
-            .replace("250x250", "1000x1000", ignoreCase = true)
-            .replace("300x300", "1000x1000", ignoreCase = true)
-    }
-
     fun normalizeWorkerImageUrl(rawUrl: String): String {
-        val trimmed = upgradeToHighResImageUrl(rawUrl)
+        val trimmed = rawUrl.trim()
         if (trimmed.isBlank()) return ""
-        return when {
+        val resolved = when {
             trimmed.startsWith("http://") || trimmed.startsWith("https://") ->
                 trimmed.replace(WORKER_HOST_REGEX, BASE_URL)
-            trimmed.startsWith("file://") || trimmed.startsWith("content://") -> trimmed
-            trimmed.startsWith("/storage/") || trimmed.startsWith("/data/") || trimmed.startsWith("/sdcard/") -> trimmed
+            trimmed.startsWith("file://") || trimmed.startsWith("content://") -> return trimmed
+            trimmed.startsWith("/storage/") || trimmed.startsWith("/data/") || trimmed.startsWith("/sdcard/") -> return trimmed
             trimmed.startsWith("/img?u=") -> "$BASE_URL$trimmed"
             trimmed.startsWith("/") -> "$BASE_URL$trimmed"
             else -> "$BASE_URL/$trimmed"
+        }
+        val upgraded = resolved
+            .replace("size=small", "size=large")
+            .replace("size=thumb", "size=large")
+            .replace("size=medium", "size=large")
+        return if (upgraded.contains("/cover?id=") && !upgraded.contains("size=")) {
+            "$upgraded&size=large"
+        } else {
+            upgraded
         }
     }
 
@@ -1509,14 +1611,14 @@ object OnlineMusicRepository {
         if (rawId.isNotBlank()) {
             coverUrlByTrackId[rawId]?.takeIf {
                 it.isNotBlank() && !it.contains("dzcdn.net") && !it.contains("deezer.com")
-            }?.let { return it }
+            }?.let { return normalizeWorkerImageUrl(it) }
             coverUrlByTrackId["online_$rawId"]?.takeIf {
                 it.isNotBlank() && !it.contains("dzcdn.net") && !it.contains("deezer.com")
-            }?.let { return it }
-            // کاور آهنگ مستقیماً از تلگرام از طریق سرور کلادفلر (بدون نیاز به فیلترشکن)
+            }?.let { return normalizeWorkerImageUrl(it) }
+            // کاور آهنگ مستقیماً از تلگرام از طریق سرور کلادفلر با بالاترین کیفیت (size=large)
             if (!rawId.startsWith("local_") && !rawId.startsWith("demo_")) {
                 val encodedId = try { URLEncoder.encode(rawId, "UTF-8") } catch (_: Exception) { rawId }
-                return "$BASE_URL/cover?id=$encodedId"
+                return "$BASE_URL/cover?id=$encodedId&size=large"
             }
         }
         return ""
@@ -1582,11 +1684,15 @@ object OnlineMusicRepository {
     private fun getPrivateTrackCoverCacheDir(): File? {
         return try {
             val appCtx = AuraApplication.instance.applicationContext
-            if (cleanedLegacyCoverCache.compareAndSet(false, true)) {
+            if (cleanedLegacyTrackCovers.compareAndSet(false, true)) {
                 try {
-                    val legacyDir = File(appCtx.filesDir, LEGACY_TRACK_COVERS_DIR)
-                    if (legacyDir.exists()) legacyDir.deleteRecursively()
-                } catch (_: Exception) {}
+                    for (oldName in LEGACY_TRACK_COVERS_DIRS) {
+                        val oldDir = File(appCtx.filesDir, oldName)
+                        if (oldDir.exists()) {
+                            oldDir.deleteRecursively()
+                        }
+                    }
+                } catch (_: Throwable) {}
             }
             val dir = File(appCtx.filesDir, PRIVATE_TRACK_COVERS_DIR)
             if (!dir.exists()) {
@@ -1612,7 +1718,7 @@ object OnlineMusicRepository {
         val safeKey = idPart.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(64).ifBlank {
             resolvedUrl.hashCode().toUInt().toString(16)
         }
-        return File(dir, "tg_cover_$safeKey.jpg")
+        return File(dir, "tg_cover_hd_$safeKey.jpg")
     }
 
     private fun decodeDownsampledCoverBytes(bytes: ByteArray, maxDim: Int = 1000): Bitmap? {
@@ -1654,7 +1760,7 @@ object OnlineMusicRepository {
     }
 
     /**
-     * بارگذاری کاتالوگ ذخیره‌شده در حافظه خصوصی داخلی گوشی
+     * بارگذاری کاتالوگ ذخیره‌شده در حافظه خصوصی داخلی گوشی (بدون محدودیت سایز و با JsonReader جریانی)
      */
     fun loadCachedWorkerCatalog(): WorkerTracksResponse? {
         memoryCachedResponse?.let { return it }
@@ -1663,23 +1769,20 @@ object OnlineMusicRepository {
             try {
                 val legacyFile = File(appCtx.filesDir, LEGACY_CATALOG_CACHE_FILE)
                 if (legacyFile.exists()) legacyFile.delete()
+                val legacyV3 = File(appCtx.filesDir, LEGACY_CATALOG_CACHE_FILE_V3)
+                if (legacyV3.exists()) legacyV3.delete()
             } catch (_: Throwable) {}
             val file = File(appCtx.filesDir, PRIVATE_CATALOG_CACHE_FILE)
-            if (file.exists() && file.length() > 64L && file.length() <= 16 * 1024 * 1024L) {
-                val jsonText = try {
-                    file.inputStream().use { readStreamSafely(it, 16 * 1024 * 1024) }
-                } catch (_: OutOfMemoryError) {
-                    System.gc()
-                    ""
-                } catch (_: Exception) {
-                    ""
-                }
-                if (jsonText.isBlank()) return null
-                val parsed = parseWorkerTracksJson(jsonText)
+            if (file.exists() && file.length() > 64L) {
+                val parsed = file.inputStream().use { parseWorkerTracksStream(it) }
                 if (parsed.tracks.isNotEmpty()) {
                     memoryCachedResponse = parsed
+                    val mapped = parsed.tracks.map { it.toAppTrack() }
+                    setMemoryCachedAppTracks(mapped)
+                    parsed
+                } else {
+                    null
                 }
-                parsed
             } else {
                 null
             }
@@ -1688,39 +1791,92 @@ object OnlineMusicRepository {
         }
     }
 
-    private fun readStreamSafely(inputStream: java.io.InputStream, maxSizeBytes: Int = 12 * 1024 * 1024): String {
-        val reader = java.io.BufferedReader(java.io.InputStreamReader(inputStream, Charsets.UTF_8), 16384)
-        val sb = StringBuilder(8192)
-        val buffer = CharArray(16384)
-        var totalChars = 0
-        val maxChars = maxSizeBytes / 2
-        var charsRead: Int
-        while (reader.read(buffer).also { charsRead = it } != -1) {
-            if (totalChars + charsRead > maxChars) {
-                val allowed = maxChars - totalChars
-                if (allowed > 0) {
-                    sb.append(buffer, 0, allowed)
-                }
-                break
-            }
-            sb.append(buffer, 0, charsRead)
-            totalChars += charsRead
-        }
-        return sb.toString()
-    }
-
-    private fun saveWorkerCatalogToPrivateDisk(rawJson: String) {
+    private fun saveCompactCatalogToPrivateDisk(response: WorkerTracksResponse) {
+        if (response.tracks.isEmpty()) return
         try {
             val appCtx = AuraApplication.instance.applicationContext
-            val file = File(appCtx.filesDir, PRIVATE_CATALOG_CACHE_FILE)
-            file.writeText(rawJson)
+            val tempFile = File(appCtx.filesDir, "$PRIVATE_CATALOG_CACHE_FILE.tmp")
+            val finalFile = File(appCtx.filesDir, PRIVATE_CATALOG_CACHE_FILE)
+            FileOutputStream(tempFile).use { fos ->
+                JsonWriter(OutputStreamWriter(fos, Charsets.UTF_8)).use { writer ->
+                    writer.beginObject()
+                    writer.name("ok").value(true)
+                    writer.name("artists")
+                    writer.beginArray()
+                    for (artist in response.artists) {
+                        writer.beginObject()
+                        writer.name("name").value(artist.name)
+                        writer.name("trackCount").value(artist.trackCount)
+                        writer.name("cover").value(artist.cover)
+                        writer.name("picture").value(artist.picture)
+                        writer.endObject()
+                    }
+                    writer.endArray()
+
+                    writer.name("tracks")
+                    writer.beginArray()
+                    for (track in response.tracks) {
+                        writer.beginObject()
+                        writer.name("id").value(track.id)
+                        writer.name("title").value(track.title)
+                        writer.name("artist_name").value(track.artist)
+                        writer.name("album").value(track.album)
+                        writer.name("duration").value(track.durationSec)
+                        writer.name("stream_url").value(track.streamUrl)
+                        writer.name("download_url").value(track.downloadUrl)
+                        writer.name("cover_url").value(track.coverUrl)
+                        writer.name("genre").value(track.rawGenre)
+                        writer.endObject()
+                    }
+                    writer.endArray()
+                    writer.endObject()
+                }
+            }
+            if (tempFile.exists() && tempFile.length() > 64L) {
+                if (finalFile.exists()) finalFile.delete()
+                tempFile.renameTo(finalFile)
+            }
         } catch (_: Throwable) {}
     }
 
     suspend fun fetchFromWorker(
         query: String = "",
-        artist: String = ""
+        artist: String = "",
+        forceRefresh: Boolean = false
     ): WorkerTracksResponse = withContext(Dispatchers.IO) {
+        val isFullCatalogRequest = query.isBlank() && artist.isBlank()
+        if (isFullCatalogRequest && !forceRefresh) {
+            val existing = memoryCachedResponse
+            if (existing != null && existing.tracks.isNotEmpty() && (System.currentTimeMillis() - lastFullFetchTimeMs) < 180_000L) {
+                return@withContext existing
+            }
+        }
+
+        if (isFullCatalogRequest) {
+            catalogFetchMutex.lock()
+            try {
+                if (!forceRefresh) {
+                    val existingAfterLock = memoryCachedResponse
+                    if (existingAfterLock != null && existingAfterLock.tracks.isNotEmpty() && (System.currentTimeMillis() - lastFullFetchTimeMs) < 180_000L) {
+                        return@withContext existingAfterLock
+                    }
+                }
+                _isFetchingFlow.value = true
+                return@withContext performWorkerFetchInternal(query = "", artist = "", isFullCatalogRequest = true)
+            } finally {
+                _isFetchingFlow.value = false
+                catalogFetchMutex.unlock()
+            }
+        } else {
+            return@withContext performWorkerFetchInternal(query = query, artist = artist, isFullCatalogRequest = false)
+        }
+    }
+
+    private suspend fun performWorkerFetchInternal(
+        query: String,
+        artist: String,
+        isFullCatalogRequest: Boolean
+    ): WorkerTracksResponse {
         var connection: HttpURLConnection? = null
         try {
             val deviceId = try {
@@ -1735,8 +1891,8 @@ object OnlineMusicRepository {
             connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
                 requestMethod = "GET"
-                connectTimeout = 12000
-                readTimeout = 12000
+                connectTimeout = 15000
+                readTimeout = 25000
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("X-Device-Id", deviceId)
                 if (EntitlementManager.isPremium.value) {
@@ -1746,253 +1902,143 @@ object OnlineMusicRepository {
             }
 
             if (connection.responseCode in 200..299) {
-                val stream = connection.inputStream
-                val body = try {
-                    readStreamSafely(stream, 12 * 1024 * 1024)
+                val rawStream = connection.inputStream
+                val decodedStream = if (connection.contentEncoding?.contains("gzip", ignoreCase = true) == true) {
+                    GZIPInputStream(rawStream)
+                } else {
+                    rawStream
+                }
+                var parsed = try {
+                    decodedStream.use { parseWorkerTracksStream(it) }
                 } catch (_: OutOfMemoryError) {
                     System.gc()
-                    ""
-                } catch (_: Exception) {
-                    ""
+                    WorkerTracksResponse(artists = lastKnownArtists)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    WorkerTracksResponse(artists = lastKnownArtists)
                 }
-                if (query.isBlank() && artist.isBlank() && body.length > 64) {
-                    saveWorkerCatalogToPrivateDisk(body)
-                }
-                var parsed = if (body.isNotBlank()) parseWorkerTracksJson(body) else WorkerTracksResponse(artists = lastKnownArtists)
+
                 if (parsed.tracks.isEmpty()) {
                     val fallbackTracks = CloudflareMusicApi.searchOrFetchTracks(query, deviceId).getOrNull().orEmpty()
                     if (fallbackTracks.isNotEmpty()) {
                         parsed = parsed.copy(tracks = fallbackTracks.map { it.toOnlineTrack() })
                     }
                 }
-                if (query.isBlank() && artist.isBlank() && parsed.tracks.isNotEmpty()) {
+                if (isFullCatalogRequest && parsed.tracks.isNotEmpty()) {
                     memoryCachedResponse = parsed
-                    memoryCachedAppTracks = parsed.tracks.map { it.toAppTrack() }
+                    lastFullFetchTimeMs = System.currentTimeMillis()
+                    val mapped = parsed.tracks.map { it.toAppTrack() }
+                    setMemoryCachedAppTracks(mapped)
+                    backgroundWarmScope.launch {
+                        saveCompactCatalogToPrivateDisk(parsed)
+                    }
                 }
-                return@withContext parsed
+                return parsed
             }
         } catch (e: Throwable) {
             e.printStackTrace()
         } finally {
             try { connection?.disconnect() } catch (_: Throwable) {}
         }
-        val fallbackTracks = CloudflareMusicApi.searchOrFetchTracks(query).getOrNull().orEmpty()
+        val deviceIdFallback = try {
+            EntitlementManager.getInstance(AuraApplication.instance).getDeviceId()
+        } catch (_: Throwable) {
+            ""
+        }
+        val fallbackTracks = CloudflareMusicApi.searchOrFetchTracks(query, deviceIdFallback).getOrNull().orEmpty()
         if (fallbackTracks.isNotEmpty()) {
             val onlineList = fallbackTracks.map { it.toOnlineTrack() }
             val resp = WorkerTracksResponse(artists = lastKnownArtists, tracks = onlineList)
-            if (query.isBlank() && artist.isBlank()) {
+            if (isFullCatalogRequest) {
                 memoryCachedResponse = resp
-                memoryCachedAppTracks = onlineList.map { it.toAppTrack() }
+                lastFullFetchTimeMs = System.currentTimeMillis()
+                val mapped = onlineList.map { it.toAppTrack() }
+                setMemoryCachedAppTracks(mapped)
+                backgroundWarmScope.launch {
+                    saveCompactCatalogToPrivateDisk(resp)
+                }
             }
-            return@withContext resp
+            return resp
         }
-        loadCachedWorkerCatalog() ?: WorkerTracksResponse(artists = lastKnownArtists)
+        return loadCachedWorkerCatalog() ?: WorkerTracksResponse(artists = lastKnownArtists)
     }
 
-    private fun parseWorkerTracksJson(jsonString: String): WorkerTracksResponse {
-        val trimmed = jsonString.trim()
-        if (trimmed.isBlank()) return WorkerTracksResponse(artists = lastKnownArtists)
-        return try {
-            val root = if (trimmed.startsWith("[")) {
-                JSONObject().apply { put("tracks", JSONArray(trimmed)) }
-            } else {
-                JSONObject(trimmed)
+    private fun readScalarString(reader: JsonReader): String {
+        return when (reader.peek()) {
+            JsonToken.STRING -> reader.nextString()
+            JsonToken.NUMBER -> reader.nextString()
+            JsonToken.BOOLEAN -> reader.nextBoolean().toString()
+            JsonToken.NULL -> {
+                reader.nextNull()
+                ""
             }
+            else -> {
+                reader.skipValue()
+                ""
+            }
+        }
+    }
 
-            // ۱. پارس کردن آرایه خواننده‌ها و ادغام هوشمند نام‌های فیت در خواننده اصلی
-            val mergedArtistsMap = LinkedHashMap<String, ArchiveArtistItem>()
-            val artistsArray = root.optJSONArray("artists")
-            if (artistsArray != null) {
-                for (i in 0 until artistsArray.length()) {
-                    val obj = artistsArray.optJSONObject(i) ?: continue
-                    val rawName = obj.optString("name", "").trim()
-                    if (rawName.isBlank()) continue
-                    val trackCount = obj.optInt("trackCount", obj.optInt("count", 0))
-                    val rawCover = obj.optString("picture_xl", "")
-                        .ifBlank { obj.optString("cover_xl", "") }
-                        .ifBlank { obj.optString("cover_big", "") }
-                        .ifBlank { obj.optString("coverUrl", "") }
-                        .ifBlank { obj.optString("cover_url", "") }
-                        .ifBlank { obj.optString("picture_url", "") }
-                        .ifBlank { obj.optString("cover", "") }
-                        .ifBlank { obj.optString("picture", "") }
+    /**
+     * پارس جریانی (Streaming JsonReader) پاسخ کلادفلر:
+     * بدون بارگذاری کل رشته ۲۸ مگابایتی در رم، آرایه اصلی tracks و artists را می‌خواند
+     * و از روی آرایه‌های تکراری data و results با skipValue() در چند میلی‌ثانیه عبور می‌کند.
+     */
+    private fun parseWorkerTracksStream(inputStream: InputStream): WorkerTracksResponse {
+        val mergedArtistsMap = LinkedHashMap<String, ArchiveArtistItem>()
+        val matchedList = mutableListOf<ArchiveArtistItem>()
+        val tracksList = mutableListOf<OnlineTrack>()
 
-                    val isCollab = SmartArtistParser.isCollaborationString(rawName)
-                    val individualNames = SmartArtistParser.extractArtistsFromTrack(rawName)
-
-                    if (!isCollab && individualNames.size == 1) {
-                        val cleanName = individualNames.first()
-                        val key = cleanName.lowercase()
-                        val cover = ArtistAvatarDiskCache.resolveCloudflareArtistUrl(cleanName, rawCover)
-                        if (cover.isNotBlank()) {
-                            registerArtistPicture(cleanName, cover, overwrite = true)
+        return try {
+            val reader = JsonReader(BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8), 32768)).apply {
+                isLenient = true
+            }
+            when (reader.peek()) {
+                JsonToken.BEGIN_ARRAY -> {
+                    parseWorkerTracksArrayStream(reader, tracksList)
+                }
+                JsonToken.BEGIN_OBJECT -> {
+                    reader.beginObject()
+                    while (reader.hasNext()) {
+                        val key = reader.nextName()
+                        if (reader.peek() == JsonToken.NULL) {
+                            reader.nextNull()
+                            continue
                         }
-                        val existing = mergedArtistsMap[key]
-                        mergedArtistsMap[key] = ArchiveArtistItem(
-                            name = existing?.name ?: cleanName,
-                            trackCount = (existing?.trackCount ?: 0) + trackCount,
-                            cover = cover.ifBlank { existing?.cover.orEmpty() },
-                            picture = cover.ifBlank { existing?.picture.orEmpty() }
-                        )
-                    } else {
-                        individualNames.forEach { singleName ->
-                            val key = singleName.lowercase()
-                            val existing = mergedArtistsMap[key]
-                            val bestCover = existing?.cover?.takeIf { it.isNotBlank() }
-                                ?: ArtistAvatarDiskCache.resolveCloudflareArtistUrl(singleName, "")
-                            mergedArtistsMap[key] = ArchiveArtistItem(
-                                name = existing?.name ?: singleName,
-                                trackCount = (existing?.trackCount ?: 0) + trackCount,
-                                cover = bestCover,
-                                picture = bestCover
-                            )
+                        when (key) {
+                            "artists" -> {
+                                if (reader.peek() == JsonToken.BEGIN_ARRAY) {
+                                    parseWorkerArtistsArrayStream(reader, mergedArtistsMap)
+                                } else {
+                                    reader.skipValue()
+                                }
+                            }
+                            "matchedArtists" -> {
+                                if (reader.peek() == JsonToken.BEGIN_ARRAY) {
+                                    parseWorkerMatchedArtistsArrayStream(reader, mergedArtistsMap, matchedList)
+                                } else {
+                                    reader.skipValue()
+                                }
+                            }
+                            "tracks", "data", "results", "songs", "items" -> {
+                                if (tracksList.isEmpty() && reader.peek() == JsonToken.BEGIN_ARRAY) {
+                                    parseWorkerTracksArrayStream(reader, tracksList)
+                                } else {
+                                    // رد شدن سریع از روی آرایه‌های تکراری (data / results) بدون مصرف رم
+                                    reader.skipValue()
+                                }
+                            }
+                            else -> reader.skipValue()
                         }
                     }
+                    reader.endObject()
                 }
+                else -> reader.skipValue()
             }
 
             val artistsList = mergedArtistsMap.values.toList()
             if (artistsList.isNotEmpty()) {
                 lastKnownArtists = artistsList
-            }
-
-            val matchedList = mutableListOf<ArchiveArtistItem>()
-            val matchedArray = root.optJSONArray("matchedArtists")
-            if (matchedArray != null) {
-                for (i in 0 until matchedArray.length()) {
-                    val item = matchedArray.opt(i)
-                    when (item) {
-                        is JSONObject -> {
-                            val rawName = item.optString("name", "").trim()
-                            if (rawName.isNotBlank()) {
-                                val count = item.optInt("trackCount", item.optInt("count", 0))
-                                val rawCover = item.optString("picture_xl", "")
-                                    .ifBlank { item.optString("cover_xl", "") }
-                                    .ifBlank { item.optString("cover_big", "") }
-                                    .ifBlank { item.optString("coverUrl", "") }
-                                    .ifBlank { item.optString("cover_url", "") }
-                                    .ifBlank { item.optString("picture_url", "") }
-                                    .ifBlank { item.optString("cover", "") }
-                                    .ifBlank { item.optString("picture", "") }
-                                val primaryName = SmartArtistParser.extractPrimaryArtist(rawName)
-                                val cover = ArtistAvatarDiskCache.resolveCloudflareArtistUrl(primaryName, rawCover)
-                                if (cover.isNotBlank()) {
-                                    registerArtistPicture(primaryName, cover, overwrite = !SmartArtistParser.isCollaborationString(rawName))
-                                }
-                                matchedList.add(
-                                    ArchiveArtistItem(
-                                        name = primaryName,
-                                        trackCount = count,
-                                        cover = cover,
-                                        picture = cover
-                                    )
-                                )
-                            }
-                        }
-                        is String -> {
-                            val primaryName = SmartArtistParser.extractPrimaryArtist(item)
-                            if (primaryName.isNotBlank()) {
-                                val fromAll = artistsList.firstOrNull { it.name.equals(primaryName, ignoreCase = true) }
-                                val pic = ArtistAvatarDiskCache.resolveCloudflareArtistUrl(primaryName, "")
-                                matchedList.add(
-                                    fromAll ?: ArchiveArtistItem(
-                                        name = primaryName,
-                                        trackCount = 0,
-                                        cover = pic,
-                                        picture = pic
-                                    )
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            val tracksList = mutableListOf<OnlineTrack>()
-            val dataArray = root.optJSONArray("tracks")
-                ?: root.optJSONArray("data")
-                ?: root.optJSONArray("results")
-                ?: root.optJSONArray("songs")
-                ?: root.optJSONArray("items")
-            if (dataArray != null) {
-                for (i in 0 until dataArray.length()) {
-                    val obj = dataArray.optJSONObject(i) ?: continue
-                    val id = obj.opt("id")?.toString()?.trim().orEmpty().ifBlank { "tg_$i" }
-                    val title = obj.optString("title", "").ifBlank { obj.optString("name", "Unknown Track") }.trim()
-                    val artistName = obj.optString("artist_name", "")
-                        .ifBlank { obj.optString("artist", "Unknown Artist") }
-                        .trim()
-                    val durationSec = parseDurationToSeconds(obj.opt("duration"))
-                    val rawStream = obj.optString("stream_url", "")
-                        .ifBlank { obj.optString("streamUrl", "") }
-                        .ifBlank { obj.optString("url", "") }
-                    val rawDownload = obj.optString("download_url", "")
-                        .ifBlank { obj.optString("downloadUrl", "") }
-                        .ifBlank { rawStream }
-                    val rawCover = obj.optString("cover_xl", "")
-                        .ifBlank { obj.optString("cover_big", "") }
-                        .ifBlank { obj.optString("picture_xl", "") }
-                        .ifBlank { obj.optString("coverUrl", "") }
-                        .ifBlank { obj.optString("cover_url", "") }
-                        .ifBlank { obj.optString("cover", "") }
-                    val rawGenre = obj.optString("genre", "")
-                        .ifBlank { obj.optString("category", "") }
-                        .ifBlank { obj.optString("style", "") }
-                        .ifBlank { obj.optString("mood", "") }
-                        .trim()
-
-                    val streamUrl = resolveWorkerUrl(rawStream)
-                    val downloadUrl = resolveWorkerUrl(rawDownload)
-                    // کاور آهنگ همیشه با کیفیت بالا از تلگرام از طریق سرور کلادفلر دریافت می‌شود
-                    val encodedId = try { URLEncoder.encode(id, "UTF-8") } catch (_: Exception) { id }
-                    val coverUrl = normalizeWorkerImageUrl(rawCover).let { candidate ->
-                        if (candidate.isBlank() || candidate.contains("dzcdn.net") || candidate.contains("deezer.com") || candidate.contains("/artist-cover")) {
-                            "$BASE_URL/cover?id=$encodedId&size=large"
-                        } else {
-                            candidate
-                        }
-                    }
-                    val primaryArtist = SmartArtistParser.extractPrimaryArtist(artistName, title)
-
-                    registerTrackUrls(
-                        trackId = id,
-                        streamUrl = streamUrl,
-                        downloadUrl = downloadUrl,
-                        coverUrl = coverUrl,
-                        artistName = artistName
-                    )
-
-                    if (rawGenre.isNotBlank()) {
-                        RealTrackGenreRegistry.registerGenre(id, rawGenre)
-                        RealTrackGenreRegistry.registerGenre("online_$id", rawGenre)
-                    }
-
-                    val cleaned = com.example.data.model.SmartTrackMetadataResolver.resolve(
-                        rawTitle = title,
-                        rawArtist = artistName,
-                        rawAlbum = obj.optString("album", "")
-                    )
-                    val userOv = com.example.data.model.UserTrackMetadataStore.getOverride(id)
-                    val finalTitle = userOv?.title ?: cleaned.title
-                    val finalArtist = userOv?.artist ?: cleaned.artist
-                    val finalAlbum = userOv?.album ?: cleaned.album
-
-                    tracksList.add(
-                        OnlineTrack(
-                            id = id,
-                            title = finalTitle,
-                            artist = finalArtist,
-                            album = finalAlbum,
-                            coverUrl = coverUrl,
-                            durationSec = durationSec,
-                            streamUrl = streamUrl,
-                            downloadUrl = downloadUrl,
-                            previewUrl = streamUrl,
-                            artistPictureUrl = ArtistAvatarDiskCache.resolveCloudflareArtistUrl(primaryArtist, ""),
-                            rawGenre = rawGenre
-                        )
-                    )
-                }
             }
 
             WorkerTracksResponse(
@@ -2002,8 +2048,324 @@ object OnlineMusicRepository {
             )
         } catch (e: Exception) {
             e.printStackTrace()
-            WorkerTracksResponse(artists = lastKnownArtists)
+            val artistsList = mergedArtistsMap.values.toList()
+            if (artistsList.isNotEmpty()) {
+                lastKnownArtists = artistsList
+            }
+            WorkerTracksResponse(
+                artists = if (artistsList.isNotEmpty()) artistsList else lastKnownArtists,
+                matchedArtists = matchedList.distinctBy { it.name.lowercase() },
+                tracks = tracksList
+            )
         }
+    }
+
+    private fun parseWorkerArtistsArrayStream(
+        reader: JsonReader,
+        mergedArtistsMap: LinkedHashMap<String, ArchiveArtistItem>
+    ) {
+        reader.beginArray()
+        while (reader.hasNext()) {
+            if (reader.peek() != JsonToken.BEGIN_OBJECT) {
+                reader.skipValue()
+                continue
+            }
+            reader.beginObject()
+            var rawName = ""
+            var trackCount = 0
+            var rawCover = ""
+            while (reader.hasNext()) {
+                val field = reader.nextName()
+                if (reader.peek() == JsonToken.NULL) {
+                    reader.nextNull()
+                    continue
+                }
+                when (field) {
+                    "name" -> rawName = readScalarString(reader).trim()
+                    "trackCount", "count" -> {
+                        val c = readScalarString(reader).toIntOrNull() ?: 0
+                        if (trackCount == 0 && c > 0) trackCount = c
+                    }
+                    "cover", "picture", "cover_url", "picture_url" -> {
+                        val v = readScalarString(reader).trim()
+                        if (rawCover.isBlank() && v.isNotBlank()) rawCover = v
+                    }
+                    else -> reader.skipValue()
+                }
+            }
+            reader.endObject()
+
+            if (rawName.isBlank()) continue
+            val isCollab = SmartArtistParser.isCollaborationString(rawName)
+            val individualNames = SmartArtistParser.extractArtistsFromTrack(rawName)
+
+            if (!isCollab && individualNames.size == 1) {
+                val cleanName = individualNames.first()
+                val key = cleanName.lowercase()
+                val cover = ArtistAvatarDiskCache.resolveCloudflareArtistUrl(cleanName, rawCover)
+                if (cover.isNotBlank()) {
+                    registerArtistPicture(cleanName, cover, overwrite = true)
+                }
+                val existing = mergedArtistsMap[key]
+                mergedArtistsMap[key] = ArchiveArtistItem(
+                    name = existing?.name ?: cleanName,
+                    trackCount = (existing?.trackCount ?: 0) + trackCount,
+                    cover = cover.ifBlank { existing?.cover.orEmpty() },
+                    picture = cover.ifBlank { existing?.picture.orEmpty() }
+                )
+            } else {
+                individualNames.forEach { singleName ->
+                    val key = singleName.lowercase()
+                    val existing = mergedArtistsMap[key]
+                    val bestCover = existing?.cover?.takeIf { it.isNotBlank() }
+                        ?: ArtistAvatarDiskCache.resolveCloudflareArtistUrl(singleName, "")
+                    mergedArtistsMap[key] = ArchiveArtistItem(
+                        name = existing?.name ?: singleName,
+                        trackCount = (existing?.trackCount ?: 0) + trackCount,
+                        cover = bestCover,
+                        picture = bestCover
+                    )
+                }
+            }
+        }
+        reader.endArray()
+    }
+
+    private fun parseWorkerMatchedArtistsArrayStream(
+        reader: JsonReader,
+        mergedArtistsMap: LinkedHashMap<String, ArchiveArtistItem>,
+        matchedList: MutableList<ArchiveArtistItem>
+    ) {
+        reader.beginArray()
+        while (reader.hasNext()) {
+            when (reader.peek()) {
+                JsonToken.BEGIN_OBJECT -> {
+                    reader.beginObject()
+                    var rawName = ""
+                    var count = 0
+                    var rawCover = ""
+                    while (reader.hasNext()) {
+                        val field = reader.nextName()
+                        if (reader.peek() == JsonToken.NULL) {
+                            reader.nextNull()
+                            continue
+                        }
+                        when (field) {
+                            "name" -> rawName = readScalarString(reader).trim()
+                            "trackCount", "count" -> {
+                                val c = readScalarString(reader).toIntOrNull() ?: 0
+                                if (count == 0 && c > 0) count = c
+                            }
+                            "cover", "picture", "cover_url", "picture_url" -> {
+                                val v = readScalarString(reader).trim()
+                                if (rawCover.isBlank() && v.isNotBlank()) rawCover = v
+                            }
+                            else -> reader.skipValue()
+                        }
+                    }
+                    reader.endObject()
+                    if (rawName.isNotBlank()) {
+                        val primaryName = SmartArtistParser.extractPrimaryArtist(rawName)
+                        val cover = ArtistAvatarDiskCache.resolveCloudflareArtistUrl(primaryName, rawCover)
+                        if (cover.isNotBlank()) {
+                            registerArtistPicture(primaryName, cover, overwrite = !SmartArtistParser.isCollaborationString(rawName))
+                        }
+                        matchedList.add(
+                            ArchiveArtistItem(
+                                name = primaryName,
+                                trackCount = count,
+                                cover = cover,
+                                picture = cover
+                            )
+                        )
+                    }
+                }
+                JsonToken.STRING -> {
+                    val item = reader.nextString()
+                    val primaryName = SmartArtistParser.extractPrimaryArtist(item)
+                    if (primaryName.isNotBlank()) {
+                        val fromAll = mergedArtistsMap[primaryName.lowercase()]
+                        val pic = ArtistAvatarDiskCache.resolveCloudflareArtistUrl(primaryName, "")
+                        matchedList.add(
+                            fromAll ?: ArchiveArtistItem(
+                                name = primaryName,
+                                trackCount = 0,
+                                cover = pic,
+                                picture = pic
+                            )
+                        )
+                    }
+                }
+                else -> reader.skipValue()
+            }
+        }
+        reader.endArray()
+    }
+
+    private fun parseWorkerTracksArrayStream(
+        reader: JsonReader,
+        tracksList: MutableList<OnlineTrack>
+    ) {
+        reader.beginArray()
+        var index = 0
+        while (reader.hasNext()) {
+            if (reader.peek() != JsonToken.BEGIN_OBJECT) {
+                reader.skipValue()
+                continue
+            }
+            reader.beginObject()
+            var id = ""
+            var fileId = ""
+            var messageId = ""
+            var title = ""
+            var name = ""
+            var artistName = ""
+            var artistFallback = ""
+            var rawAlbum = ""
+            var durationRaw: String? = null
+            var rawStream = ""
+            var rawDownload = ""
+            var rawCover = ""
+            var rawGenre = ""
+
+            while (reader.hasNext()) {
+                val field = reader.nextName()
+                if (reader.peek() == JsonToken.NULL) {
+                    reader.nextNull()
+                    continue
+                }
+                when (field) {
+                    "id" -> id = readScalarString(reader).trim()
+                    "file_id" -> fileId = readScalarString(reader).trim()
+                    "message_id" -> messageId = readScalarString(reader).trim()
+                    "title" -> title = readScalarString(reader).trim()
+                    "name" -> {
+                        val v = readScalarString(reader).trim()
+                        if (name.isBlank()) name = v
+                    }
+                    "artist_name", "artistName", "primary_artist", "primaryArtist" -> {
+                        val v = readScalarString(reader).trim()
+                        if (artistName.isBlank() && v.isNotBlank()) artistName = v
+                    }
+                    "artist" -> {
+                        if (reader.peek() == JsonToken.BEGIN_OBJECT) {
+                            reader.beginObject()
+                            while (reader.hasNext()) {
+                                val ak = reader.nextName()
+                                if (ak == "name" && reader.peek() != JsonToken.NULL) {
+                                    val av = readScalarString(reader).trim()
+                                    if (artistFallback.isBlank()) artistFallback = av
+                                } else {
+                                    reader.skipValue()
+                                }
+                            }
+                            reader.endObject()
+                        } else {
+                            val v = readScalarString(reader).trim()
+                            if (artistFallback.isBlank() && !v.startsWith("{")) artistFallback = v
+                        }
+                    }
+                    "album", "album_name", "albumName", "album_title" -> {
+                        if (reader.peek() == JsonToken.BEGIN_OBJECT) {
+                            reader.beginObject()
+                            while (reader.hasNext()) {
+                                val alk = reader.nextName()
+                                if ((alk == "title" || alk == "name") && reader.peek() != JsonToken.NULL) {
+                                    val alv = readScalarString(reader).trim()
+                                    if (rawAlbum.isBlank()) rawAlbum = alv
+                                } else {
+                                    reader.skipValue()
+                                }
+                            }
+                            reader.endObject()
+                        } else {
+                            val v = readScalarString(reader).trim()
+                            if (rawAlbum.isBlank() && !v.startsWith("{")) rawAlbum = v
+                        }
+                    }
+                    "duration" -> durationRaw = readScalarString(reader)
+                    "stream_url", "streamUrl", "url", "audio_url", "preview" -> {
+                        val v = readScalarString(reader).trim()
+                        if (rawStream.isBlank() && v.isNotBlank()) rawStream = v
+                    }
+                    "download_url", "downloadUrl" -> {
+                        val v = readScalarString(reader).trim()
+                        if (rawDownload.isBlank() && v.isNotBlank()) rawDownload = v
+                    }
+                    "cover_xl", "cover_big", "cover_url", "coverUrl", "cover", "artwork", "image" -> {
+                        val v = readScalarString(reader).trim()
+                        if (v.isNotBlank() && (rawCover.isBlank() || field == "cover_xl" || field == "cover_big")) {
+                            rawCover = v
+                        }
+                    }
+                    "genre", "category", "style", "mood" -> {
+                        val v = readScalarString(reader).trim()
+                        if (rawGenre.isBlank() && v.isNotBlank()) rawGenre = v
+                    }
+                    else -> reader.skipValue()
+                }
+            }
+            reader.endObject()
+
+            val finalId = id.ifBlank { fileId.ifBlank { messageId.ifBlank { "tg_$index" } } }
+            val resolvedTitle = title.ifBlank { name.ifBlank { "Unknown Track" } }
+            val resolvedArtist = artistName.ifBlank { artistFallback.ifBlank { "Unknown Artist" } }
+            val durationSec = parseDurationToSeconds(durationRaw)
+            val effectiveDownloadRaw = rawDownload.ifBlank { rawStream }
+
+            val streamUrl = resolveWorkerUrl(rawStream)
+            val downloadUrl = resolveWorkerUrl(effectiveDownloadRaw)
+            val encodedId = try { URLEncoder.encode(finalId, "UTF-8") } catch (_: Exception) { finalId }
+            val coverUrl = normalizeWorkerImageUrl(rawCover).let { candidate ->
+                if (candidate.isBlank() || candidate.contains("dzcdn.net") || candidate.contains("deezer.com") || candidate.contains("/artist-cover")) {
+                    "$BASE_URL/cover?id=$encodedId"
+                } else {
+                    candidate
+                }
+            }
+            val primaryArtist = SmartArtistParser.extractPrimaryArtist(resolvedArtist, resolvedTitle)
+
+            registerTrackUrls(
+                trackId = finalId,
+                streamUrl = streamUrl,
+                downloadUrl = downloadUrl,
+                coverUrl = coverUrl,
+                artistName = resolvedArtist
+            )
+
+            if (rawGenre.isNotBlank()) {
+                RealTrackGenreRegistry.registerGenre(finalId, rawGenre)
+                RealTrackGenreRegistry.registerGenre("online_$finalId", rawGenre)
+            }
+
+            val cleaned = com.example.data.model.SmartTrackMetadataResolver.resolve(
+                rawTitle = resolvedTitle,
+                rawArtist = resolvedArtist,
+                rawAlbum = rawAlbum
+            )
+            val userOv = com.example.data.model.UserTrackMetadataStore.getOverride(finalId)
+            val finalTitle = userOv?.title ?: cleaned.title
+            val finalArtist = userOv?.artist ?: cleaned.artist
+            val finalAlbum = userOv?.album ?: cleaned.album
+
+            tracksList.add(
+                OnlineTrack(
+                    id = finalId,
+                    title = finalTitle,
+                    artist = finalArtist,
+                    album = finalAlbum,
+                    coverUrl = coverUrl,
+                    durationSec = durationSec,
+                    streamUrl = streamUrl,
+                    downloadUrl = downloadUrl,
+                    previewUrl = streamUrl,
+                    artistPictureUrl = ArtistAvatarDiskCache.resolveCloudflareArtistUrl(primaryArtist, ""),
+                    rawGenre = rawGenre
+                )
+            )
+            index++
+        }
+        reader.endArray()
     }
 
     private fun parseDurationToSeconds(rawDuration: Any?): Int {
@@ -2168,7 +2530,9 @@ object OnlineMusicRepository {
                             if (diskCoverFile != null) {
                                 try {
                                     val tmp = File(diskCoverFile.parentFile, "${diskCoverFile.name}.tmp")
-                                    tmp.writeBytes(bytes)
+                                    FileOutputStream(tmp).use { out ->
+                                        out.write(bytes)
+                                    }
                                     if (tmp.exists() && tmp.length() > 512L) {
                                         if (diskCoverFile.exists()) diskCoverFile.delete()
                                         tmp.renameTo(diskCoverFile)
@@ -2751,7 +3115,12 @@ fun OnlineMusicScreen(
         }
     }
 
+    val repoTracks by OnlineMusicRepository.onlineTracksFlow.collectAsState()
+    val isRepoFetching by OnlineMusicRepository.isFetchingFlow.collectAsState()
+    val effectiveOnlineTracks = if (onlineTracks.isNotEmpty()) onlineTracks else repoTracks
+
     var searchQuery by remember { mutableStateOf("") }
+    var remoteSearchedTracks by remember { mutableStateOf<List<Track>>(emptyList()) }
     var activeTab by remember { mutableStateOf(TopHubTab.DISCOVER) }
     var navState by remember { mutableStateOf<HubNavigationState>(HubNavigationState.MainHub) }
     var quickPicksSeed by remember { mutableIntStateOf(0) }
@@ -2765,27 +3134,44 @@ fun OnlineMusicScreen(
     }
 
     // محاسبه غیرمسدودکننده (Non-blocking) هنرمندان، آلبوم‌ها و دسته‌بندی‌ها در پس‌زمینه + کش حافظه
-    var hubData by remember(onlineTracks, isPersian) {
+    var hubData by remember(effectiveOnlineTracks, isPersian) {
         mutableStateOf(
-            OnlineMusicRepository.getMemoryCachedHubData(onlineTracks, isPersian)
+            OnlineMusicRepository.getMemoryCachedHubData(effectiveOnlineTracks, isPersian)
                 ?: HubComputedData()
         )
     }
 
-    LaunchedEffect(onlineTracks, isPersian) {
-        if (onlineTracks.isNotEmpty() && hubData.artists.isEmpty()) {
-            hubData = OnlineMusicRepository.computeHubDataAsync(onlineTracks, isPersian)
+    LaunchedEffect(effectiveOnlineTracks, isPersian) {
+        if (effectiveOnlineTracks.isNotEmpty() && hubData.artists.isEmpty()) {
+            hubData = OnlineMusicRepository.computeHubDataAsync(effectiveOnlineTracks, isPersian)
         }
+    }
+
+    LaunchedEffect(searchQuery) {
+        val cleanQ = searchQuery.trim()
+        if (cleanQ.length < 2) {
+            remoteSearchedTracks = emptyList()
+            return@LaunchedEffect
+        }
+        delay(350L)
+        try {
+            val resp = OnlineMusicRepository.fetchFromWorker(query = cleanQ)
+            if (resp.tracks.isNotEmpty()) {
+                remoteSearchedTracks = withContext(Dispatchers.Default) {
+                    resp.tracks.map { it.toAppTrack() }
+                }
+            }
+        } catch (_: Exception) {}
     }
 
     val albums = hubData.albums
     val artists = hubData.artists
     val browseCategories = hubData.browseCategories
 
-    val quickPicks = remember(onlineTracks, quickPicksSeed) {
-        if (onlineTracks.isEmpty()) emptyList()
-        else if (quickPicksSeed == 0) onlineTracks.take(15)
-        else onlineTracks.shuffled().take(15)
+    val quickPicks = remember(effectiveOnlineTracks, quickPicksSeed) {
+        if (effectiveOnlineTracks.isEmpty()) emptyList()
+        else if (quickPicksSeed == 0) effectiveOnlineTracks.take(15)
+        else effectiveOnlineTracks.shuffled().take(15)
     }
 
     Box(
@@ -2844,13 +3230,16 @@ fun OnlineMusicScreen(
                         it.title.contains(q, ignoreCase = true) || it.artist.contains(q, ignoreCase = true)
                     }.take(15)
                 }
-                val matchedTracks = remember(onlineTracks, q) {
+                val matchedTracks = remember(effectiveOnlineTracks, remoteSearchedTracks, q) {
                     if (q.isBlank()) emptyList()
-                    else onlineTracks.filter {
-                        it.title.contains(q, ignoreCase = true) ||
-                            it.artist.contains(q, ignoreCase = true) ||
-                            it.album.contains(q, ignoreCase = true)
-                    }.take(35)
+                    else {
+                        val localMatches = effectiveOnlineTracks.filter {
+                            it.title.contains(q, ignoreCase = true) ||
+                                it.artist.contains(q, ignoreCase = true) ||
+                                it.album.contains(q, ignoreCase = true)
+                        }
+                        (localMatches + remoteSearchedTracks).distinctBy { it.id }.take(45)
+                    }
                 }
 
                 LazyColumn(
@@ -2859,7 +3248,7 @@ fun OnlineMusicScreen(
                 ) {
                     item(key = "top_glass_bar") {
                         SpotifyGlassTopBar(
-                            totalTracks = onlineTracks.size,
+                            totalTracks = effectiveOnlineTracks.size,
                             totalArtists = artists.size,
                             searchQuery = searchQuery,
                             isPersian = isPersian,
@@ -2935,16 +3324,49 @@ fun OnlineMusicScreen(
                             }
                         }
 
-                        if (isLoading && onlineTracks.isEmpty()) {
+                        if ((isLoading || isRepoFetching) && effectiveOnlineTracks.isEmpty()) {
                             item(key = "hub_loading") {
                                 AuraInlinePulseLoader(isPersian = isPersian)
+                            }
+                        } else if (effectiveOnlineTracks.isEmpty()) {
+                            item(key = "hub_empty_retry") {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 24.dp, vertical = 40.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = if (isPersian) "در حال برقراری ارتباط با سرور کلادفلر..." else "Connecting to Cloudflare archive...",
+                                        color = Color.White.copy(alpha = 0.85f),
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    Button(
+                                        onClick = onRefresh,
+                                        shape = RoundedCornerShape(50),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFF1DB954),
+                                            contentColor = Color.Black
+                                        )
+                                    ) {
+                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (isPersian) "تلاش مجدد و بارگذاری آهنگ‌ها" else "Retry Loading Songs",
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                    }
+                                }
                             }
                         } else {
                             when (activeTab) {
                                 TopHubTab.DISCOVER -> {
                                     item(key = "discover_hero") {
                                         AppleMusicHeroPager(
-                                            onlineTracks = onlineTracks,
+                                            onlineTracks = effectiveOnlineTracks,
                                             browseCategories = browseCategories,
                                             isPersian = isPersian,
                                             onPlayMix = { mixTracks ->
@@ -4585,7 +5007,7 @@ private fun CloudTrackCoverBox(
                 bitmap = bmp.asImageBitmap(),
                 contentDescription = fallbackName,
                 contentScale = ContentScale.Crop,
-                filterQuality = FilterQuality.High,
+                filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(shape)

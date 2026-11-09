@@ -1,6 +1,6 @@
 {
-  "summary": "برنامه اصلاح فنی کرش صفحه لودینگ اولیه و اضافه کردن مهلت زمانی ۵ ثانیه‌ای ایمن جهت ورود بدون وقفه به اپلیکیشن",
-  "updatedAt": "2026-11-06T06:02:00.640889425Z",
-  "requestFeedback": true,
-  "userFacing": true
+  "summary":  "Implementation plan to revert all image-loading and URL modifications from the previous turn back to the user's exact working code while preserving the Wrapped half-song logic and 10-band equalizer fixes.",
+  "updatedAt":  "2026-11-09T14:19:10.730862615Z",
+  "requestFeedback":  true,
+  "userFacing":  true
 }

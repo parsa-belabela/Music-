@@ -31,15 +31,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.graphics.Bitmap
 import androidx.compose.foundation.Image
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import coil.size.Size
 import com.example.OnlineMusicRepository
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
@@ -167,20 +163,15 @@ fun MiniPlayer(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 // Compact album artwork thumbnail
-                                val hiResArtworkUri = remember(currentTrack.artworkUri) {
-                                    OnlineMusicRepository.upgradeToHighResImageUrl(currentTrack.artworkUri)
+                                var loadedCoverBitmap by remember(currentTrack.id, currentTrack.artworkUri) {
+                                    mutableStateOf(OnlineMusicRepository.getCachedCoverBitmap(currentTrack.artworkUri ?: currentTrack.id))
                                 }
-                                var loadedCoverBitmap by remember(currentTrack.id, hiResArtworkUri) {
-                                    mutableStateOf(OnlineMusicRepository.getCachedCoverBitmap(hiResArtworkUri.ifBlank { currentTrack.id }))
-                                }
-                                LaunchedEffect(currentTrack.id, hiResArtworkUri) {
+                                LaunchedEffect(currentTrack.id, currentTrack.artworkUri) {
                                     if (loadedCoverBitmap == null) {
-                                        val url = hiResArtworkUri.ifBlank { null }
+                                        val url = currentTrack.artworkUri?.takeIf { it.isNotBlank() }
                                             ?: OnlineMusicRepository.getCoverUrlForTrack(currentTrack.id, currentTrack.artist)
                                         if (!url.isNullOrBlank()) {
-                                            loadedCoverBitmap = OnlineMusicRepository.loadCoverBitmap(
-                                                OnlineMusicRepository.upgradeToHighResImageUrl(url).ifBlank { url }
-                                            )
+                                            loadedCoverBitmap = OnlineMusicRepository.loadCoverBitmap(url)
                                         }
                                     }
                                 }
@@ -198,22 +189,13 @@ fun MiniPlayer(
                                             bitmap = bmp.asImageBitmap(),
                                             contentDescription = "Track Artwork",
                                             contentScale = ContentScale.Crop,
-                                            filterQuality = FilterQuality.High,
                                             modifier = Modifier.fillMaxSize()
                                         )
-                                    } else if (!hiResArtworkUri.isNullOrEmpty()) {
-                                        val context = LocalContext.current
+                                    } else if (!currentTrack.artworkUri.isNullOrEmpty()) {
                                         AsyncImage(
-                                            model = ImageRequest.Builder(context)
-                                                .data(hiResArtworkUri)
-                                                .size(Size.ORIGINAL)
-                                                .bitmapConfig(Bitmap.Config.ARGB_8888)
-                                                .allowRgb565(false)
-                                                .crossfade(true)
-                                                .build(),
+                                            model = currentTrack.artworkUri,
                                             contentDescription = "Track Artwork",
                                             contentScale = ContentScale.Crop,
-                                            filterQuality = FilterQuality.High,
                                             modifier = Modifier.fillMaxSize()
                                         )
                                     } else {
