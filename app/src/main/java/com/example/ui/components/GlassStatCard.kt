@@ -27,7 +27,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.example.audio.AmbientPalette
 import com.example.data.model.Track
 import com.example.ui.theme.GlassThickness
@@ -123,9 +127,19 @@ fun GlassStatCard(
                         .padding(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (track.artworkUri != null) {
+                    val smallCover = track.coverSmall ?: track.artworkUri
+                    if (smallCover != null) {
+                        val context = LocalContext.current
+                        val req = remember(smallCover, context) {
+                            ImageRequest.Builder(context)
+                                .data(smallCover)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .crossfade(true)
+                                .build()
+                        }
                         AsyncImage(
-                            model = track.artworkUri,
+                            model = req,
                             contentDescription = null,
                             modifier = Modifier
                                 .size(44.dp)

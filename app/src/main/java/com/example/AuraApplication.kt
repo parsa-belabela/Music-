@@ -10,6 +10,9 @@ import android.graphics.Bitmap
 import android.os.StrictMode
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
+import coil.request.CachePolicy
 import com.example.audio.AudioAnalysisEngine
 import com.example.audio.AudioEngine
 import com.example.data.db.AppDatabase
@@ -33,6 +36,19 @@ class AuraApplication : Application(), ImageLoaderFactory {
         return ImageLoader.Builder(this)
             .allowRgb565(false)
             .bitmapConfig(Bitmap.Config.ARGB_8888)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .memoryCache {
+                MemoryCache.Builder(this)
+                    .maxSizePercent(0.25)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(cacheDir.resolve("aura_coil_disk_cache"))
+                    .maxSizeBytes(250L * 1024L * 1024L)
+                    .build()
+            }
             .crossfade(true)
             .build()
     }

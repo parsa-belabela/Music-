@@ -6,6 +6,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,8 +28,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -41,6 +45,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.example.OnlineCacheHolder
 import com.example.OnlineMusicRepository
 import com.example.audio.AmbientPalette
@@ -185,77 +191,111 @@ fun NowPlayingScreen(
         label = "artworkScale"
     )
 
+    val coverInfiniteTransition = rememberInfiniteTransition(label = "coverLivingMotion")
+    val rawSwayX by coverInfiniteTransition.animateFloat(
+        initialValue = -14f,
+        targetValue = 14f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 4600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "coverSwayX"
+    )
+    val rawSwayY by coverInfiniteTransition.animateFloat(
+        initialValue = -10f,
+        targetValue = 10f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 3400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "coverSwayY"
+    )
+    val rawCoverTilt by coverInfiniteTransition.animateFloat(
+        initialValue = -1.2f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 5200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "coverTilt"
+    )
+    val haloBreath by coverInfiniteTransition.animateFloat(
+        initialValue = 0.88f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "haloBreath"
+    )
+    val playingFactor by animateFloatAsState(
+        targetValue = if (isPlaying) 1f else 0f,
+        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
+        label = "playingMotionFactor"
+    )
+
     Box(
         modifier = modifier
             .fillMaxSize()
+            .background(Color(0xFF0A0A0C))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {}
+            )
             .testTag("now_playing_screen")
     ) {
-        // Clean Spotify-style vertical gradient background derived from album artwork
+        // Dynamic moving aurora & halo background derived from album artwork
         CinematicAtmosphereBackground(
             track = track,
             palette = dynamicCoverPalette,
             analysisDataProvider = analysisDataProvider,
-            glowStrength = if (isImmersive) 1.0f else 0.85f
+            glowStrength = 1.0f
         )
 
-        BoxWithConstraints(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            val viewportHeight = maxHeight
-            val pageScrollState = rememberScrollState()
-            val coroutineScope = rememberCoroutineScope()
-            val playerSectionHeight = (viewportHeight - 92.dp).coerceAtLeast(460.dp)
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(pageScrollState)
+            // 1. Top Bar (Spotify Header: Collapse Chevron, Playing Context, Prominent Lyrics Pill, More Menu)
+            AnimatedVisibility(
+                visible = !isImmersive,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(playerSectionHeight)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.SpaceBetween
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 1. Top Bar (Spotify Header: Collapse Chevron, Playing Context, More Menu)
-                    AnimatedVisibility(
-                        visible = !isImmersive,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically()
+                    IconButton(
+                        onClick = {
+                            triggerHaptic()
+                            onCollapse()
+                        },
+                        modifier = Modifier
+                            .size(40.dp)
+                            .testTag("collapse_now_playing_button")
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(
-                                onClick = {
-                                    triggerHaptic()
-                                    onCollapse()
-                                },
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .testTag("collapse_now_playing_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "Collapse",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(30.dp)
-                                )
-                            }
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Collapse",
+                            tint = Color.White,
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
 
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(horizontal = 8.dp)
-                            ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 6.dp)
+                    ) {
                         Text(
                             text = if (isFa) "در حال پخش از" else "PLAYING FROM ALBUM",
                             style = MaterialTheme.typography.labelSmall.copy(
@@ -280,6 +320,50 @@ fun NowPlayingScreen(
                             textAlign = TextAlign.Center
                         )
                     }
+
+                    // Top Lyrics Toggle Button (Unified with Aura Design System)
+                    val isLyricsOpen = centerView == NowPlayingCenterView.LYRICS
+                    Row(
+                        modifier = Modifier
+                            .height(34.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                if (isLyricsOpen) AuraSpotifyGreen
+                                else AuraSurfaceElevated.copy(alpha = 0.72f)
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = if (isLyricsOpen) AuraSpotifyGreen else Color.White.copy(alpha = 0.14f),
+                                shape = RoundedCornerShape(50)
+                            )
+                            .clickable {
+                                triggerHaptic()
+                                centerView = if (isLyricsOpen) {
+                                    NowPlayingCenterView.ARTWORK_AND_HALO
+                                } else {
+                                    NowPlayingCenterView.LYRICS
+                                }
+                            }
+                            .padding(horizontal = 12.dp)
+                            .testTag("top_lyrics_toggle_button"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lyrics,
+                            contentDescription = "Lyrics",
+                            tint = if (isLyricsOpen) Color.Black else AuraSpotifyGreen,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = if (isFa) "متن آهنگ" else "Lyrics",
+                            color = if (isLyricsOpen) Color.Black else Color.White,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
 
                     Box {
                         IconButton(
@@ -401,7 +485,7 @@ fun NowPlayingScreen(
                 }
             }
 
-            // 2. Center Stage: Side Utility Rails + Album Artwork
+            // 2. Center Stage: Smoothly switches between Side Utility Rails + High-Res Album Artwork and Full Lyrics View
             val pillSurfaceBg = AuraSurfaceElevated.copy(alpha = 0.75f)
             val pillBorderColor = Color.White.copy(alpha = 0.12f)
             val durForLoop = if (playbackState.durationMs > 1000L) {
@@ -412,266 +496,347 @@ fun NowPlayingScreen(
                 1L
             }
 
-            Row(
+            val bigCoverUrl = remember(track.id, track.artworkUri, track.artist) {
+                track.coverBig?.takeIf { it.isNotBlank() }
+                    ?: OnlineMusicRepository.getBigCoverUrlForTrack(
+                        trackId = track.id,
+                        fallbackUrl = track.artworkUri,
+                        artistName = track.artist
+                    )
+            }
+
+            Crossfade(
+                targetState = centerView,
+                animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
                     .padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                // Left Side Utility Rail (Equalizer, A-B Loop, Playback Speed)
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    // Equalizer Button
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(pillSurfaceBg)
-                            .border(1.dp, pillBorderColor, CircleShape)
-                            .clickable {
-                                triggerHaptic()
-                                onOpenEqualizer()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.GraphicEq,
-                            contentDescription = "Equalizer",
-                            tint = AuraSpotifyGreen,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // A-B Loop Pill on Side
-                    val isAbActive = loopStartMs != null
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(if (isAbActive) AuraSpotifyGreen.copy(alpha = 0.24f) else pillSurfaceBg)
-                            .border(
-                                1.dp,
-                                if (isAbActive) AuraSpotifyGreen.copy(alpha = 0.7f) else pillBorderColor,
-                                CircleShape
-                            )
-                            .clickable {
-                                triggerHaptic()
-                                val nowPos = currentPositionProvider()
-                                when {
-                                    loopStartMs == null -> onSetAbLoop(nowPos, null)
-                                    loopEndMs == null -> {
-                                        if (nowPos > loopStartMs + 800L) {
-                                            onSetAbLoop(loopStartMs, nowPos)
-                                        } else {
-                                            onSetAbLoop(
-                                                loopStartMs,
-                                                (loopStartMs + 5000L).coerceAtMost(durForLoop)
-                                            )
-                                        }
-                                    }
-                                    else -> onClearAbLoop()
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        val abLabel = when {
-                            loopStartMs == null -> "A-B"
-                            loopEndMs == null -> "A→"
-                            else -> "A⟲B"
-                        }
-                        Text(
-                            text = abLabel,
-                            color = if (isAbActive) AuraSpotifyGreen else Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    // Playback Speed Button on Side
-                    val isCustomSpeed = appSettings.playbackSpeed != 1.0f
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(if (isCustomSpeed) AuraSpotifyGreen.copy(alpha = 0.24f) else pillSurfaceBg)
-                            .border(
-                                1.dp,
-                                if (isCustomSpeed) AuraSpotifyGreen.copy(alpha = 0.7f) else pillBorderColor,
-                                CircleShape
-                            )
-                            .clickable {
-                                triggerHaptic()
-                                val nextSpeed = when (appSettings.playbackSpeed) {
-                                    1.0f -> 1.25f
-                                    1.25f -> 1.5f
-                                    1.5f -> 2.0f
-                                    else -> 1.0f
-                                }
-                                onPlaybackSpeedChange(nextSpeed)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "${appSettings.playbackSpeed}x",
-                            color = if (isCustomSpeed) AuraSpotifyGreen else Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                // Center Album Artwork
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f)
-                            .scale(artworkScale)
-                            .shadow(
-                                elevation = 24.dp,
-                                shape = RoundedCornerShape(12.dp),
-                                spotColor = Color.Black,
-                                ambientColor = Color.Black
-                            )
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFF181818))
-                            .pointerInput(track.id) {
-                                detectTapGestures(
-                                    onDoubleTap = {
-                                        triggerHaptic()
-                                        onToggleFavorite(track)
-                                    },
-                                    onLongPress = {
-                                        triggerHaptic()
-                                        showRadialMenu = true
-                                    },
-                                    onTap = {
-                                        isImmersive = !isImmersive
-                                    }
-                                )
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        var loadedCoverBitmap by remember(track.id, track.artworkUri) {
-                            mutableStateOf(
-                                OnlineMusicRepository.getCachedCoverBitmap(
-                                    track.artworkUri ?: track.id
-                                )
-                            )
-                        }
-                        LaunchedEffect(track.id, track.artworkUri) {
-                            if (loadedCoverBitmap == null) {
-                                val url = track.artworkUri?.takeIf { it.isNotBlank() }
-                                    ?: OnlineMusicRepository.getCoverUrlForTrack(
-                                        track.id,
-                                        track.artist
-                                    )
-                                if (!url.isNullOrBlank()) {
-                                    loadedCoverBitmap =
-                                        OnlineMusicRepository.loadCoverBitmap(url)
-                                }
-                            }
-                        }
-
-                        val bmp = loadedCoverBitmap
-                        if (bmp != null) {
-                            Image(
-                                bitmap = bmp.asImageBitmap(),
-                                contentDescription = track.title,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else if (!track.artworkUri.isNullOrEmpty()) {
-                            AsyncImage(
-                                model = track.artworkUri,
-                                contentDescription = track.title,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            MusicArtworkPlaceholder(
-                                title = track.title,
-                                artist = track.artist,
-                                trackId = track.id,
+                label = "nowPlayingCenterStage"
+            ) { currentCenterMode ->
+                when (currentCenterMode) {
+                    NowPlayingCenterView.LYRICS -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            LyricsView(
+                                lyrics = currentLyrics,
+                                currentPositionProvider = currentPositionProvider,
+                                displayMode = appSettings.lyricsDisplayMode,
                                 palette = dynamicCoverPalette,
+                                onSeekTo = onSeekTo,
+                                onOpenEditor = onOpenLyricsEditor,
+                                enableWordHighlight = appSettings.lyricsKaraokeWordHighlight,
+                                baseFontSize = appSettings.lyricsFontSize,
+                                activeTrackId = track.id,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
                     }
-                }
 
-                // Right Side Utility Rail (Share, Queue, Sleep Timer)
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(pillSurfaceBg)
-                            .border(1.dp, pillBorderColor, CircleShape)
-                            .clickable {
-                                triggerHaptic()
-                                onShareSong(track)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "Share",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                    NowPlayingCenterView.ARTWORK_AND_HALO -> {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // Left Side Utility Rail (Equalizer, A-B Loop, Playback Speed)
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                // Equalizer Button
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(pillSurfaceBg)
+                                        .border(1.dp, pillBorderColor, CircleShape)
+                                        .clickable {
+                                            triggerHaptic()
+                                            onOpenEqualizer()
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.GraphicEq,
+                                        contentDescription = "Equalizer",
+                                        tint = AuraSpotifyGreen,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
 
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(pillSurfaceBg)
-                            .border(1.dp, pillBorderColor, CircleShape)
-                            .clickable {
-                                triggerHaptic()
-                                onOpenQueue()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.QueueMusic,
-                            contentDescription = "Queue",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                                // A-B Loop Pill on Side
+                                val isAbActive = loopStartMs != null
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isAbActive) AuraSpotifyGreen.copy(alpha = 0.24f) else pillSurfaceBg)
+                                        .border(
+                                            1.dp,
+                                            if (isAbActive) AuraSpotifyGreen.copy(alpha = 0.7f) else pillBorderColor,
+                                            CircleShape
+                                        )
+                                        .clickable {
+                                            triggerHaptic()
+                                            val nowPos = currentPositionProvider()
+                                            when {
+                                                loopStartMs == null -> onSetAbLoop(nowPos, null)
+                                                loopEndMs == null -> {
+                                                    if (nowPos > loopStartMs + 800L) {
+                                                        onSetAbLoop(loopStartMs, nowPos)
+                                                    } else {
+                                                        onSetAbLoop(
+                                                            loopStartMs,
+                                                            (loopStartMs + 5000L).coerceAtMost(durForLoop)
+                                                        )
+                                                    }
+                                                }
+                                                else -> onClearAbLoop()
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    val abLabel = when {
+                                        loopStartMs == null -> "A-B"
+                                        loopEndMs == null -> "A→"
+                                        else -> "A⟲B"
+                                    }
+                                    Text(
+                                        text = abLabel,
+                                        color = if (isAbActive) AuraSpotifyGreen else Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
 
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(pillSurfaceBg)
-                            .border(1.dp, pillBorderColor, CircleShape)
-                            .clickable {
-                                triggerHaptic()
-                                onOpenSleepTimer()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Snooze,
-                            contentDescription = "Sleep Timer",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
+                                // Playback Speed Button on Side
+                                val isCustomSpeed = appSettings.playbackSpeed != 1.0f
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isCustomSpeed) AuraSpotifyGreen.copy(alpha = 0.24f) else pillSurfaceBg)
+                                        .border(
+                                            1.dp,
+                                            if (isCustomSpeed) AuraSpotifyGreen.copy(alpha = 0.7f) else pillBorderColor,
+                                            CircleShape
+                                        )
+                                        .clickable {
+                                            triggerHaptic()
+                                            val nextSpeed = when (appSettings.playbackSpeed) {
+                                                1.0f -> 1.25f
+                                                1.25f -> 1.5f
+                                                1.5f -> 2.0f
+                                                else -> 1.0f
+                                            }
+                                            onPlaybackSpeedChange(nextSpeed)
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "${appSettings.playbackSpeed}x",
+                                        color = if (isCustomSpeed) AuraSpotifyGreen else Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            // Center Album Artwork (High-Res coverBig) with Moving Backlight Halo & Subtle Living Sway
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                val glowMainColor = if (dynamicCoverPalette.isMonochrome) {
+                                    AuraSpotifyGreen
+                                } else {
+                                    dynamicCoverPalette.primary.copy(alpha = 1f)
+                                }
+                                val glowSecColor = if (dynamicCoverPalette.isMonochrome) {
+                                    Color(0xFF14833B)
+                                } else {
+                                    dynamicCoverPalette.accent.copy(alpha = 1f)
+                                }
+
+                                // Moving Luminous Backlight Halo directly behind the Cover
+                                Canvas(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(1f)
+                                ) {
+                                    val cx = size.width / 2f + (rawSwayX * 1.8f * playingFactor)
+                                    val cy = size.height / 2f + (rawSwayY * 1.8f * playingFactor)
+                                    val baseRad = size.minDimension * 0.68f * haloBreath
+                                    drawCircle(
+                                        brush = Brush.radialGradient(
+                                            colors = listOf(
+                                                glowMainColor.copy(alpha = 0.62f * (0.45f + 0.55f * playingFactor)),
+                                                glowSecColor.copy(alpha = 0.28f * (0.45f + 0.55f * playingFactor)),
+                                                Color.Transparent
+                                            ),
+                                            center = Offset(cx, cy),
+                                            radius = baseRad.coerceAtLeast(80f)
+                                        ),
+                                        center = Offset(cx, cy),
+                                        radius = baseRad.coerceAtLeast(80f)
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(1f)
+                                        .graphicsLayer {
+                                            scaleX = artworkScale
+                                            scaleY = artworkScale
+                                            translationX = rawSwayX * playingFactor
+                                            translationY = rawSwayY * playingFactor
+                                            rotationZ = rawCoverTilt * playingFactor
+                                        }
+                                        .shadow(
+                                            elevation = 24.dp,
+                                            shape = RoundedCornerShape(12.dp),
+                                            spotColor = glowMainColor,
+                                            ambientColor = glowMainColor
+                                        )
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0xFF181818))
+                                        .pointerInput(track.id) {
+                                            detectTapGestures(
+                                                onDoubleTap = {
+                                                    triggerHaptic()
+                                                    onToggleFavorite(track)
+                                                },
+                                                onLongPress = {
+                                                    triggerHaptic()
+                                                    showRadialMenu = true
+                                                },
+                                                onTap = {
+                                                    isImmersive = !isImmersive
+                                                }
+                                            )
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    var loadedCoverBitmap by remember(track.id, bigCoverUrl) {
+                                        mutableStateOf(
+                                            if (bigCoverUrl.isNotBlank()) {
+                                                OnlineMusicRepository.getCachedCoverBitmap(bigCoverUrl)
+                                            } else null
+                                        )
+                                    }
+                                    LaunchedEffect(track.id, bigCoverUrl) {
+                                        if (loadedCoverBitmap == null && bigCoverUrl.isNotBlank()) {
+                                            loadedCoverBitmap =
+                                                OnlineMusicRepository.loadCoverBitmap(bigCoverUrl, maxDim = 1000)
+                                        }
+                                    }
+
+                                    val bmp = loadedCoverBitmap
+                                    if (bmp != null) {
+                                        Image(
+                                            bitmap = bmp.asImageBitmap(),
+                                            contentDescription = track.title,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else if (bigCoverUrl.isNotBlank()) {
+                                        val highResRequest = remember(bigCoverUrl, context) {
+                                            ImageRequest.Builder(context)
+                                                .data(bigCoverUrl)
+                                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                                .diskCachePolicy(CachePolicy.ENABLED)
+                                                .crossfade(true)
+                                                .build()
+                                        }
+                                        AsyncImage(
+                                            model = highResRequest,
+                                            contentDescription = track.title,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        MusicArtworkPlaceholder(
+                                            title = track.title,
+                                            artist = track.artist,
+                                            trackId = track.id,
+                                            palette = dynamicCoverPalette,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Right Side Utility Rail (Share, Queue, Sleep Timer)
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(pillSurfaceBg)
+                                        .border(1.dp, pillBorderColor, CircleShape)
+                                        .clickable {
+                                            triggerHaptic()
+                                            onShareSong(track)
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Share,
+                                        contentDescription = "Share",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(pillSurfaceBg)
+                                        .border(1.dp, pillBorderColor, CircleShape)
+                                        .clickable {
+                                            triggerHaptic()
+                                            onOpenQueue()
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.QueueMusic,
+                                        contentDescription = "Queue",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(pillSurfaceBg)
+                                        .border(1.dp, pillBorderColor, CircleShape)
+                                        .clickable {
+                                            triggerHaptic()
+                                            onOpenSleepTimer()
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Snooze,
+                                        contentDescription = "Sleep Timer",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -898,31 +1063,6 @@ fun NowPlayingScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-        }
-
-        // 4. Spotify-Style Scroll-Down Lyrics Card (Top portion naturally peeking at the bottom of the screen)
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(top = 6.dp, bottom = 28.dp)
-        ) {
-            LyricsView(
-                lyrics = currentLyrics,
-                currentPositionProvider = currentPositionProvider,
-                displayMode = appSettings.lyricsDisplayMode,
-                palette = dynamicCoverPalette,
-                onSeekTo = onSeekTo,
-                onOpenEditor = onOpenLyricsEditor,
-                enableWordHighlight = appSettings.lyricsKaraokeWordHighlight,
-                baseFontSize = appSettings.lyricsFontSize,
-                activeTrackId = track.id,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(480.dp)
-            )
-        }
-        }
         }
 
         if (showRadialMenu) {

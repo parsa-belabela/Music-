@@ -14,14 +14,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.example.OnlineMusicRepository
 
 /**
  * High-performance, memory-efficient artwork thumbnail with persistent private disk cache
- * for Telegram/Cloudflare track covers and graceful fallback icon.
+ * bound strictly to the small cover (`cover_small`) for lists, grids, and MiniPlayer.
  */
 @Composable
 fun TrackArtworkThumbnail(
@@ -38,26 +41,27 @@ fun TrackArtworkThumbnail(
     primaryBorderColor: Color? = null,
     secondaryBorderColor: Color? = null
 ) {
-    val resolvedUrl = remember(artworkUri, trackId, artist) {
-        val raw = artworkUri?.takeIf { it.isNotBlank() }
-            ?: (trackId?.let { OnlineMusicRepository.getCoverUrlForTrack(it, artist ?: "") }).orEmpty()
-        raw.replace("size=small", "size=large")
-            .replace("size=thumb", "size=large")
-            .replace("size=medium", "size=large")
+    val context = LocalContext.current
+    val resolvedSmallUrl = remember(artworkUri, trackId, artist) {
+        OnlineMusicRepository.getSmallCoverUrlForTrack(
+            trackId = trackId.orEmpty(),
+            fallbackUrl = artworkUri,
+            artistName = artist.orEmpty()
+        )
     }
-    val isContentUri = resolvedUrl.startsWith("content://")
+    val isContentUri = resolvedSmallUrl.startsWith("content://")
 
-    var loadedCoverBitmap by remember(resolvedUrl) {
+    var loadedCoverBitmap by remember(resolvedSmallUrl) {
         mutableStateOf(
-            if (resolvedUrl.isNotBlank() && !isContentUri) {
-                OnlineMusicRepository.getCachedCoverBitmap(resolvedUrl)
+            if (resolvedSmallUrl.isNotBlank() && !isContentUri) {
+                OnlineMusicRepository.getCachedCoverBitmap(resolvedSmallUrl)
             } else null
         )
     }
 
-    LaunchedEffect(resolvedUrl) {
-        if (loadedCoverBitmap == null && resolvedUrl.isNotBlank() && !isContentUri) {
-            loadedCoverBitmap = OnlineMusicRepository.loadCoverBitmap(resolvedUrl)
+    LaunchedEffect(resolvedSmallUrl) {
+        if (loadedCoverBitmap == null && resolvedSmallUrl.isNotBlank() && !isContentUri) {
+            loadedCoverBitmap = OnlineMusicRepository.loadCoverBitmap(resolvedSmallUrl, maxDim = 360)
         }
     }
 
@@ -77,9 +81,17 @@ fun TrackArtworkThumbnail(
                 filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
                 modifier = Modifier.fillMaxSize()
             )
-        } else if (isContentUri) {
+        } else if (resolvedSmallUrl.isNotBlank()) {
+            val imageRequest = remember(resolvedSmallUrl, context) {
+                ImageRequest.Builder(context)
+                    .data(resolvedSmallUrl)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .crossfade(true)
+                    .build()
+            }
             AsyncImage(
-                model = resolvedUrl,
+                model = imageRequest,
                 contentDescription = title ?: "Artwork",
                 contentScale = ContentScale.Crop,
                 filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
@@ -95,3 +107,4 @@ fun TrackArtworkThumbnail(
         }
     }
 }
+

@@ -32,4 +32,19 @@ data class Track(
             val sec = totalSec % 60
             return "%d:%02d".format(min, sec)
         }
+
+    val coverSmall: String?
+        get() = com.example.OnlineMusicRepository.getSmallCoverUrlForTrack(id, artworkUri)
+            .ifBlank { artworkUri }
+
+    val cover_small: String?
+        get() = coverSmall
+
+    val coverBig: String?
+        get() = com.example.OnlineMusicRepository.getBigCoverUrlForTrack(id, artworkUri)
+            .ifBlank { artworkUri }
+
+    val cover_big: String?
+        get() = coverBig
 }
+

@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,7 +18,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -539,12 +544,61 @@ private fun SpotifyFeaturedCard(
     val isPlaying = playbackState.status == PlayerStatus.PLAYING &&
         playbackState.currentTrack?.id == heroTrack.id
 
+    val heroMotion = rememberInfiniteTransition(label = "heroCardMotion")
+    val swayX by heroMotion.animateFloat(
+        initialValue = -6f,
+        targetValue = 6f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 3600, easing = FastOutSlowInEasing),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+        ),
+        label = "heroSwayX"
+    )
+    val swayY by heroMotion.animateFloat(
+        initialValue = -4.5f,
+        targetValue = 4.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2800, easing = FastOutSlowInEasing),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+        ),
+        label = "heroSwayY"
+    )
+    val tilt by heroMotion.animateFloat(
+        initialValue = -1.2f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 4200, easing = FastOutSlowInEasing),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+        ),
+        label = "heroTilt"
+    )
+    val glowSweep by heroMotion.animateFloat(
+        initialValue = 0.15f,
+        targetValue = 0.85f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 5200, easing = FastOutSlowInEasing),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+        ),
+        label = "heroGlowSweep"
+    )
+    val playFactor by animateFloatAsState(
+        targetValue = if (isPlaying) 1f else 0f,
+        animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing),
+        label = "heroPlayFactor"
+    )
+
+    val cardGlowColor = if (palette.isMonochrome) AuraSpotifyGreen else palette.primary.copy(alpha = 1f)
+
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(AuraSurface)
-            .border(0.5.dp, Color(0x14FFFFFF), RoundedCornerShape(10.dp))
+            .border(
+                width = 1.dp,
+                color = if (isPlaying) cardGlowColor.copy(alpha = 0.42f) else Color(0x18FFFFFF),
+                shape = RoundedCornerShape(12.dp)
+            )
             .clickable {
                 if (hasActiveTrack && playbackState.currentTrack?.id == heroTrack.id) {
                     onExpandNowPlaying()
@@ -552,23 +606,52 @@ private fun SpotifyFeaturedCard(
                     onPlayOrToggle()
                 }
             }
-            .padding(14.dp)
             .testTag("hero_quick_play_card")
     ) {
+        // Moving Backlight Glow behind the Featured Card
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val glowCenterX = size.width * (0.18f + 0.55f * glowSweep * playFactor)
+            val glowCenterY = size.height * 0.5f + (swayY * 2f * playFactor)
+            val glowRad = (size.width * 0.65f).coerceAtLeast(120f)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        cardGlowColor.copy(alpha = 0.22f + 0.26f * playFactor),
+                        cardGlowColor.copy(alpha = 0.08f + 0.10f * playFactor),
+                        Color.Transparent
+                    ),
+                    center = Offset(glowCenterX, glowCenterY),
+                    radius = glowRad
+                ),
+                center = Offset(glowCenterX, glowCenterY),
+                radius = glowRad
+            )
+        }
+
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TrackArtworkThumbnail(
-                artworkUri = heroTrack.artworkUri,
-                accentColor = palette.primary,
-                size = 76.dp,
-                shape = RoundedCornerShape(8.dp),
-                iconSize = 32.dp,
-                title = heroTrack.title,
-                artist = heroTrack.artist,
-                trackId = heroTrack.id
-            )
+            Box(
+                modifier = Modifier.graphicsLayer {
+                    translationX = swayX * playFactor
+                    translationY = swayY * playFactor
+                    rotationZ = tilt * playFactor
+                }
+            ) {
+                TrackArtworkThumbnail(
+                    artworkUri = heroTrack.artworkUri,
+                    accentColor = palette.primary,
+                    size = 76.dp,
+                    shape = RoundedCornerShape(8.dp),
+                    iconSize = 32.dp,
+                    title = heroTrack.title,
+                    artist = heroTrack.artist,
+                    trackId = heroTrack.id
+                )
+            }
 
             Spacer(modifier = Modifier.width(14.dp))
 
@@ -810,10 +893,10 @@ fun HomeCloudflareSpotlightSection(
 
     LaunchedEffect(spotlightTracks) {
         spotlightTracks.take(8).forEach { track ->
-            val url = track.artworkUri
+            val url = track.coverSmall ?: track.artworkUri
             if (!url.isNullOrBlank()) {
                 launch(kotlinx.coroutines.Dispatchers.IO) {
-                    OnlineMusicRepository.loadCoverBitmap(url)
+                    OnlineMusicRepository.loadCoverBitmap(url, maxDim = 360)
                 }
             }
         }

@@ -63,6 +63,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.datasource.DefaultHttpDataSource
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.example.audio.AmbientPalette
 import com.example.data.model.AppLanguage
 import com.example.data.model.Track
@@ -118,21 +120,35 @@ data class CloudflareTrack(
     val streamUrl: String,
     val coverUrl: String? = null,
     val durationMs: Long = 0L,
-    val genre: String? = null
+    val genre: String? = null,
+    val coverSmall: String? = null,
+    val coverBig: String? = coverUrl
 ) {
+    val cover_small: String?
+        get() = coverSmall?.takeIf { it.isNotBlank() } ?: coverUrl
+
+    val cover_big: String?
+        get() = coverBig?.takeIf { it.isNotBlank() } ?: coverUrl
+
     fun toOnlineTrack(): OnlineTrack {
         val base = CloudflareMusicApi.workerBaseUrl.trimEnd('/')
-        val resolvedCover = coverUrl?.takeIf { it.isNotBlank() } ?: "$base/cover?id=$id&v=hd9"
+        val resolvedBig = (coverBig ?: coverUrl)?.takeIf { it.isNotBlank() } ?: "$base/cover?id=$id&size=large"
+        val resolvedSmall = coverSmall?.takeIf { it.isNotBlank() }
+            ?: resolvedBig.replace("size=large", "size=small").let {
+                if (it.contains("/cover?id=") && !it.contains("size=")) "$it&size=small" else it
+            }
         return OnlineTrack(
             id = id,
             title = title,
             artist = artist,
-            coverUrl = resolvedCover,
+            coverUrl = resolvedBig,
             durationSec = ((durationMs.takeIf { it > 0L } ?: 180_000L) / 1000L).toInt().coerceAtLeast(1),
             streamUrl = streamUrl,
             downloadUrl = streamUrl,
             previewUrl = streamUrl,
-            rawGenre = genre.orEmpty()
+            rawGenre = genre.orEmpty(),
+            coverSmall = resolvedSmall,
+            coverBig = resolvedBig
         )
     }
 
@@ -279,6 +295,7 @@ object CloudflareMusicApi {
             var artistFallback = ""
             var rawStream = ""
             var rawCover = ""
+            var rawCoverSmall = ""
             var durationRaw = 0L
             var genre = ""
 
@@ -320,9 +337,15 @@ object CloudflareMusicApi {
                         val v = readJsonScalarAsString(reader)
                         if (rawStream.isBlank() && v.isNotBlank()) rawStream = v
                     }
-                    "cover_url", "coverUrl", "cover", "artwork" -> {
+                    "cover_small", "thumbnail", "cover_medium" -> {
                         val v = readJsonScalarAsString(reader)
-                        if (rawCover.isBlank() && v.isNotBlank()) rawCover = v
+                        if (rawCoverSmall.isBlank() && v.isNotBlank()) rawCoverSmall = v
+                    }
+                    "cover_big", "cover_xl", "cover_url", "coverUrl", "cover", "artwork" -> {
+                        val v = readJsonScalarAsString(reader)
+                        if (v.isNotBlank() && (rawCover.isBlank() || field == "cover_big" || field == "cover_xl")) {
+                            rawCover = v
+                        }
                     }
                     "duration" -> {
                         durationRaw = readJsonScalarAsString(reader).toLongOrNull() ?: 0L
@@ -351,7 +374,16 @@ object CloudflareMusicApi {
                 rawCover.startsWith("http") -> rawCover
                 rawCover.startsWith("/") -> "$baseUrl$rawCover"
                 rawCover.isNotBlank() -> rawCover
-                else -> "$baseUrl/cover?id=$resolvedId&v=hd9"
+                else -> "$baseUrl/cover?id=$resolvedId&size=large"
+            }
+
+            val coverSmallUrl = when {
+                rawCoverSmall.startsWith("http") -> rawCoverSmall
+                rawCoverSmall.startsWith("/") -> "$baseUrl$rawCoverSmall"
+                rawCoverSmall.isNotBlank() -> rawCoverSmall
+                else -> coverUrl.replace("size=large", "size=small").let {
+                    if (it.contains("/cover?id=") && !it.contains("size=")) "$it&size=small" else it
+                }
             }
 
             outList.add(
@@ -362,7 +394,9 @@ object CloudflareMusicApi {
                     streamUrl = streamUrl,
                     coverUrl = coverUrl.takeIf { it.isNotBlank() },
                     durationMs = durationRaw.let { if (it in 1..999) it * 1000L else it },
-                    genre = genre.takeIf { it.isNotBlank() }
+                    genre = genre.takeIf { it.isNotBlank() },
+                    coverSmall = coverSmallUrl.takeIf { it.isNotBlank() },
+                    coverBig = coverUrl.takeIf { it.isNotBlank() }
                 )
             )
             index++
@@ -397,13 +431,17 @@ data class OnlineTrack(
     val artistId: String = "",
     val artistPictureUrl: String = "",
     val rank: Int = 500_000,
-    val rawGenre: String = ""
+    val rawGenre: String = "",
+    val coverSmall: String = "",
+    val coverBig: String = ""
 ) {
     val artist_name: String get() = artist
     val duration: Int get() = durationSec
     val stream_url: String get() = streamUrl
     val download_url: String get() = downloadUrl
     val cover_url: String get() = coverUrl
+    val cover_small: String get() = resolvedSmallCoverUrl()
+    val cover_big: String get() = resolvedCoverUrl()
 
     fun resolvedStreamUrl(): String {
         return OnlineMusicRepository.resolveWorkerUrl(streamUrl).ifBlank {
@@ -419,8 +457,16 @@ data class OnlineTrack(
         }
     }
 
+    fun resolvedSmallCoverUrl(): String {
+        val candidate = coverSmall.ifBlank { coverUrl }
+        return OnlineMusicRepository.normalizeWorkerSmallImageUrl(candidate).ifBlank {
+            OnlineMusicRepository.getSmallCoverUrlForTrack(id, coverUrl, artist)
+        }
+    }
+
     fun resolvedCoverUrl(): String {
-        return OnlineMusicRepository.normalizeWorkerImageUrl(coverUrl).ifBlank {
+        val candidate = coverBig.ifBlank { coverUrl }
+        return OnlineMusicRepository.normalizeWorkerBigImageUrl(candidate).ifBlank {
             OnlineMusicRepository.getCoverUrlForTrack(id, artist)
         }
     }
@@ -429,14 +475,16 @@ data class OnlineTrack(
         val httpStream = resolvedStreamUrl()
         val finalStream = customStreamUrl.ifBlank { httpStream }
         val finalDownload = resolvedDownloadUrl()
-        val finalCover = resolvedCoverUrl()
+        val finalBigCover = resolvedCoverUrl()
+        val finalSmallCover = resolvedSmallCoverUrl()
         val appTrackId = if (id.startsWith("online_")) id else "online_$id"
         OnlineMusicRepository.registerTrackUrls(
             trackId = id,
             streamUrl = httpStream,
             downloadUrl = finalDownload,
-            coverUrl = finalCover,
-            artistName = artist
+            coverUrl = finalBigCover,
+            artistName = artist,
+            coverSmallUrl = finalSmallCover
         )
         if (rawGenre.isNotBlank()) {
             RealTrackGenreRegistry.registerGenre(appTrackId, rawGenre)
@@ -454,12 +502,107 @@ data class OnlineTrack(
             album = cleaned.album,
             durationMs = (durationSec.coerceAtLeast(1) * 1000L),
             uri = finalStream,
-            artworkUri = finalCover.ifBlank { null },
+            artworkUri = finalBigCover.ifBlank { null },
             bitrate = 320,
             sampleRate = 48000,
             genre = rawGenre.ifBlank { "Online" }
         )
         return com.example.data.model.UserTrackMetadataStore.applyOverride(initialTrack)
+    }
+}
+
+data class CuratedOnlinePlaylist(
+    val id: String,
+    val title: String,
+    val description: String,
+    val covers: List<String>,
+    val tracks: List<Track>
+)
+
+@Composable
+fun MosaicPlaylistCover(
+    covers: List<String>,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val validCovers = remember(covers) {
+        covers.map { OnlineMusicRepository.normalizeWorkerSmallImageUrl(it).ifBlank { it } }
+            .filter { it.isNotBlank() }
+    }
+
+    Box(
+        modifier = modifier.background(AuraSurfaceElevated),
+        contentAlignment = Alignment.Center
+    ) {
+        if (validCovers.size >= 4) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    for (idx in 0..1) {
+                        val cellUrl = validCovers[idx]
+                        val req = remember(cellUrl, context) {
+                            ImageRequest.Builder(context)
+                                .data(cellUrl)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .crossfade(true)
+                                .build()
+                        }
+                        AsyncImage(
+                            model = req,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxSize()
+                        )
+                    }
+                }
+                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    for (idx in 2..3) {
+                        val cellUrl = validCovers[idx]
+                        val req = remember(cellUrl, context) {
+                            ImageRequest.Builder(context)
+                                .data(cellUrl)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .crossfade(true)
+                                .build()
+                        }
+                        AsyncImage(
+                            model = req,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxSize()
+                        )
+                    }
+                }
+            }
+        } else if (validCovers.isNotEmpty()) {
+            val singleUrl = validCovers.first()
+            val req = remember(singleUrl, context) {
+                ImageRequest.Builder(context)
+                    .data(singleUrl)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .crossfade(true)
+                    .build()
+            }
+            AsyncImage(
+                model = req,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.QueueMusic,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(34.dp)
+            )
+        }
     }
 }
 
@@ -1068,6 +1211,7 @@ object OnlineMusicRepository {
     private val streamUrlByTrackId = ConcurrentHashMap<String, String>()
     private val downloadUrlByTrackId = ConcurrentHashMap<String, String>()
     private val coverUrlByTrackId = ConcurrentHashMap<String, String>()
+    private val smallCoverUrlByTrackId = ConcurrentHashMap<String, String>()
     private val artistPictureCache = ConcurrentHashMap<String, String>()
     private val hubDataCache = ConcurrentHashMap<String, HubComputedData>()
 
@@ -1085,6 +1229,9 @@ object OnlineMusicRepository {
 
     private val _onlineTracksFlow = MutableStateFlow<List<Track>>(emptyList())
     val onlineTracksFlow: StateFlow<List<Track>> = _onlineTracksFlow.asStateFlow()
+
+    private val _curatedPlaylistsFlow = MutableStateFlow<List<CuratedOnlinePlaylist>>(emptyList())
+    val curatedPlaylistsFlow: StateFlow<List<CuratedOnlinePlaylist>> = _curatedPlaylistsFlow.asStateFlow()
 
     private val _isFetchingFlow = MutableStateFlow(false)
     val isFetchingFlow: StateFlow<Boolean> = _isFetchingFlow.asStateFlow()
@@ -1459,7 +1606,9 @@ object OnlineMusicRepository {
         }
     }
 
-    fun normalizeWorkerImageUrl(rawUrl: String): String {
+    fun normalizeWorkerImageUrl(rawUrl: String): String = normalizeWorkerBigImageUrl(rawUrl)
+
+    fun normalizeWorkerBigImageUrl(rawUrl: String): String {
         val trimmed = rawUrl.trim()
         if (trimmed.isBlank()) return ""
         val resolved = when {
@@ -1482,12 +1631,36 @@ object OnlineMusicRepository {
         }
     }
 
+    fun normalizeWorkerSmallImageUrl(rawUrl: String): String {
+        val trimmed = rawUrl.trim()
+        if (trimmed.isBlank()) return ""
+        val resolved = when {
+            trimmed.startsWith("http://") || trimmed.startsWith("https://") ->
+                trimmed.replace(WORKER_HOST_REGEX, BASE_URL)
+            trimmed.startsWith("file://") || trimmed.startsWith("content://") -> return trimmed
+            trimmed.startsWith("/storage/") || trimmed.startsWith("/data/") || trimmed.startsWith("/sdcard/") -> return trimmed
+            trimmed.startsWith("/img?u=") -> "$BASE_URL$trimmed"
+            trimmed.startsWith("/") -> "$BASE_URL$trimmed"
+            else -> "$BASE_URL/$trimmed"
+        }
+        val downsized = resolved
+            .replace("size=large", "size=small")
+            .replace("size=xl", "size=small")
+            .replace("size=big", "size=small")
+        return if (downsized.contains("/cover?id=") && !downsized.contains("size=")) {
+            "$downsized&size=small"
+        } else {
+            downsized
+        }
+    }
+
     fun registerTrackUrls(
         trackId: String,
         streamUrl: String,
         downloadUrl: String,
         coverUrl: String = "",
-        artistName: String = ""
+        artistName: String = "",
+        coverSmallUrl: String = ""
     ) {
         val rawId = trackId.removePrefix("online_").trim()
         if (rawId.isBlank()) return
@@ -1506,10 +1679,18 @@ object OnlineMusicRepository {
             }
         }
         if (coverUrl.isNotBlank()) {
-            val resolvedCover = normalizeWorkerImageUrl(coverUrl)
+            val resolvedCover = normalizeWorkerBigImageUrl(coverUrl)
             if (!resolvedCover.contains("dzcdn.net") && !resolvedCover.contains("deezer.com")) {
                 coverUrlByTrackId[rawId] = resolvedCover
                 coverUrlByTrackId["online_$rawId"] = resolvedCover
+            }
+        }
+        val smallCandidate = coverSmallUrl.ifBlank { coverUrl }
+        if (smallCandidate.isNotBlank()) {
+            val resolvedSmall = normalizeWorkerSmallImageUrl(smallCandidate)
+            if (!resolvedSmall.contains("dzcdn.net") && !resolvedSmall.contains("deezer.com")) {
+                smallCoverUrlByTrackId[rawId] = resolvedSmall
+                smallCoverUrlByTrackId["online_$rawId"] = resolvedSmall
             }
         }
     }
@@ -1518,11 +1699,68 @@ object OnlineMusicRepository {
         if (coverUrl.isBlank()) return
         val rawId = trackId.removePrefix("online_").trim()
         if (rawId.isBlank()) return
-        val normalized = normalizeWorkerImageUrl(coverUrl)
+        val normalized = normalizeWorkerBigImageUrl(coverUrl)
         if (!normalized.contains("dzcdn.net") && !normalized.contains("deezer.com")) {
             coverUrlByTrackId[rawId] = normalized
             coverUrlByTrackId["online_$rawId"] = normalized
         }
+        val normalizedSmall = normalizeWorkerSmallImageUrl(coverUrl)
+        if (!normalizedSmall.contains("dzcdn.net") && !normalizedSmall.contains("deezer.com")) {
+            smallCoverUrlByTrackId.putIfAbsent(rawId, normalizedSmall)
+            smallCoverUrlByTrackId.putIfAbsent("online_$rawId", normalizedSmall)
+        }
+    }
+
+    fun getSmallCoverUrlForTrack(
+        trackId: String,
+        fallbackUrl: String? = null,
+        artistName: String = ""
+    ): String {
+        val rawFallback = fallbackUrl?.trim().orEmpty()
+        if (rawFallback.startsWith("content://") || rawFallback.startsWith("file://") || rawFallback.startsWith("/storage/") || rawFallback.startsWith("/data/")) {
+            return rawFallback
+        }
+        val rawId = trackId.removePrefix("online_").trim()
+        if (rawId.isNotBlank()) {
+            smallCoverUrlByTrackId[rawId]?.takeIf {
+                it.isNotBlank() && !it.contains("dzcdn.net") && !it.contains("deezer.com")
+            }?.let { return normalizeWorkerSmallImageUrl(it) }
+            smallCoverUrlByTrackId["online_$rawId"]?.takeIf {
+                it.isNotBlank() && !it.contains("dzcdn.net") && !it.contains("deezer.com")
+            }?.let { return normalizeWorkerSmallImageUrl(it) }
+        }
+        if (rawFallback.isNotBlank() && !rawFallback.contains("dzcdn.net") && !rawFallback.contains("deezer.com") && !rawFallback.contains("/artist-cover")) {
+            return normalizeWorkerSmallImageUrl(rawFallback)
+        }
+        if (rawId.isNotBlank() && !rawId.startsWith("local_") && !rawId.startsWith("demo_")) {
+            val encodedId = try { URLEncoder.encode(rawId, "UTF-8") } catch (_: Exception) { rawId }
+            return "$BASE_URL/cover?id=$encodedId&size=small"
+        }
+        return ""
+    }
+
+    fun getBigCoverUrlForTrack(
+        trackId: String,
+        fallbackUrl: String? = null,
+        artistName: String = ""
+    ): String {
+        val rawFallback = fallbackUrl?.trim().orEmpty()
+        if (rawFallback.startsWith("content://") || rawFallback.startsWith("file://") || rawFallback.startsWith("/storage/") || rawFallback.startsWith("/data/")) {
+            return rawFallback
+        }
+        val rawId = trackId.removePrefix("online_").trim()
+        if (rawId.isNotBlank()) {
+            coverUrlByTrackId[rawId]?.takeIf {
+                it.isNotBlank() && !it.contains("dzcdn.net") && !it.contains("deezer.com")
+            }?.let { return normalizeWorkerBigImageUrl(it) }
+            coverUrlByTrackId["online_$rawId"]?.takeIf {
+                it.isNotBlank() && !it.contains("dzcdn.net") && !it.contains("deezer.com")
+            }?.let { return normalizeWorkerBigImageUrl(it) }
+        }
+        if (rawFallback.isNotBlank() && !rawFallback.contains("dzcdn.net") && !rawFallback.contains("deezer.com") && !rawFallback.contains("/artist-cover")) {
+            return normalizeWorkerBigImageUrl(rawFallback)
+        }
+        return getCoverUrlForTrack(trackId, artistName)
     }
 
     fun getCoverUrlForTrack(trackId: String, artistName: String = ""): String {
@@ -1530,10 +1768,10 @@ object OnlineMusicRepository {
         if (rawId.isNotBlank()) {
             coverUrlByTrackId[rawId]?.takeIf {
                 it.isNotBlank() && !it.contains("dzcdn.net") && !it.contains("deezer.com")
-            }?.let { return normalizeWorkerImageUrl(it) }
+            }?.let { return normalizeWorkerBigImageUrl(it) }
             coverUrlByTrackId["online_$rawId"]?.takeIf {
                 it.isNotBlank() && !it.contains("dzcdn.net") && !it.contains("deezer.com")
-            }?.let { return normalizeWorkerImageUrl(it) }
+            }?.let { return normalizeWorkerBigImageUrl(it) }
             if (!rawId.startsWith("local_") && !rawId.startsWith("demo_")) {
                 val encodedId = try { URLEncoder.encode(rawId, "UTF-8") } catch (_: Exception) { rawId }
                 return "$BASE_URL/cover?id=$encodedId&size=large"
@@ -1588,13 +1826,16 @@ object OnlineMusicRepository {
 
     fun getCachedCoverBitmap(url: String): Bitmap? {
         if (url.isBlank()) return null
-        val normalized = normalizeWorkerImageUrl(url)
-        return imageMemoryCache.get(normalized) ?: imageMemoryCache.get(url)
+        imageMemoryCache.get(url)?.let { return it }
+        val isSmall = url.contains("size=small") || url.contains("size=thumb")
+        val normalized = if (isSmall) normalizeWorkerSmallImageUrl(url) else normalizeWorkerBigImageUrl(url)
+        return imageMemoryCache.get(normalized)
     }
 
     fun cacheCoverBitmap(url: String, bitmap: Bitmap) {
         if (url.isBlank()) return
-        val normalized = normalizeWorkerImageUrl(url)
+        val isSmall = url.contains("size=small") || url.contains("size=thumb")
+        val normalized = if (isSmall) normalizeWorkerSmallImageUrl(url) else normalizeWorkerBigImageUrl(url)
         imageMemoryCache.put(normalized, bitmap)
         imageMemoryCache.put(url, bitmap)
     }
@@ -1628,6 +1869,7 @@ object OnlineMusicRepository {
 
     private fun getPrivateTrackCoverFile(resolvedUrl: String): File? {
         val dir = getPrivateTrackCoverCacheDir() ?: return null
+        val isSmall = resolvedUrl.contains("size=small") || resolvedUrl.contains("size=thumb")
         val idPart = if (resolvedUrl.contains("id=")) {
             resolvedUrl.substringAfter("id=").substringBefore("&")
         } else {
@@ -1636,7 +1878,8 @@ object OnlineMusicRepository {
         val safeKey = idPart.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(64).ifBlank {
             resolvedUrl.hashCode().toUInt().toString(16)
         }
-        return File(dir, "tg_cover_hd_$safeKey.jpg")
+        val tierPrefix = if (isSmall) "tg_cover_sm_" else "tg_cover_hd_"
+        return File(dir, "$tierPrefix$safeKey.jpg")
     }
 
     private fun decodeDownsampledCoverBytes(bytes: ByteArray, maxDim: Int = 1000): Bitmap? {
@@ -2135,6 +2378,7 @@ object OnlineMusicRepository {
             var rawStream = ""
             var rawDownload = ""
             var rawCover = ""
+            var rawCoverSmall = ""
             var rawGenre = ""
 
             while (reader.hasNext()) {
@@ -2201,6 +2445,10 @@ object OnlineMusicRepository {
                         val v = readScalarString(reader).trim()
                         if (rawDownload.isBlank() && v.isNotBlank()) rawDownload = v
                     }
+                    "cover_small", "thumbnail", "cover_medium" -> {
+                        val v = readScalarString(reader).trim()
+                        if (rawCoverSmall.isBlank() && v.isNotBlank()) rawCoverSmall = v
+                    }
                     "cover_xl", "cover_big", "cover_url", "coverUrl", "cover", "artwork", "image" -> {
                         val v = readScalarString(reader).trim()
                         if (v.isNotBlank() && (rawCover.isBlank() || field == "cover_xl" || field == "cover_big")) {
@@ -2225,9 +2473,16 @@ object OnlineMusicRepository {
             val streamUrl = resolveWorkerUrl(rawStream)
             val downloadUrl = resolveWorkerUrl(effectiveDownloadRaw)
             val encodedId = try { URLEncoder.encode(finalId, "UTF-8") } catch (_: Exception) { finalId }
-            val coverUrl = normalizeWorkerImageUrl(rawCover).let { candidate ->
+            val coverUrl = normalizeWorkerBigImageUrl(rawCover).let { candidate ->
                 if (candidate.isBlank() || candidate.contains("dzcdn.net") || candidate.contains("deezer.com") || candidate.contains("/artist-cover")) {
-                    "$BASE_URL/cover?id=$encodedId"
+                    "$BASE_URL/cover?id=$encodedId&size=large"
+                } else {
+                    candidate
+                }
+            }
+            val coverSmallUrl = normalizeWorkerSmallImageUrl(rawCoverSmall.ifBlank { rawCover }).let { candidate ->
+                if (candidate.isBlank() || candidate.contains("dzcdn.net") || candidate.contains("deezer.com") || candidate.contains("/artist-cover")) {
+                    "$BASE_URL/cover?id=$encodedId&size=small"
                 } else {
                     candidate
                 }
@@ -2239,7 +2494,8 @@ object OnlineMusicRepository {
                 streamUrl = streamUrl,
                 downloadUrl = downloadUrl,
                 coverUrl = coverUrl,
-                artistName = resolvedArtist
+                artistName = resolvedArtist,
+                coverSmallUrl = coverSmallUrl
             )
 
             if (rawGenre.isNotBlank()) {
@@ -2269,10 +2525,164 @@ object OnlineMusicRepository {
                     downloadUrl = downloadUrl,
                     previewUrl = streamUrl,
                     artistPictureUrl = ArtistAvatarDiskCache.resolveCloudflareArtistUrl(primaryArtist, ""),
-                    rawGenre = rawGenre
+                    rawGenre = rawGenre,
+                    coverSmall = coverSmallUrl,
+                    coverBig = coverUrl
                 )
             )
             index++
+        }
+        reader.endArray()
+    }
+
+    suspend fun fetchCuratedPlaylists(forceRefresh: Boolean = false): List<CuratedOnlinePlaylist> =
+        withContext(Dispatchers.IO) {
+            if (!forceRefresh && _curatedPlaylistsFlow.value.isNotEmpty()) {
+                return@withContext _curatedPlaylistsFlow.value
+            }
+            var connection: HttpURLConnection? = null
+            try {
+                val deviceId = try {
+                    EntitlementManager.getInstance(AuraApplication.instance).getDeviceId()
+                } catch (_: Throwable) {
+                    "unknown"
+                }
+                val endpoint = "$BASE_URL/playlists?deviceId=${URLEncoder.encode(deviceId, "UTF-8")}"
+                connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = true
+                    requestMethod = "GET"
+                    connectTimeout = 15000
+                    readTimeout = 20000
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("X-Device-Id", deviceId)
+                    setRequestProperty("User-Agent", "Mozilla/5.0")
+                }
+                if (connection.responseCode in 200..299) {
+                    val rawStream = connection.inputStream
+                    val decodedStream = if (connection.contentEncoding?.contains("gzip", ignoreCase = true) == true) {
+                        GZIPInputStream(rawStream)
+                    } else {
+                        rawStream
+                    }
+                    val parsed = decodedStream.use { parseCuratedPlaylistsStream(it) }
+                    if (parsed.isNotEmpty()) {
+                        _curatedPlaylistsFlow.value = parsed
+                        return@withContext parsed
+                    }
+                }
+            } catch (_: Throwable) {
+            } finally {
+                try { connection?.disconnect() } catch (_: Throwable) {}
+            }
+            return@withContext _curatedPlaylistsFlow.value
+        }
+
+    private fun parseCuratedPlaylistsStream(inputStream: InputStream): List<CuratedOnlinePlaylist> {
+        val result = mutableListOf<CuratedOnlinePlaylist>()
+        try {
+            val reader = JsonReader(BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8), 32768)).apply {
+                isLenient = true
+            }
+            when (reader.peek()) {
+                JsonToken.BEGIN_ARRAY -> parsePlaylistsArray(reader, result)
+                JsonToken.BEGIN_OBJECT -> {
+                    reader.beginObject()
+                    while (reader.hasNext()) {
+                        val key = reader.nextName()
+                        if (reader.peek() == JsonToken.NULL) {
+                            reader.nextNull()
+                            continue
+                        }
+                        if ((key == "playlists" || key == "data" || key == "items") && reader.peek() == JsonToken.BEGIN_ARRAY) {
+                            parsePlaylistsArray(reader, result)
+                        } else {
+                            reader.skipValue()
+                        }
+                    }
+                    reader.endObject()
+                }
+                else -> reader.skipValue()
+            }
+        } catch (_: Throwable) {}
+        return result
+    }
+
+    private fun parsePlaylistsArray(reader: JsonReader, outList: MutableList<CuratedOnlinePlaylist>) {
+        reader.beginArray()
+        var idx = 0
+        while (reader.hasNext()) {
+            if (reader.peek() != JsonToken.BEGIN_OBJECT) {
+                reader.skipValue()
+                continue
+            }
+            reader.beginObject()
+            var id = ""
+            var title = ""
+            var description = ""
+            val covers = mutableListOf<String>()
+            val onlineTracks = mutableListOf<OnlineTrack>()
+
+            while (reader.hasNext()) {
+                val field = reader.nextName()
+                if (reader.peek() == JsonToken.NULL) {
+                    reader.nextNull()
+                    continue
+                }
+                when (field) {
+                    "id" -> id = readScalarString(reader).trim()
+                    "title", "name" -> {
+                        val v = readScalarString(reader).trim()
+                        if (title.isBlank()) title = v
+                    }
+                    "description", "subtitle" -> {
+                        val v = readScalarString(reader).trim()
+                        if (description.isBlank()) description = v
+                    }
+                    "covers", "cover_urls", "images" -> {
+                        if (reader.peek() == JsonToken.BEGIN_ARRAY) {
+                            reader.beginArray()
+                            while (reader.hasNext()) {
+                                val c = readScalarString(reader).trim()
+                                if (c.isNotBlank()) {
+                                    covers.add(normalizeWorkerSmallImageUrl(c))
+                                }
+                            }
+                            reader.endArray()
+                        } else {
+                            val single = readScalarString(reader).trim()
+                            if (single.isNotBlank()) covers.add(normalizeWorkerSmallImageUrl(single))
+                        }
+                    }
+                    "tracks", "songs", "items" -> {
+                        if (reader.peek() == JsonToken.BEGIN_ARRAY) {
+                            parseWorkerTracksArrayStream(reader, onlineTracks)
+                        } else {
+                            reader.skipValue()
+                        }
+                    }
+                    else -> reader.skipValue()
+                }
+            }
+            reader.endObject()
+
+            val appTracks = onlineTracks.map { it.toAppTrack() }
+            val resolvedCovers = if (covers.isNotEmpty()) {
+                covers
+            } else {
+                appTracks.mapNotNull { it.coverSmall?.takeIf { u -> u.isNotBlank() } }.distinct().take(4)
+            }
+            if (title.isNotBlank() || appTracks.isNotEmpty()) {
+                outList.add(
+                    CuratedOnlinePlaylist(
+                        id = id.ifBlank { "curated_pl_$idx" },
+                        title = title.ifBlank { "Playlist ${idx + 1}" },
+                        description = description,
+                        covers = resolvedCovers,
+                        tracks = appTracks
+                    )
+                )
+            }
+            idx++
         }
         reader.endArray()
     }
@@ -2337,21 +2747,23 @@ object OnlineMusicRepository {
         return null
     }
 
-    suspend fun loadCoverBitmap(url: String): Bitmap? = withContext(Dispatchers.IO) {
+    suspend fun loadCoverBitmap(url: String, maxDim: Int = 1000): Bitmap? = withContext(Dispatchers.IO) {
         if (url.isBlank()) return@withContext null
-        val resolvedUrl = normalizeWorkerImageUrl(url)
+        val isSmall = url.contains("size=small") || url.contains("size=thumb") || maxDim <= 400
+        val resolvedUrl = if (isSmall) normalizeWorkerSmallImageUrl(url) else normalizeWorkerBigImageUrl(url)
         imageMemoryCache.get(resolvedUrl)?.let { return@withContext it }
         imageMemoryCache.get(url)?.let { return@withContext it }
         if (failedCoverUrls.contains(resolvedUrl)) return@withContext null
 
         coverIoSemaphore.withPermit {
-            loadCoverBitmapBlocking(url)
+            loadCoverBitmapBlocking(resolvedUrl, maxDim)
         }
     }
 
-    fun loadCoverBitmapBlocking(url: String): Bitmap? {
+    fun loadCoverBitmapBlocking(url: String, maxDim: Int = 1000): Bitmap? {
         if (url.isBlank()) return null
-        val resolvedUrl = normalizeWorkerImageUrl(url)
+        val isSmall = url.contains("size=small") || url.contains("size=thumb") || maxDim <= 400
+        val resolvedUrl = if (isSmall) normalizeWorkerSmallImageUrl(url) else normalizeWorkerBigImageUrl(url)
         imageMemoryCache.get(resolvedUrl)?.let { return it }
         imageMemoryCache.get(url)?.let { return it }
 
@@ -4708,26 +5120,24 @@ private fun CloudTrackCoverBox(
     size: Dp,
     shape: Shape
 ) {
-    val resolvedUrl = remember(artworkUri, trackId) {
-        val raw = artworkUri?.trim().orEmpty()
-        if (raw.isNotBlank() && !raw.contains("dzcdn.net") && !raw.contains("deezer.com") && !raw.contains("/artist-cover")) {
-            OnlineMusicRepository.normalizeWorkerImageUrl(raw)
-        } else if (!trackId.isNullOrBlank()) {
-            OnlineMusicRepository.getCoverUrlForTrack(trackId)
-        } else {
-            ""
-        }
-    }
-
-    var cachedBitmap by remember(resolvedUrl) {
-        mutableStateOf(
-            if (resolvedUrl.isNotBlank()) OnlineMusicRepository.getCachedCoverBitmap(resolvedUrl) else null
+    val context = LocalContext.current
+    val resolvedSmallUrl = remember(artworkUri, trackId, fallbackName) {
+        OnlineMusicRepository.getSmallCoverUrlForTrack(
+            trackId = trackId.orEmpty(),
+            fallbackUrl = artworkUri,
+            artistName = fallbackName
         )
     }
 
-    LaunchedEffect(resolvedUrl) {
-        if (cachedBitmap == null && resolvedUrl.isNotBlank()) {
-            cachedBitmap = OnlineMusicRepository.loadCoverBitmap(resolvedUrl)
+    var cachedBitmap by remember(resolvedSmallUrl) {
+        mutableStateOf(
+            if (resolvedSmallUrl.isNotBlank()) OnlineMusicRepository.getCachedCoverBitmap(resolvedSmallUrl) else null
+        )
+    }
+
+    LaunchedEffect(resolvedSmallUrl) {
+        if (cachedBitmap == null && resolvedSmallUrl.isNotBlank()) {
+            cachedBitmap = OnlineMusicRepository.loadCoverBitmap(resolvedSmallUrl, maxDim = 360)
         }
     }
 
@@ -4742,6 +5152,24 @@ private fun CloudTrackCoverBox(
         if (bmp != null) {
             Image(
                 bitmap = bmp.asImageBitmap(),
+                contentDescription = fallbackName,
+                contentScale = ContentScale.Crop,
+                filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(shape)
+            )
+        } else if (resolvedSmallUrl.isNotBlank()) {
+            val imageRequest = remember(resolvedSmallUrl, context) {
+                ImageRequest.Builder(context)
+                    .data(resolvedSmallUrl)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .crossfade(true)
+                    .build()
+            }
+            AsyncImage(
+                model = imageRequest,
                 contentDescription = fallbackName,
                 contentScale = ContentScale.Crop,
                 filterQuality = androidx.compose.ui.graphics.FilterQuality.High,

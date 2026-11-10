@@ -24,6 +24,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.example.CloudflareMusicApi
 import com.example.CloudflareTrack
 import com.example.OnlineMusicRepository
@@ -186,6 +188,8 @@ fun SearchScreen(
 
 @Composable
 fun TrackListItem(track: CloudflareTrack, onClick: () -> Unit) {
+    val context = LocalContext.current
+    val smallCoverUrl = track.coverSmall ?: track.coverUrl
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -201,9 +205,17 @@ fun TrackListItem(track: CloudflareTrack, onClick: () -> Unit) {
                 .background(AuraSurfaceElevated),
             contentAlignment = Alignment.Center
         ) {
-            if (!track.coverUrl.isNullOrBlank()) {
+            if (!smallCoverUrl.isNullOrBlank()) {
+                val req = remember(smallCoverUrl, context) {
+                    ImageRequest.Builder(context)
+                        .data(smallCoverUrl)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .crossfade(true)
+                        .build()
+                }
                 AsyncImage(
-                    model = track.coverUrl,
+                    model = req,
                     contentDescription = track.title,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop

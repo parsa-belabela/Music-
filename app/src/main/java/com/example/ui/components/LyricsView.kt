@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -160,16 +161,40 @@ fun LyricsView(
         }
     }
 
-    val cardTint = remember(palette.primary, palette.isMonochrome) {
-        if (palette.isMonochrome) Color(0xFF242424)
-        else palette.primary.copy(alpha = 0.28f)
+    val primaryTint = remember(palette.primary, palette.isMonochrome) {
+        if (palette.isMonochrome) AuraSpotifyGreen else palette.primary
+    }
+    val accentTint = remember(palette.accent, palette.isMonochrome) {
+        if (palette.isMonochrome) Color(0xFF14833B) else palette.accent
+    }
+
+    val liquidGlassBackground = remember(primaryTint, accentTint) {
+        Brush.verticalGradient(
+            colors = listOf(
+                primaryTint.copy(alpha = 0.22f),
+                accentTint.copy(alpha = 0.12f),
+                Color(0xEE121216)
+            )
+        )
     }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(16.dp))
-            .background(cardTint)
+            .background(Color(0xFF0F0F13))
+            .background(liquidGlassBackground)
+            .border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.18f),
+                        primaryTint.copy(alpha = 0.25f),
+                        Color.White.copy(alpha = 0.05f)
+                    )
+                ),
+                shape = RoundedCornerShape(16.dp)
+            )
     ) {
         if (isFreestylePadOpen) {
             Column(
@@ -335,42 +360,63 @@ fun LyricsView(
                         lineHeight = 18.sp
                     )
                     Spacer(modifier = Modifier.height(18.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
                             onClick = onOpenEditor,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White,
-                                contentColor = Color.Black
-                            ),
                             shape = RoundedCornerShape(50),
-                            modifier = Modifier.testTag("open_lyrics_editor_btn")
+                            color = Color.White,
+                            modifier = Modifier
+                                .height(34.dp)
+                                .testTag("open_lyrics_editor_btn")
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Add Lyrics", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = null,
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "افزودن لیریک",
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.5.sp
+                                )
+                            }
                         }
-                        OutlinedButton(
+
+                        Surface(
                             onClick = { isFreestylePadOpen = true },
                             shape = RoundedCornerShape(50),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f))
+                            color = AuraSurfaceElevated.copy(alpha = 0.8f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
+                            modifier = Modifier.height(34.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.EditNote,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                "Freestyle Pad",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.5.sp
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.EditNote,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = "تکست‌پد",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 11.5.sp
+                                )
+                            }
                         }
                     }
                 }
@@ -378,17 +424,17 @@ fun LyricsView(
             return@Box
         }
 
-        val effectiveFontSize = if (isCinematicFullscreen) baseFontSize + 3f else baseFontSize
+        val effectiveFontSize = if (isCinematicFullscreen) baseFontSize + 2f else baseFontSize
 
         // Spotify Iconic Synced Lyrics List
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
-                top = 20.dp,
+                top = 48.dp,
                 bottom = 110.dp,
-                start = 20.dp,
-                end = 20.dp
+                start = 18.dp,
+                end = 18.dp
             ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -493,26 +539,27 @@ fun LyricsView(
             }
         }
 
-        // Top-Right Minimal Spotify Utility Pills (Editor, Freestyle Pad, Expand)
+        // Top-Right Compact & Clean Spotify-Style Action Pills (Editor, Freestyle Pad, Expand)
         Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = 10.dp, end = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                .padding(top = 10.dp, end = 12.dp)
+                .clip(RoundedCornerShape(50))
+                .background(Color(0xD018181E))
+                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(50))
+                .padding(horizontal = 4.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
                 onClick = onOpenEditor,
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.28f))
+                modifier = Modifier.size(28.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Edit,
                     contentDescription = "Edit Lyrics",
                     tint = Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier.size(15.dp)
+                    modifier = Modifier.size(14.dp)
                 )
             }
 
@@ -521,16 +568,13 @@ fun LyricsView(
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     isFreestylePadOpen = true
                 },
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.28f))
+                modifier = Modifier.size(28.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.EditNote,
                     contentDescription = "Freestyle Pad",
                     tint = Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier.size(17.dp)
+                    modifier = Modifier.size(15.dp)
                 )
             }
 
@@ -539,16 +583,13 @@ fun LyricsView(
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     isCinematicFullscreen = !isCinematicFullscreen
                 },
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.28f))
+                modifier = Modifier.size(28.dp)
             ) {
                 Icon(
                     imageVector = if (isCinematicFullscreen) Icons.Default.CloseFullscreen else Icons.Default.Fullscreen,
                     contentDescription = "Fullscreen Lyrics",
                     tint = Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(14.dp)
                 )
             }
         }
