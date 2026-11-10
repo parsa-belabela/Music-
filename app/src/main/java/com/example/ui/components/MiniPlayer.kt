@@ -1,386 +1,222 @@
 package com.example.ui.components
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.Image
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import coil.compose.AsyncImage
-import com.example.OnlineMusicRepository
 import com.example.audio.AmbientPalette
 import com.example.audio.AudioAnalysisData
 import com.example.audio.ConnectedAudioDevice
 import com.example.data.model.PlaybackState
-import com.example.data.model.Track
-import com.example.ui.theme.GlassThickness
-import com.example.ui.theme.liquidGlass
+import com.example.data.model.PlayerStatus
+import com.example.ui.theme.AuraSpotifyGreen
+import com.example.ui.theme.TextSecondary
 
 /**
- * Floating Liquid Glass Capsule Mini Player:
- * - Compact ~54-58dp height matching classic sleek layout
- * - Single source of truth playback state
- * - Direct artwork handling (shows musical icon fallback if no artwork, never borrows)
- * - Smooth progress bar along bottom edge
- * - Responsive play/pause & skip controls
+ * Spotify-style Floating MiniPlayer Bar:
+ * - Compact 56dp height with 8dp rounded corners
+ * - Tonal dark surface subtly tinted from the album cover
+ * - Crisp 40dp artwork, clear title & artist/device subtitle, tactile Play/Pause & Next controls
+ * - Zero-recomposition 2dp bottom progress bar
  */
 @Composable
 fun MiniPlayer(
-    playbackState: PlaybackState = PlaybackState(),
-    palette: AmbientPalette = AmbientPalette(),
-    onTogglePlay: () -> Unit = {},
-    onNext: () -> Unit = {},
-    onPrevious: () -> Unit = {},
-    onExpandNowPlaying: () -> Unit = {},
+    playbackState: PlaybackState,
+    palette: AmbientPalette,
+    onTogglePlay: () -> Unit,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    onExpandNowPlaying: () -> Unit,
     modifier: Modifier = Modifier,
     connectedDevice: ConnectedAudioDevice? = null,
     analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() },
     currentPositionProvider: () -> Long = { playbackState.currentPositionMs },
-    onSeekTo: (Long) -> Unit = {},
-    currentPlayingTrack: Track? = null,
-    currentTrack: Track? = null,
-    track: Track? = null
+    onSeekTo: (Long) -> Unit = {}
 ) {
-    val activeTrack = track ?: currentTrack ?: currentPlayingTrack ?: playbackState.currentTrack ?: return
-    val effectivePlaybackState = if (playbackState.currentTrack == null) {
-        playbackState.copy(currentTrack = activeTrack)
-    } else {
-        playbackState
+    val track = playbackState.currentTrack ?: return
+    val isPlaying = playbackState.status == PlayerStatus.PLAYING
+
+    val targetContainerColor = remember(palette.primary, palette.isMonochrome) {
+        if (palette.isMonochrome) {
+            Color(0xFF282828)
+        } else {
+            lerp(Color(0xFF222222), palette.primary.copy(alpha = 1f), 0.24f)
+        }
     }
-    val isPlaying = effectivePlaybackState.isPlaying
 
-    // Smooth color morphing
-    val animatedPrimary by animateColorAsState(
-        targetValue = palette.primary,
-        animationSpec = tween(400, easing = FastOutSlowInEasing),
-        label = "miniPlayerPrimary"
-    )
-    val animatedAccent by animateColorAsState(
-        targetValue = palette.accent,
-        animationSpec = tween(400, easing = FastOutSlowInEasing),
-        label = "miniPlayerAccent"
+    val containerColor by animateColorAsState(
+        targetValue = targetContainerColor,
+        animationSpec = tween(450, easing = FastOutSlowInEasing),
+        label = "miniPlayerBg"
     )
 
-    Column(
+    val durationMs = remember(playbackState.durationMs, track.durationMs) {
+        (if (playbackState.durationMs > 1000L) playbackState.durationMs else track.durationMs).coerceAtLeast(1L)
+    }
+
+    var dragAccumulated by remember { mutableFloatStateOf(0f) }
+
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 2.dp),
-        horizontalAlignment = Alignment.End
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .height(56.dp)
+            .shadow(elevation = 10.dp, shape = RoundedCornerShape(8.dp), spotColor = Color.Black)
+            .clip(RoundedCornerShape(8.dp))
+            .background(containerColor)
+            .pointerInput(track.id) {
+                detectHorizontalDragGestures(
+                    onDragStart = { dragAccumulated = 0f },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        dragAccumulated += dragAmount
+                    },
+                    onDragEnd = {
+                        if (dragAccumulated < -72f) {
+                            onNext()
+                        } else if (dragAccumulated > 72f) {
+                            onPrevious()
+                        }
+                        dragAccumulated = 0f
+                    }
+                )
+            }
+            .clickable { onExpandNowPlaying() }
+            .drawWithContent {
+                drawContent()
+                val progress = (currentPositionProvider().toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                val barHeight = 2.dp.toPx()
+                val y = size.height - barHeight
+                // Subtle track background line
+                drawRect(
+                    color = Color.White.copy(alpha = 0.16f),
+                    topLeft = Offset(0f, y),
+                    size = Size(size.width, barHeight)
+                )
+                // Active progress indicator
+                drawRect(
+                    color = Color.White,
+                    topLeft = Offset(0f, y),
+                    size = Size(size.width * progress, barHeight)
+                )
+            }
+            .testTag("mini_player")
     ) {
-        if (connectedDevice != null) {
-            AudioDeviceIndicator(
-                device = connectedDevice,
-                compact = true,
-                modifier = Modifier.padding(bottom = 2.dp, end = 6.dp)
-            )
-        }
-
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 8.dp, end = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // The Floating Liquid Glass Capsule container (~56dp height)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(
-                        elevation = 14.dp,
-                        shape = RoundedCornerShape(22.dp),
-                        ambientColor = animatedPrimary.copy(alpha = 0.45f),
-                        spotColor = Color(0xFF000000)
-                    )
-                    .clip(RoundedCornerShape(22.dp))
-                    // پایه کاملاً مات برای ممانعت کامل از همپوشانی و دیده شدن متن لیست آهنگ‌ها
-                    .background(Color(0xFF0D0F1C))
-                    // لایه رنگی لطیف و زنده هماهنگ با کاور و تم آهنگ در حال پخش
-                    .background(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                animatedPrimary.copy(alpha = 0.45f),
-                                animatedAccent.copy(alpha = 0.18f),
-                                Color(0xFF0A0C16)
-                            )
-                        )
-                    )
-                    .liquidGlass(
-                        shape = RoundedCornerShape(22.dp),
-                        thickness = GlassThickness.REGULAR,
-                        tintColor = animatedPrimary,
-                        tintAlpha = 0.28f,
-                        borderWidth = 1.dp
-                    )
-                    .clickable { onExpandNowPlaying() }
-                    .testTag("mini_player_container")
+            TrackArtworkThumbnail(
+                artworkUri = track.artworkUri,
+                accentColor = palette.primary,
+                size = 40.dp,
+                shape = RoundedCornerShape(6.dp),
+                iconSize = 20.dp,
+                title = track.title,
+                artist = track.artist,
+                trackId = track.id
+            )
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Morphing Track Info (Artwork, Title, Artist)
-                        AnimatedContent(
-                            targetState = activeTrack,
-                            transitionSpec = {
-                                fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing))
-                                    .togetherWith(fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing)))
-                            },
-                            modifier = Modifier.weight(1f),
-                            label = "miniPlayerContentTransition"
-                        ) { currentTrack ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                // Compact album artwork thumbnail
-                                var loadedCoverBitmap by remember(currentTrack.id, currentTrack.artworkUri) {
-                                    mutableStateOf(OnlineMusicRepository.getCachedCoverBitmap(currentTrack.artworkUri ?: currentTrack.id))
-                                }
-                                LaunchedEffect(currentTrack.id, currentTrack.artworkUri) {
-                                    if (loadedCoverBitmap == null) {
-                                        val url = currentTrack.artworkUri?.takeIf { it.isNotBlank() }
-                                            ?: OnlineMusicRepository.getCoverUrlForTrack(currentTrack.id, currentTrack.artist)
-                                        if (!url.isNullOrBlank()) {
-                                            loadedCoverBitmap = OnlineMusicRepository.loadCoverBitmap(url)
-                                        }
-                                    }
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .shadow(4.dp, RoundedCornerShape(10.dp), ambientColor = Color.Black.copy(alpha = 0.35f))
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(Color(0xFF141322)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    val bmp = loadedCoverBitmap
-                                    if (bmp != null) {
-                                        Image(
-                                            bitmap = bmp.asImageBitmap(),
-                                            contentDescription = "Track Artwork",
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                    } else if (!currentTrack.artworkUri.isNullOrEmpty()) {
-                                        AsyncImage(
-                                            model = currentTrack.artworkUri,
-                                            contentDescription = "Track Artwork",
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                    } else {
-                                        MusicArtworkPlaceholder(
-                                            title = currentTrack.title,
-                                            artist = currentTrack.artist,
-                                            trackId = currentTrack.id,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                    }
-                                }
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
+                        fontSize = 13.5.sp
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
 
-                                Spacer(modifier = Modifier.width(10.dp))
-
-                                // Title & Artist
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = currentTrack.title,
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White,
-                                            fontSize = 13.sp,
-                                            letterSpacing = 0.1.sp
-                                        ),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(1.dp))
-                                    Text(
-                                        text = currentTrack.artist,
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            color = Color(0xFFA0A5BA),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Medium
-                                        ),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(4.dp))
-
-                        // Previous Track button
-                        IconButton(
-                            onClick = onPrevious,
-                            modifier = Modifier
-                                .size(34.dp)
-                                .testTag("mini_player_previous")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.SkipPrevious,
-                                contentDescription = "Previous Track",
-                                tint = Color.White.copy(alpha = 0.85f),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(2.dp))
-
-                        // Tactile Play / Pause button in Glass pill
-                        IconButton(
-                            onClick = onTogglePlay,
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            Color(0x35FFFFFF),
-                                            Color(0x12FFFFFF)
-                                        )
-                                    )
-                                )
-                                .testTag("mini_player_play_pause")
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (isPlaying) "Pause" else "Play",
-                                tint = animatedAccent,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(2.dp))
-
-                        // Next Track button
-                        IconButton(
-                            onClick = onNext,
-                            modifier = Modifier
-                                .size(34.dp)
-                                .testTag("mini_player_next")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.SkipNext,
-                                contentDescription = "Next Track",
-                                tint = Color.White.copy(alpha = 0.85f),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-
-                    // Progress Track along bottom edge of capsule
-                    var miniBarWidthPx by remember { mutableFloatStateOf(1f) }
-                    var isMiniDragging by remember { mutableStateOf(false) }
-                    var miniDragProgress by remember { mutableFloatStateOf(0f) }
-                    var miniCurrentMs by remember { mutableLongStateOf(currentPositionProvider()) }
-                    var miniIgnoreSyncUntil by remember { mutableLongStateOf(0L) }
-
-                    val currentMiniDurationMs by rememberUpdatedState(playbackState.durationMs)
-                    val currentMiniOnSeekTo by rememberUpdatedState(onSeekTo)
-                    val currentMiniPositionProvider by rememberUpdatedState(currentPositionProvider)
-
-                    LaunchedEffect(playbackState.currentTrack?.id, playbackState.durationMs) {
-                        miniCurrentMs = currentMiniPositionProvider()
-                        miniDragProgress = 0f
-                        miniIgnoreSyncUntil = 0L
-                    }
-
-                    LaunchedEffect(isMiniDragging) {
-                        if (!isMiniDragging) {
-                            while (true) {
-                                if (System.currentTimeMillis() > miniIgnoreSyncUntil) {
-                                    miniCurrentMs = currentMiniPositionProvider()
-                                }
-                                kotlinx.coroutines.delay(20L)
-                            }
-                        }
-                    }
-
-                    val safeMiniDuration = currentMiniDurationMs.coerceAtLeast(1L)
-                    val effectiveMiniMs = if (isMiniDragging) (miniDragProgress * safeMiniDuration).toLong() else miniCurrentMs
-                    val effectiveFraction = (effectiveMiniMs.toFloat() / safeMiniDuration.toFloat()).coerceIn(0f, 1f)
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(3.dp)
-                            .clip(RoundedCornerShape(bottomStart = 18.dp, bottomEnd = 18.dp))
-                            .background(Color(0x20FFFFFF))
-                            .onSizeChanged { miniBarWidthPx = it.width.toFloat().coerceAtLeast(1f) }
-                            .pointerInput(playbackState.durationMs) {
-                                awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = false)
-                                    isMiniDragging = true
-                                    val w = miniBarWidthPx.coerceAtLeast(1f)
-                                    miniDragProgress = (down.position.x / w).coerceIn(0f, 1f)
-                                    down.consume()
-
-                                    while (true) {
-                                        val event = awaitPointerEvent()
-                                        val pointer = event.changes.firstOrNull() ?: break
-                                        if (pointer.pressed) {
-                                            miniDragProgress = (pointer.position.x / w).coerceIn(0f, 1f)
-                                            miniCurrentMs = (miniDragProgress * safeMiniDuration).toLong()
-                                            pointer.consume()
-                                        } else {
-                                            val targetSeekMs = (miniDragProgress * safeMiniDuration).toLong()
-                                            miniCurrentMs = targetSeekMs
-                                            miniIgnoreSyncUntil = System.currentTimeMillis() + 400L
-                                            currentMiniOnSeekTo(targetSeekMs)
-                                            isMiniDragging = false
-                                            break
-                                        }
-                                    }
-                                }
-                            }
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(fraction = effectiveFraction)
-                                .fillMaxHeight()
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(
-                                            animatedPrimary,
-                                            animatedAccent
-                                        )
-                                    )
-                                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (connectedDevice != null) {
+                        Icon(
+                            imageVector = Icons.Default.Devices,
+                            contentDescription = null,
+                            tint = AuraSpotifyGreen,
+                            modifier = Modifier.size(11.dp)
                         )
                     }
+                    Text(
+                        text = track.artist,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
+            }
+
+            IconButton(
+                onClick = onTogglePlay,
+                modifier = Modifier
+                    .size(40.dp)
+                    .testTag("mini_player_play_pause")
+            ) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+
+            IconButton(
+                onClick = onNext,
+                modifier = Modifier
+                    .size(36.dp)
+                    .testTag("mini_player_next")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SkipNext,
+                    contentDescription = "Next",
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(24.dp)
+                )
             }
         }
     }
 }
+

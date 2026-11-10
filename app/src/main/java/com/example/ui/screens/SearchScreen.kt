@@ -7,6 +7,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,9 +36,12 @@ import com.example.data.model.Playlist
 import com.example.data.model.Track
 import com.example.monetization.EntitlementManager
 import com.example.ui.components.VipLockGateCard
+import com.example.ui.theme.AuraSpotifyGreen
+import com.example.ui.theme.AuraSurface
+import com.example.ui.theme.AuraSurfaceElevated
+import com.example.ui.theme.TextSecondary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 const val SEARCH_CLOUDFLARE_WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev"
@@ -53,17 +59,14 @@ fun SearchScreen(
     var searchResults by remember { mutableStateOf<List<CloudflareTrack>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    val coroutineScope = rememberCoroutineScope()
 
-    // The explicit worker URL
     val workerUrl = "https://alubm.parsaghorbani8861.workers.dev"
 
-    // Only search if VIP
     LaunchedEffect(searchQuery, isVip) {
         if (!isVip) return@LaunchedEffect
 
         if (searchQuery.isNotBlank()) {
-            delay(500) // Debounce
+            delay(400)
         }
 
         isLoading = true
@@ -82,19 +85,56 @@ fun SearchScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
-        // Search Bar
+        Text(
+            text = "جستجو",
+            style = MaterialTheme.typography.headlineMedium.copy(
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                fontSize = 23.sp
+            ),
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            placeholder = { Text("جستجوی آهنگ یا خواننده...") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+            placeholder = {
+                Text(
+                    text = "جستجوی آهنگ یا خواننده...",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Search",
+                    tint = TextSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
+            },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Clear",
+                            tint = TextSecondary
+                        )
+                    }
+                }
+            },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(8.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Color(0xFFA855F7),
-                unfocusedBorderColor = Color.Gray
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                focusedContainerColor = AuraSurfaceElevated,
+                unfocusedContainerColor = AuraSurface,
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent
             ),
             singleLine = true
         )
@@ -102,34 +142,41 @@ fun SearchScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         if (!isVip) {
-            // Show VIP Lock Card if not premium
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                 VipLockGateCard(
                     workerUrl = workerUrl,
-                    onUnlocked = {
-                        // isVip will become true automatically, this will trigger the LaunchedEffect
-                    }
+                    onUnlocked = {}
                 )
             }
         } else {
-            // Show Search Results
-            if (isLoading) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Color(0xFFA855F7))
+            when {
+                isLoading -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(
+                            color = AuraSpotifyGreen,
+                            strokeWidth = 2.5.dp,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
                 }
-            } else if (errorMessage != null) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(text = errorMessage!!, color = Color.Red, fontSize = 14.sp)
+                errorMessage != null -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(text = errorMessage!!, color = Color(0xFFEF4444), fontSize = 14.sp)
+                    }
                 }
-            } else if (searchResults.isEmpty() && searchQuery.isNotBlank()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(text = "نتیجه‌ای یافت نشد.", color = Color.Gray, fontSize = 16.sp)
+                searchResults.isEmpty() && searchQuery.isNotBlank() -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(text = "نتیجه‌ای یافت نشد.", color = TextSecondary, fontSize = 15.sp)
+                    }
                 }
-            } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(searchResults) { track ->
-                        TrackListItem(track = track, onClick = { onTrackSelected(track) })
-                        HorizontalDivider(color = Color.LightGray.copy(alpha = 0.3f))
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        items(searchResults) { track ->
+                            TrackListItem(track = track, onClick = { onTrackSelected(track) })
+                        }
                     }
                 }
             }
@@ -142,15 +189,16 @@ fun TrackListItem(track: CloudflareTrack, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 8.dp),
+            .padding(vertical = 8.dp, horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(50.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.DarkGray),
+                .size(48.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(AuraSurfaceElevated),
             contentAlignment = Alignment.Center
         ) {
             if (!track.coverUrl.isNullOrBlank()) {
@@ -161,33 +209,38 @@ fun TrackListItem(track: CloudflareTrack, onClick: () -> Unit) {
                     contentScale = ContentScale.Crop
                 )
             } else {
-                Text("🎵", fontSize = 24.sp)
+                Icon(
+                    imageVector = Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(22.dp)
+                )
             }
         }
 
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(12.dp))
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = track.title,
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                color = Color.White
+                fontWeight = FontWeight.Medium,
+                fontSize = 15.sp,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = track.artist,
-                fontSize = 14.sp,
-                color = Color.Gray
+                fontSize = 12.5.sp,
+                color = TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
 }
 
-/**
- * تب سرچ و کاوش اصلی که بدون هیچ‌گونه مکث یا فریز روی ترد اصلی (Main Thread) باز می‌شود
- * و لیست کامل آهنگ‌های کلودفلر (https://alubm.parsaghorbani8861.workers.dev) را بارگذاری می‌کند.
- */
 @Composable
 fun SearchScreen(
     tracks: List<Track>,
@@ -238,7 +291,6 @@ fun SearchScreen(
                 isLoadingOnline = false
             }
         }
-        // اگر کاتالوگ قبلاً در حافظه لود شده و کاربر دکمه رفرش را نزده است، دوباره ۲۸ مگابایت را دانلود نکن تا صفحه سرچ آنی باز شود
         if (refreshTrigger == 0 && (onlineTracks.isNotEmpty() || repoTracks.isNotEmpty())) {
             isLoadingOnline = false
             return@LaunchedEffect
@@ -312,3 +364,4 @@ fun SearchScreen(
         onRefresh = onRefreshOnline
     )
 }
+

@@ -5,152 +5,39 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInWindow
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.data.model.AppTheme
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.min
-import kotlin.math.sin
 
 /**
- * Shared hardware gyroscope / rotation vector manager for real-time Apple Wallet-style
- * specular light reflection & 3D parallax across LiquidGlass cards and album covers.
+ * Retained for full binary & source compatibility with existing components.
+ * Sensor registration is kept no-op by default to eliminate battery drain and unnecessary UI jitter.
  */
 object HardwareGyroscopeManager : SensorEventListener {
-    private var sensorManager: SensorManager? = null
-    private var activeListeners = 0
-    private val rotationMatrix = FloatArray(9)
-    private val orientationAngles = FloatArray(3)
-
-    private var baselinePitch = Float.NaN
-    private var baselineRoll = Float.NaN
-
-    // Normalized tilt values in [-1f, 1f]
     var roll by mutableFloatStateOf(0f)
         private set
     var pitch by mutableFloatStateOf(0f)
         private set
 
-    fun acquire(context: Context) {
-        synchronized(this) {
-            activeListeners++
-            if (activeListeners == 1) {
-                try {
-                    val sm = context.applicationContext.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
-                    sensorManager = sm
-                    val sensor = sm?.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
-                        ?: sm?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-                        ?: sm?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-                    if (sensor != null) {
-                        sm?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_UI)
-                    }
-                } catch (_: Exception) {}
-            }
-        }
-    }
-
-    fun release() {
-        synchronized(this) {
-            activeListeners = (activeListeners - 1).coerceAtLeast(0)
-            if (activeListeners == 0) {
-                try {
-                    sensorManager?.unregisterListener(this)
-                } catch (_: Exception) {}
-                sensorManager = null
-                baselinePitch = Float.NaN
-                baselineRoll = Float.NaN
-            }
-        }
-    }
-
-    private fun updateCalibratedTilt(rawPitch: Float, rawRoll: Float) {
-        if (baselinePitch.isNaN() || baselineRoll.isNaN()) {
-            baselinePitch = rawPitch
-            baselineRoll = rawRoll
-        } else {
-            // انطباق پیوسته و بسیار آرام با زاویه در دست گرفتن گوشی
-            baselinePitch += (rawPitch - baselinePitch) * 0.015f
-            baselineRoll += (rawRoll - baselineRoll) * 0.015f
-        }
-        val diffPitch = rawPitch - baselinePitch
-        val diffRoll = rawRoll - baselineRoll
-
-        // ددزون ملایم برای حذف لرزش‌های ریز دست کاربر تا صفحه بیهوده تکان نخورد
-        val deadzonedPitch = if (kotlin.math.abs(diffPitch) < 0.04f) 0f else diffPitch
-        val deadzonedRoll = if (kotlin.math.abs(diffRoll) < 0.04f) 0f else diffRoll
-
-        // ضریب حساسیت ملایم و کنترل‌شده جهت جلوگیری از پرش سریع بالا و پایین
-        val deltaPitch = (deadzonedPitch * 0.45f).coerceIn(-0.65f, 0.65f)
-        val deltaRoll = (deadzonedRoll * 0.45f).coerceIn(-0.65f, 0.65f)
-
-        // فیلتر پایین‌گذر نرم و روان برای حرکتی چشم‌نواز و بدون پرش
-        val targetPitch = pitch + (deltaPitch - pitch) * 0.11f
-        val targetRoll = roll + (deltaRoll - roll) * 0.11f
-
-        if (kotlin.math.abs(targetPitch - pitch) > 0.003f) {
-            pitch = targetPitch
-        }
-        if (kotlin.math.abs(targetRoll - roll) > 0.003f) {
-            roll = targetRoll
-        }
-    }
-
-    override fun onSensorChanged(event: SensorEvent?) {
-        if (event == null) return
-        when (event.sensor.type) {
-            Sensor.TYPE_GAME_ROTATION_VECTOR, Sensor.TYPE_ROTATION_VECTOR -> {
-                try {
-                    SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-                    SensorManager.getOrientation(rotationMatrix, orientationAngles)
-                    val rawPitch = (orientationAngles[1] / (PI.toFloat() * 0.60f)).coerceIn(-1.5f, 1.5f)
-                    val rawRoll = (orientationAngles[2] / (PI.toFloat() * 0.60f)).coerceIn(-1.5f, 1.5f)
-                    updateCalibratedTilt(rawPitch, rawRoll)
-                } catch (_: Exception) {}
-            }
-            Sensor.TYPE_ACCELEROMETER -> {
-                val gx = ((event.values.getOrNull(0) ?: 0f) / 9.81f).coerceIn(-1f, 1f)
-                val gy = ((event.values.getOrNull(1) ?: 0f) / 9.81f).coerceIn(-1f, 1f)
-                updateCalibratedTilt(gy * 0.5f, -gx * 0.5f)
-            }
-        }
-    }
-
+    fun acquire(context: Context) = Unit
+    fun release() = Unit
+    override fun onSensorChanged(event: SensorEvent?) = Unit
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 }
 
 @Composable
-fun rememberGyroscopeSensorActive() {
-    val context = LocalContext.current
-    DisposableEffect(context) {
-        HardwareGyroscopeManager.acquire(context)
-        onDispose {
-            HardwareGyroscopeManager.release()
-        }
-    }
-}
+fun rememberGyroscopeSensorActive() = Unit
 
 @Composable
-fun rememberGyroscopeTilt(): Pair<Float, Float> {
-    rememberGyroscopeSensorActive()
-    return HardwareGyroscopeManager.roll to HardwareGyroscopeManager.pitch
-}
+fun rememberGyroscopeTilt(): Pair<Float, Float> = 0f to 0f
 
 val LocalAppTheme = compositionLocalOf { AppTheme.PURE_LIQUID_GLASS }
 
@@ -174,129 +61,84 @@ object LiquidGlassDesign {
         accentColor: Color = Color.White,
         theme: AppTheme = AppTheme.PURE_LIQUID_GLASS
     ): LiquidGlassSpec {
-        val primaryTint = if (accentColor != Color.Transparent && accentColor != Color.Unspecified) {
-            accentColor
-        } else {
-            Color(0xFF00E5FF)
-        }
-
         return when (thickness) {
             GlassThickness.THIN -> LiquidGlassSpec(
                 surfaceGradient = Brush.verticalGradient(
-                    listOf(
-                        Color(0xCC121626),
-                        Color(0xD90A0D18)
-                    )
+                    listOf(Color(0xFF181818), Color(0xFF141414))
                 ),
                 borderGradient = Brush.linearGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.55f),
-                        primaryTint.copy(alpha = 0.45f),
-                        Color.White.copy(alpha = 0.18f)
-                    )
+                    listOf(Color(0x12FFFFFF), Color(0x08FFFFFF))
                 ),
                 shadowElevation = 0.dp,
                 shadowColor = Color.Transparent,
-                specularReflectionAlpha = 0.25f
+                specularReflectionAlpha = 0f
             )
-
             GlassThickness.REGULAR -> LiquidGlassSpec(
                 surfaceGradient = Brush.verticalGradient(
-                    listOf(
-                        Color(0xD9161B2E),
-                        Color(0xE60B0E1A)
-                    )
+                    listOf(Color(0xFF202020), Color(0xFF181818))
                 ),
                 borderGradient = Brush.linearGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.70f),
-                        primaryTint.copy(alpha = 0.60f),
-                        Color.White.copy(alpha = 0.22f)
-                    )
+                    listOf(Color(0x16FFFFFF), Color(0x0AFFFFFF))
                 ),
-                shadowElevation = 8.dp,
-                shadowColor = Color.Black.copy(alpha = 0.50f),
-                specularReflectionAlpha = 0.50f
+                shadowElevation = 2.dp,
+                shadowColor = Color.Black.copy(alpha = 0.35f),
+                specularReflectionAlpha = 0f
             )
-
             GlassThickness.THICK -> LiquidGlassSpec(
                 surfaceGradient = Brush.verticalGradient(
-                    listOf(
-                        Color(0xEB151A2D),
-                        Color(0xF5080B14)
-                    )
+                    listOf(Color(0xFF262626), Color(0xFF1C1C1C))
                 ),
                 borderGradient = Brush.linearGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.78f),
-                        primaryTint.copy(alpha = 0.68f),
-                        Color.White.copy(alpha = 0.25f)
-                    )
+                    listOf(Color(0x1FFFFFFF), Color(0x0FFFFFFF))
                 ),
-                shadowElevation = 16.dp,
-                shadowColor = Color.Black.copy(alpha = 0.65f),
-                specularReflectionAlpha = 0.60f
+                shadowElevation = 4.dp,
+                shadowColor = Color.Black.copy(alpha = 0.45f),
+                specularReflectionAlpha = 0f
             )
         }
     }
 }
 
+/**
+ * Redesigned to deliver a clean, Spotify-grade matte surface with subtle tonal elevation
+ * and zero heavy neon/rainbow border clutter or scroll-position recomposition overhead.
+ */
 fun Modifier.liquidGlass(
-    shape: Shape = RoundedCornerShape(20.dp),
+    shape: Shape = RoundedCornerShape(12.dp),
     thickness: GlassThickness = GlassThickness.REGULAR,
     tintColor: Color = Color.Transparent,
-    tintAlpha: Float = 0.14f,
-    borderWidth: Dp = 1.dp,
+    tintAlpha: Float = 0.08f,
+    borderWidth: Dp = 0.5.dp,
     appTheme: AppTheme? = null,
     accentColor: Color = tintColor,
-    secondaryAccent: Color = Color(0xFF00E5FF)
+    secondaryAccent: Color = Color.Transparent
 ): Modifier = composed {
-    val activeTint = if (tintColor != Color.Transparent && tintColor != Color.Unspecified) {
-        tintColor
-    } else if (accentColor != Color.Transparent && accentColor != Color.Unspecified) {
-        accentColor
-    } else {
-        Color(0xFF8B5CF6)
+    val baseColor = when (thickness) {
+        GlassThickness.THIN -> Color(0xFF181818)
+        GlassThickness.REGULAR -> Color(0xFF202020)
+        GlassThickness.THICK -> Color(0xFF262626)
     }
 
-    // محدودسازی درخشندگی رنگ پس‌زمینه کارت‌ها تا متن‌ها و آیکن‌های سفید همیشه ۱۰۰٪ خوانا و واضح باشند
-    val safeTint = remember(activeTint) {
-        val lum = 0.299f * activeTint.red + 0.587f * activeTint.green + 0.114f * activeTint.blue
-        if (lum > 0.65f) {
-            Color(
-                red = activeTint.red * 0.55f,
-                green = activeTint.green * 0.55f,
-                blue = activeTint.blue * 0.55f,
-                alpha = 1f
-            )
+    val effectiveSurface = remember(baseColor, tintColor, tintAlpha) {
+        if (tintColor != Color.Transparent && tintColor != Color.Unspecified && tintAlpha > 0.01f) {
+            val clampedRatio = (tintAlpha * 0.25f).coerceIn(0.02f, 0.12f)
+            lerp(baseColor, tintColor.copy(alpha = 1f), clampedRatio)
         } else {
-            activeTint
+            baseColor
         }
     }
 
-    val density = LocalDensity.current
-    val configuration = LocalConfiguration.current
-    val screenHeightPx = remember(configuration) {
-        with(density) { configuration.screenHeightDp.dp.toPx().coerceAtLeast(1f) }
+    val subtleBorderColor = remember(thickness) {
+        when (thickness) {
+            GlassThickness.THIN -> Color(0x0DFFFFFF)
+            GlassThickness.REGULAR -> Color(0x14FFFFFF)
+            GlassThickness.THICK -> Color(0x1FFFFFFF)
+        }
     }
-
-    rememberGyroscopeSensorActive()
-    var windowY by remember { mutableFloatStateOf(0f) }
 
     this
-        .onGloballyPositioned { coordinates ->
-            val newY = coordinates.positionInWindow().y
-            if (kotlin.math.abs(newY - windowY) > 2f) {
-                windowY = newY
-            }
-        }
         .clip(shape)
         .drawWithCache {
-            val w = size.width
-            val h = size.height
-            val minDim = min(w, h)
-            val isSmallButton = minDim < 56.dp.toPx() || w < 72.dp.toPx()
-
             val outline = shape.createOutline(size, layoutDirection, this)
             val outlinePath = Path().apply {
                 when (outline) {
@@ -305,107 +147,15 @@ fun Modifier.liquidGlass(
                     is Outline.Rectangle -> addRect(outline.rect)
                 }
             }
+            val strokePx = borderWidth.coerceAtMost(1.dp).toPx()
 
-            val baseAlpha = when (thickness) {
-                GlassThickness.THIN -> 0.80f
-                GlassThickness.REGULAR -> 0.86f
-                GlassThickness.THICK -> 0.92f
-            }
-
-            val glassBodyBrush = Brush.linearGradient(
-                colors = listOf(
-                    Color(0xFF121626).copy(alpha = baseAlpha),
-                    safeTint.copy(alpha = (tintAlpha * 1.15f).coerceIn(0.12f, 0.32f)),
-                    Color(0xFF080A14).copy(alpha = (baseAlpha + 0.05f).coerceAtMost(0.96f))
-                ),
-                start = Offset(0f, 0f),
-                end = Offset(w, h)
-            )
-
-            if (isSmallButton) {
-                val btnFill = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xD8161B2E),
-                        safeTint.copy(alpha = 0.28f),
-                        Color(0xEE090C16)
-                    )
-                )
-                val btnRim = Brush.linearGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.70f),
-                        activeTint.copy(alpha = 0.55f),
-                        Color.White.copy(alpha = 0.25f)
-                    ),
-                    start = Offset(0f, 0f),
-                    end = Offset(w, h)
-                )
-
-                onDrawWithContent {
-                    drawPath(path = outlinePath, brush = btnFill)
-                    drawContent()
+            onDrawWithContent {
+                drawPath(path = outlinePath, color = effectiveSurface)
+                drawContent()
+                if (strokePx > 0f) {
                     drawPath(
                         path = outlinePath,
-                        brush = btnRim,
-                        style = Stroke(width = borderWidth.toPx())
-                    )
-                }
-            } else {
-                val beamWidth = (w * 0.54f).coerceAtLeast(160f)
-                val strokePx = borderWidth.toPx()
-
-                onDrawWithContent {
-                    // خواندن ژیروسکوپ فقط در فاز Draw برای اجرای ۱۲۰ فریم بدون هیچ Recomposition
-                    val gyroRoll = HardwareGyroscopeManager.roll
-                    val gyroPitch = HardwareGyroscopeManager.pitch
-                    val scrollRatio = (windowY / screenHeightPx).coerceIn(-0.3f, 1.3f)
-
-                    val sweepProgress = ((1f - scrollRatio) * 1.35f - 0.18f) + (gyroRoll * 0.18f)
-                    val beamCenterX = w * sweepProgress
-                    val beamCenterY = h * (0.24f + scrollRatio * 0.52f + gyroPitch * 0.15f)
-
-                    val specularReflectionBrush = Brush.linearGradient(
-                        colorStops = arrayOf(
-                            0.00f to Color.Transparent,
-                            0.32f to safeTint.copy(alpha = 0.07f),
-                            0.44f to Color.White.copy(alpha = 0.14f),
-                            0.50f to Color.White.copy(alpha = 0.25f),
-                            0.56f to secondaryAccent.copy(alpha = 0.11f),
-                            0.68f to Color.Transparent,
-                            1.00f to Color.Transparent
-                        ),
-                        start = Offset(beamCenterX - beamWidth, beamCenterY - beamWidth * 0.7f),
-                        end = Offset(beamCenterX + beamWidth, beamCenterY + beamWidth * 0.7f)
-                    )
-
-                    val rimAngle = ((scrollRatio * PI) + (gyroRoll * 0.35f) + (gyroPitch * 0.20f)).toFloat()
-                    val rimStart = Offset(
-                        x = (w * 0.5f) + cos(rimAngle) * w * 0.6f,
-                        y = (h * 0.5f) + sin(rimAngle) * h * 0.6f
-                    )
-                    val rimEnd = Offset(
-                        x = (w * 0.5f) - cos(rimAngle) * w * 0.6f,
-                        y = (h * 0.5f) - sin(rimAngle) * h * 0.6f
-                    )
-
-                    val dynamicBorderBrush = Brush.linearGradient(
-                        colorStops = arrayOf(
-                            0.00f to activeTint.copy(alpha = 0.85f),
-                            0.35f to Color.White.copy(alpha = 0.90f),
-                            0.65f to secondaryAccent.copy(alpha = 0.80f),
-                            1.00f to activeTint.copy(alpha = 0.62f)
-                        ),
-                        start = rimStart,
-                        end = rimEnd
-                    )
-
-                    clipPath(outlinePath) {
-                        drawRect(brush = glassBodyBrush)
-                        drawRect(brush = specularReflectionBrush)
-                    }
-                    drawContent()
-                    drawPath(
-                        path = outlinePath,
-                        brush = dynamicBorderBrush,
+                        color = subtleBorderColor,
                         style = Stroke(width = strokePx)
                     )
                 }
@@ -415,18 +165,18 @@ fun Modifier.liquidGlass(
 
 @Composable
 fun Modifier.premiumTrackGlowingBorder(
-    primaryColor: Color = Color(0xFF9D4EDD),
-    secondaryColor: Color = Color(0xFF00E5FF),
+    primaryColor: Color = AuraSpotifyGreen,
+    secondaryColor: Color = AuraSpotifyGreen,
     isPlaying: Boolean = false,
-    cornerRadius: Dp = 20.dp,
-    borderWidth: Dp = if (isPlaying) 1.8.dp else 1.25.dp
+    cornerRadius: Dp = 8.dp,
+    borderWidth: Dp = if (isPlaying) 1.dp else 0.dp
 ): Modifier = composed {
     this.liquidGlass(
         shape = RoundedCornerShape(cornerRadius),
-        thickness = if (isPlaying) GlassThickness.THICK else GlassThickness.REGULAR,
-        tintColor = primaryColor,
-        tintAlpha = if (isPlaying) 0.24f else 0.14f,
-        borderWidth = borderWidth,
-        secondaryAccent = secondaryColor
+        thickness = if (isPlaying) GlassThickness.REGULAR else GlassThickness.THIN,
+        tintColor = if (isPlaying) primaryColor else Color.Transparent,
+        tintAlpha = if (isPlaying) 0.15f else 0f,
+        borderWidth = borderWidth
     )
 }
+

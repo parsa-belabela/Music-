@@ -1,0 +1,1946 @@
+app/src/main/java/com/example/ui/components/LyricsView.kt
+package com.example.ui.components
+
+import android.content.Context
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloseFullscreen
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.audio.AmbientPalette
+import com.example.data.model.LyricsDisplayMode
+import com.example.data.model.LyricsLine
+import com.example.ui.theme.AuraSpotifyGreen
+import com.example.ui.theme.AuraSurface
+import com.example.ui.theme.AuraSurfaceElevated
+import com.example.ui.theme.TextSecondary
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+
+@Composable
+fun LyricsView(
+    lyrics: List<LyricsLine>,
+    currentPositionMs: Long,
+    displayMode: LyricsDisplayMode,
+    palette: AmbientPalette,
+    onSeekTo: (Long) -> Unit,
+    onOpenEditor: () -> Unit,
+    modifier: Modifier = Modifier,
+    enableWordHighlight: Boolean = true,
+    baseFontSize: Float = 22f,
+    activeTrackId: String = ""
+) {
+    LyricsView(
+        lyrics = lyrics,
+        currentPositionProvider = { currentPositionMs },
+        displayMode = displayMode,
+        palette = palette,
+        onSeekTo = onSeekTo,
+        onOpenEditor = onOpenEditor,
+        modifier = modifier,
+        enableWordHighlight = enableWordHighlight,
+        baseFontSize = baseFontSize,
+        activeTrackId = activeTrackId
+    )
+}
+
+@Composable
+fun LyricsView(
+    lyrics: List<LyricsLine>,
+    currentPositionProvider: () -> Long,
+    displayMode: LyricsDisplayMode,
+    palette: AmbientPalette,
+    onSeekTo: (Long) -> Unit,
+    onOpenEditor: () -> Unit,
+    modifier: Modifier = Modifier,
+    enableWordHighlight: Boolean = true,
+    baseFontSize: Float = 22f,
+    activeTrackId: String = ""
+) {
+    val context = LocalContext.current
+    val listState = rememberLazyListState()
+    val haptic = LocalHapticFeedback.current
+    var isCinematicFullscreen by remember { mutableStateOf(false) }
+    var isFreestylePadOpen by remember { mutableStateOf(false) }
+
+    val freestylePrefs = remember {
+        context.getSharedPreferences("aura_freestyle_pad", Context.MODE_PRIVATE)
+    }
+    var freestyleText by remember(activeTrackId) {
+        mutableStateOf(freestylePrefs.getString("note_$activeTrackId", "") ?: "")
+    }
+
+    var liveClockMs by remember { mutableLongStateOf(currentPositionProvider()) }
+    LaunchedEffect(activeTrackId, lyrics.isNotEmpty(), isFreestylePadOpen) {
+        while (isActive) {
+            liveClockMs = currentPositionProvider()
+            delay(32L)
+        }
+    }
+
+    LaunchedEffect(activeTrackId) {
+        if (lyrics.isNotEmpty()) {
+            try {
+                listState.scrollToItem(0)
+            } catch (_: Exception) {}
+        }
+    }
+
+    val activeIndex = remember(lyrics, liveClockMs) {
+        if (lyrics.isEmpty()) -1
+        else lyrics.indexOfLast { it.timestampMs <= liveClockMs }
+    }
+
+    var isUserInteracting by remember { mutableStateOf(false) }
+    var lastUserInteractionTime by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) {
+            isUserInteracting = true
+            lastUserInteractionTime = System.currentTimeMillis()
+        }
+    }
+
+    LaunchedEffect(activeIndex) {
+        if (activeIndex in lyrics.indices) {
+            val now = System.currentTimeMillis()
+            if (isUserInteracting && (now - lastUserInteractionTime < 3000L)) {
+                return@LaunchedEffect
+            }
+            isUserInteracting = false
+            try {
+                listState.animateScrollToItem(
+                    index = (activeIndex - 1).coerceAtLeast(0),
+                    scrollOffset = 0
+                )
+            } catch (_: Exception) {}
+        }
+    }
+
+    val cardTint = remember(palette.primary, palette.isMonochrome) {
+        if (palette.isMonochrome) Color(0xFF242424)
+        else palette.primary.copy(alpha = 0.28f)
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardTint)
+    ) {
+        if (isFreestylePadOpen) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(AuraSurface)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.EditNote,
+                            contentDescription = null,
+                            tint = AuraSpotifyGreen,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "Freestyle & Beat Pad",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
+                            Text(
+                                text = "دفترچه تکست‌نویسی و ثبت تایم‌کد روی بیت",
+                                color = TextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                val min = (liveClockMs / 1000) / 60
+                                val sec = (liveClockMs / 1000) % 60
+                                val cs = (liveClockMs % 1000) / 10
+                                val stamp = "[%02d:%02d.%02d] ".format(min, sec, cs)
+                                val prefix = if (freestyleText.isEmpty() || freestyleText.endsWith("\n")) "" else "\n"
+                                val updated = freestyleText + prefix + stamp
+                                freestyleText = updated
+                                freestylePrefs.edit().putString("note_$activeTrackId", updated).apply()
+                            },
+                            shape = RoundedCornerShape(50),
+                            color = AuraSpotifyGreen
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Timer,
+                                    contentDescription = null,
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "+ تایم‌کد",
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.5.sp
+                                )
+                            }
+                        }
+
+                        TextButton(onClick = { isFreestylePadOpen = false }) {
+                            Text(
+                                "بستن",
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.5.sp
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = freestyleText,
+                    onValueChange = { newText ->
+                        freestyleText = newText
+                        freestylePrefs.edit().putString("note_$activeTrackId", newText).apply()
+                    },
+                    placeholder = {
+                        Text(
+                            text = "ورس، قافیه یا ایده خود را اینجا بنویسید...",
+                            color = TextSecondary,
+                            fontSize = 13.sp
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    textStyle = TextStyle(
+                        color = Color.White,
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        lineHeight = 22.sp
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AuraSpotifyGreen,
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedContainerColor = AuraSurfaceElevated,
+                        unfocusedContainerColor = AuraSurfaceElevated
+                    )
+                )
+            }
+            return@Box
+        }
+
+        if (lyrics.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "Couldn't load the lyrics for this song",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "You can add synced LRC lyrics manually or open the Freestyle Pad.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = Color.White.copy(alpha = 0.7f)),
+                        textAlign = TextAlign.Center,
+                        lineHeight = 18.sp
+                    )
+                    Spacer(modifier = Modifier.height(18.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(
+                            onClick = onOpenEditor,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.White,
+                                contentColor = Color.Black
+                            ),
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.testTag("open_lyrics_editor_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Add Lyrics", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                        }
+                        OutlinedButton(
+                            onClick = { isFreestylePadOpen = true },
+                            shape = RoundedCornerShape(50),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.EditNote,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                "Freestyle Pad",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.5.sp
+                            )
+                        }
+                    }
+                }
+            }
+            return@Box
+        }
+
+        val effectiveFontSize = if (isCinematicFullscreen) baseFontSize + 3f else baseFontSize
+
+        // Spotify Iconic Synced Lyrics List
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                top = 56.dp,
+                bottom = 110.dp,
+                start = 20.dp,
+                end = 20.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            itemsIndexed(lyrics, key = { idx, line -> "${line.timestampMs}_$idx" }) { index, line ->
+                val isActive = index == activeIndex
+                val isPassed = index < activeIndex
+
+                val textAlignment = when (displayMode) {
+                    LyricsDisplayMode.CENTER -> TextAlign.Center
+                    else -> TextAlign.Start
+                }
+
+                val targetColor = when {
+                    isActive -> Color.White
+                    isPassed -> Color.White.copy(alpha = 0.38f)
+                    else -> Color.White.copy(alpha = 0.52f)
+                }
+
+                val animatedColor by animateColorAsState(
+                    targetValue = targetColor,
+                    animationSpec = tween(220, easing = FastOutSlowInEasing),
+                    label = "spotifyLyricColor"
+                )
+
+                val lineScale by animateFloatAsState(
+                    targetValue = if (isActive) 1.02f else 1.0f,
+                    animationSpec = tween(220, easing = FastOutSlowInEasing),
+                    label = "spotifyLyricScale"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            scaleX = lineScale
+                            scaleY = lineScale
+                        }
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onSeekTo(line.timestampMs)
+                        }
+                        .padding(vertical = 4.dp),
+                    contentAlignment = if (textAlignment == TextAlign.Center) Alignment.Center else Alignment.CenterStart
+                ) {
+                    if (isActive && enableWordHighlight && line.words.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = if (textAlignment == TextAlign.Center) Arrangement.Center else Arrangement.Start,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            for (w in line.words) {
+                                val isWordActive = liveClockMs in w.startMs..w.endMs
+                                val isWordPassed = liveClockMs > w.endMs
+
+                                val sweepFraction = if (isWordActive) {
+                                    val duration = (w.endMs - w.startMs).coerceAtLeast(1L)
+                                    ((liveClockMs - w.startMs).toFloat() / duration).coerceIn(0f, 1f)
+                                } else if (isWordPassed) 1f else 0f
+
+                                val wordBrush = if (isWordActive) {
+                                    Brush.horizontalGradient(
+                                        0.0f to Color.White,
+                                        sweepFraction.coerceIn(0f, 1f) to Color.White,
+                                        (sweepFraction + 0.1f).coerceIn(0f, 1f) to Color.White.copy(alpha = 0.5f),
+                                        1.0f to Color.White.copy(alpha = 0.5f)
+                                    )
+                                } else if (isWordPassed) {
+                                    Brush.linearGradient(listOf(Color.White, Color.White))
+                                } else {
+                                    Brush.linearGradient(
+                                        listOf(
+                                            Color.White.copy(alpha = 0.5f),
+                                            Color.White.copy(alpha = 0.5f)
+                                        )
+                                    )
+                                }
+
+                                Text(
+                                    text = "${w.word} ",
+                                    fontSize = (effectiveFontSize + 2f).sp,
+                                    fontWeight = FontWeight.Bold,
+                                    style = TextStyle(brush = wordBrush),
+                                    lineHeight = ((effectiveFontSize + 2f) * 1.4f).sp
+                                )
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = line.text,
+                            fontSize = (effectiveFontSize + 1f).sp,
+                            fontWeight = FontWeight.Bold,
+                            color = animatedColor,
+                            textAlign = textAlignment,
+                            lineHeight = ((effectiveFontSize + 1f) * 1.38f).sp
+                        )
+                    }
+                }
+            }
+        }
+
+        // Top-Right Minimal Spotify Utility Pills (Editor, Freestyle Pad, Expand)
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 10.dp, end = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onOpenEditor,
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.28f))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Edit Lyrics",
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(15.dp)
+                )
+            }
+
+            IconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    isFreestylePadOpen = true
+                },
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.28f))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.EditNote,
+                    contentDescription = "Freestyle Pad",
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(17.dp)
+                )
+            }
+
+            IconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    isCinematicFullscreen = !isCinematicFullscreen
+                },
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.28f))
+            ) {
+                Icon(
+                    imageVector = if (isCinematicFullscreen) Icons.Default.CloseFullscreen else Icons.Default.Fullscreen,
+                    contentDescription = "Fullscreen Lyrics",
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+app/src/main/java/com/example/ui/components/ShareSongDialog.kt
+package com.example.ui.components
+
+import android.content.Context
+import android.content.Intent
+import android.widget.Toast
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Lyrics
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import coil.compose.AsyncImage
+import com.example.OnlineMusicRepository
+import com.example.audio.AmbientPalette
+import com.example.data.model.AppLanguage
+import com.example.data.model.LyricsLine
+import com.example.data.model.Track
+import com.example.ui.theme.AuraCanvas
+import com.example.ui.theme.AuraSpotifyGreen
+import com.example.ui.theme.AuraSurface
+import com.example.ui.theme.AuraSurfaceElevated
+import com.example.ui.theme.TextSecondary
+import com.example.util.SongShareCardGenerator
+import kotlinx.coroutines.launch
+import kotlin.math.sin
+
+@Composable
+fun ShareSongDialog(
+    track: Track,
+    palette: AmbientPalette,
+    language: AppLanguage,
+    lyrics: List<LyricsLine> = emptyList(),
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val isFa = language == AppLanguage.PERSIAN
+    var isGeneratingCard by remember { mutableStateOf(false) }
+    var selectedCardThemeIdx by remember { mutableIntStateOf(0) }
+    var showLyricPicker by remember { mutableStateOf(false) }
+
+    val availableLines = remember(lyrics, track.id) {
+        val fromLyrics = lyrics.map { it.text.trim() }.filter {
+            it.isNotBlank() && !it.contains("متنی برای این آهنگ یافت نشد")
+        }
+        if (fromLyrics.isNotEmpty()) {
+            fromLyrics
+        } else {
+            val prefs = context.getSharedPreferences("aura_freestyle_pad", Context.MODE_PRIVATE)
+            val note = prefs.getString("note_${track.id}", "") ?: ""
+            note.lines()
+                .map { it.replace(Regex("\\[\\d+:\\d+(?:\\.\\d+)?]"), "").trim() }
+                .filter { it.isNotBlank() }
+        }
+    }
+
+    val selectedLyricIndices = remember(track.id) {
+        mutableStateListOf<Int>().apply {
+            if (availableLines.isNotEmpty()) {
+                add(0)
+                if (availableLines.size > 1) add(1)
+            }
+        }
+    }
+
+    val selectedLyricStrings = selectedLyricIndices.sorted()
+        .mapNotNull { availableLines.getOrNull(it) }
+        .take(4)
+
+    // Curated Spotify Share Card Color Themes
+    val cardThemes = remember(palette) {
+        val dynamicPrimary = if (palette.isMonochrome) Color(0xFF282828) else lerp(Color(0xFF181818), palette.primary.copy(alpha = 1f), 0.75f)
+        val dynamicSecondary = if (palette.isMonochrome) Color(0xFF141414) else lerp(Color(0xFF101010), palette.primary.copy(alpha = 1f), 0.42f)
+        listOf(
+            listOf(dynamicPrimary, dynamicSecondary),
+            listOf(Color(0xFF1DB954), Color(0xFF0E6B30)),
+            listOf(Color(0xFFE1306C), Color(0xFF7A1438)),
+            listOf(Color(0xFF3B82F6), Color(0xFF1D3A8A)),
+            listOf(Color(0xFFD97706), Color(0xFF78350F)),
+            listOf(Color(0xFF242424), Color(0xFF141414))
+        )
+    }
+    val activeGradient = cardThemes[selectedCardThemeIdx % cardThemes.size]
+
+    var loadedCoverBitmap by remember(track.id, track.artworkUri) {
+        mutableStateOf(
+            OnlineMusicRepository.getCachedCoverBitmap(track.artworkUri ?: track.id)
+        )
+    }
+    LaunchedEffect(track.id, track.artworkUri) {
+        if (loadedCoverBitmap == null) {
+            val url = track.artworkUri?.takeIf { it.isNotBlank() }
+                ?: OnlineMusicRepository.getCoverUrlForTrack(track.id, track.artist)
+            if (!url.isNullOrBlank()) {
+                loadedCoverBitmap = OnlineMusicRepository.loadCoverBitmap(url)
+            }
+        }
+    }
+
+    val shareStoryCardImage: () -> Unit = {
+        if (!isGeneratingCard) {
+            isGeneratingCard = true
+            scope.launch {
+                val customPalette = palette.copy(
+                    primary = activeGradient[0],
+                    secondary = activeGradient[1],
+                    accent = Color.White
+                )
+                val uri = SongShareCardGenerator.generateSongCardBitmap(
+                    context = context,
+                    track = track,
+                    palette = customPalette,
+                    selectedLyricLines = selectedLyricStrings,
+                    lang = language
+                )
+                isGeneratingCard = false
+                if (uri != null) {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "image/png"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        putExtra(
+                            Intent.EXTRA_TEXT,
+                            "${track.title} — ${track.artist}\n#AuraMusic"
+                        )
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(
+                        Intent.createChooser(
+                            intent,
+                            if (isFa) "اشتراک‌گذاری در استوری" else "Share Story"
+                        )
+                    )
+                } else {
+                    Toast.makeText(context, "Error generating card", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(AuraCanvas)
+                .systemBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                // 1. Clean Spotify Share Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (selectedLyricStrings.isNotEmpty()) {
+                            if (isFa) "اشتراک‌گذاری متن آهنگ" else "Share Lyrics"
+                        } else {
+                            if (isFa) "اشتراک‌گذاری آهنگ" else "Share Song"
+                        },
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(AuraSurfaceElevated)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                // 2. Authentic Spotify Story Preview Card (Lyrics Mode vs Song Mode)
+                Box(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .fillMaxWidth(0.88f)
+                        .aspectRatio(9f / 14f)
+                        .shadow(24.dp, RoundedCornerShape(20.dp), spotColor = Color.Black)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Brush.verticalGradient(activeGradient))
+                        .padding(22.dp)
+                ) {
+                    if (selectedLyricStrings.isNotEmpty()) {
+                        // === SPOTIFY LYRICS SHARE CARD LAYOUT ===
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            // Top Track Header (Small Cover + Title + Artist)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color(0xFF181818)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    val bmp = loadedCoverBitmap
+                                    if (bmp != null) {
+                                        Image(
+                                            bitmap = bmp.asImageBitmap(),
+                                            contentDescription = track.title,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else if (!track.artworkUri.isNullOrEmpty()) {
+                                        AsyncImage(
+                                            model = track.artworkUri,
+                                            contentDescription = track.title,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.MusicNote,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = track.title,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = track.artist,
+                                        color = Color.White.copy(alpha = 0.78f),
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            // Center Editorial Lyrics Block
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                val dynamicFontSize = when (selectedLyricStrings.size) {
+                                    1 -> 24.sp
+                                    2 -> 21.sp
+                                    3 -> 18.5.sp
+                                    else -> 16.5.sp
+                                }
+                                selectedLyricStrings.forEach { lineText ->
+                                    Text(
+                                        text = lineText,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = dynamicFontSize,
+                                        lineHeight = dynamicFontSize * 1.32f,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            // Bottom Spotify-Style Brand & Audio Code Row
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.White),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MusicNote,
+                                            contentDescription = null,
+                                            tint = activeGradient[0],
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = "Aura Music",
+                                        color = Color.White.copy(alpha = 0.9f),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+
+                                SpotifyMiniWaveformCode(
+                                    seed = track.title.hashCode(),
+                                    modifier = Modifier
+                                        .width(84.dp)
+                                        .height(16.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        // === SPOTIFY SONG / ALBUM SHARE CARD LAYOUT ===
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // Crisp Centered Album Cover
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.84f)
+                                    .aspectRatio(1f)
+                                    .shadow(20.dp, RoundedCornerShape(12.dp), spotColor = Color.Black)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF181818)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                val bmp = loadedCoverBitmap
+                                if (bmp != null) {
+                                    Image(
+                                        bitmap = bmp.asImageBitmap(),
+                                        contentDescription = track.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else if (!track.artworkUri.isNullOrEmpty()) {
+                                    AsyncImage(
+                                        model = track.artworkUri,
+                                        contentDescription = track.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    MusicArtworkPlaceholder(
+                                        title = track.title,
+                                        artist = track.artist,
+                                        trackId = track.id,
+                                        palette = palette,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            }
+
+                            // Track Title, Artist & Soundwave Code
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.Start
+                            ) {
+                                Text(
+                                    text = track.title,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 20.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = track.artist,
+                                    color = Color.White.copy(alpha = 0.78f),
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(20.dp)
+                                                .clip(CircleShape)
+                                                .background(Color.White),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.MusicNote,
+                                                contentDescription = null,
+                                                tint = activeGradient[0],
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                        }
+                                        Text(
+                                            text = "Aura Music",
+                                            color = Color.White.copy(alpha = 0.9f),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp
+                                        )
+                                    }
+
+                                    SpotifyMiniWaveformCode(
+                                        seed = track.title.hashCode(),
+                                        modifier = Modifier
+                                            .width(96.dp)
+                                            .height(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. Controls Section (Lyric Picker, Color Swatches & Share Button)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (availableLines.isNotEmpty()) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Lyrics,
+                                        contentDescription = null,
+                                        tint = AuraSpotifyGreen,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = if (isFa) "انتخاب خطوط لیریک (${selectedLyricIndices.size}/4)" else "Lyrics on card (${selectedLyricIndices.size}/4)",
+                                        color = Color.White,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    if (selectedLyricIndices.isNotEmpty()) {
+                                        Text(
+                                            text = if (isFa) "حالت پوستر کاور" else "Cover Only",
+                                            color = TextSecondary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .clickable { selectedLyricIndices.clear() }
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = if (showLyricPicker) {
+                                            if (isFa) "بستن لیست" else "Done"
+                                        } else {
+                                            if (isFa) "تغییر متن" else "Select Lines"
+                                        },
+                                        color = AuraSpotifyGreen,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable { showLyricPicker = !showLyricPicker }
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            if (showLyricPicker) {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 120.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(AuraSurface)
+                                        .padding(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    items(availableLines.size) { idx ->
+                                        val isChosen = idx in selectedLyricIndices
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(if (isChosen) AuraSpotifyGreen.copy(alpha = 0.18f) else Color.Transparent)
+                                                .clickable {
+                                                    if (isChosen) {
+                                                        selectedLyricIndices.remove(idx)
+                                                    } else if (selectedLyricIndices.size < 4) {
+                                                        selectedLyricIndices.add(idx)
+                                                    }
+                                                }
+                                                .padding(horizontal = 10.dp, vertical = 7.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = availableLines[idx],
+                                                color = if (isChosen) Color.White else TextSecondary,
+                                                fontSize = 12.5.sp,
+                                                fontWeight = if (isChosen) FontWeight.Bold else FontWeight.Normal,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            if (isChosen) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    tint = AuraSpotifyGreen,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Color Swatches Row
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        cardThemes.forEachIndexed { idx, colors ->
+                            val selected = selectedCardThemeIdx == idx
+                            Box(
+                                modifier = Modifier
+                                    .size(if (selected) 32.dp else 26.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.first())
+                                    .border(
+                                        width = if (selected) 2.5.dp else 1.dp,
+                                        color = if (selected) Color.White else Color.White.copy(alpha = 0.25f),
+                                        shape = CircleShape
+                                    )
+                                    .clickable { selectedCardThemeIdx = idx }
+                            )
+                        }
+                    }
+
+                    // Primary Share Button
+                    Button(
+                        onClick = shareStoryCardImage,
+                        enabled = !isGeneratingCard,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        shape = RoundedCornerShape(50),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AuraSpotifyGreen,
+                            contentColor = Color.Black
+                        )
+                    ) {
+                        if (isGeneratingCard) {
+                            CircularProgressIndicator(
+                                color = Color.Black,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.Share,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isFa) "اشتراک‌گذاری در استوری" else "Share to Story",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpotifyMiniWaveformCode(
+    seed: Int,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val bars = 22
+        val gap = 3.dp.toPx()
+        val barW = ((size.width - gap * (bars - 1)) / bars).coerceAtLeast(2f)
+        for (i in 0 until bars) {
+            val norm = (sin(i * 0.65f + seed) * 0.38f + 0.56f).coerceIn(0.22f, 1f)
+            val h = size.height * norm
+            val x = i * (barW + gap)
+            val y = (size.height - h) / 2f
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.88f),
+                topLeft = Offset(x, y),
+                size = Size(barW, h),
+                cornerRadius = CornerRadius(barW / 2f, barW / 2f)
+            )
+        }
+    }
+}
+
+app/src/main/java/com/example/util/SongShareCardGenerator.kt
+package com.example.util
+
+import android.content.Context
+import android.graphics.*
+import android.net.Uri
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
+import android.util.Log
+import androidx.core.content.FileProvider
+import com.example.OnlineMusicRepository
+import com.example.audio.AmbientPalette
+import com.example.data.model.AppLanguage
+import com.example.data.model.Track
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import kotlin.math.sin
+
+object SongShareCardGenerator {
+
+    suspend fun generateSongCardBitmap(
+        context: Context,
+        track: Track,
+        palette: AmbientPalette,
+        waveformEnvelope: FloatArray? = null,
+        lyricSnippet: String? = null,
+        selectedLyricLines: List<String> = emptyList(),
+        lang: AppLanguage = AppLanguage.ENGLISH
+    ): Uri? = withContext(Dispatchers.IO) {
+        try {
+            val width = 1080
+            val height = 1920
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+
+            val pColor = palette.primary
+            val sColor = palette.secondary
+
+            val pInt = Color.rgb(
+                (pColor.red * 255).toInt().coerceIn(0, 255),
+                (pColor.green * 255).toInt().coerceIn(0, 255),
+                (pColor.blue * 255).toInt().coerceIn(0, 255)
+            )
+            val sInt = Color.rgb(
+                (sColor.red * 255).toInt().coerceIn(0, 255),
+                (sColor.green * 255).toInt().coerceIn(0, 255),
+                (sColor.blue * 255).toInt().coerceIn(0, 255)
+            )
+            val darkBase = Color.rgb(12, 12, 14)
+
+            // Resolve artwork from Memory/Disk/Cloudflare or local ContentResolver
+            var loadedArtBmp: Bitmap? = null
+            val artUrl = track.artworkUri?.takeIf { it.isNotBlank() }
+                ?: OnlineMusicRepository.getCoverUrlForTrack(track.id, track.artist)
+
+            if (artUrl.isNotBlank()) {
+                loadedArtBmp = OnlineMusicRepository.getCachedCoverBitmap(artUrl)
+                    ?: OnlineMusicRepository.loadCoverBitmap(artUrl)
+                if (loadedArtBmp == null) {
+                    try {
+                        val uri = Uri.parse(artUrl)
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            loadedArtBmp = BitmapFactory.decodeStream(input)
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+
+            // 1. Story Outer Canvas Gradient (Spotify Story Backdrop)
+            val outerBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = LinearGradient(
+                    0f, 0f, 0f, height.toFloat(),
+                    intArrayOf(
+                        blendColors(pInt, Color.BLACK, 0.45f),
+                        blendColors(sInt, Color.BLACK, 0.72f),
+                        darkBase
+                    ),
+                    floatArrayOf(0f, 0.55f, 1f),
+                    Shader.TileMode.CLAMP
+                )
+            }
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), outerBgPaint)
+
+            val hasLyricLines = selectedLyricLines.isNotEmpty()
+
+            if (hasLyricLines) {
+                // =========================================================================
+                // MODE A: AUTHENTIC SPOTIFY LYRICS SHARE CARD
+                // =========================================================================
+                val cardMarginH = 84f
+                val cardTop = 260f
+                val cardBottom = 1660f
+                val cardRect = RectF(cardMarginH, cardTop, width - cardMarginH, cardBottom)
+
+                // Drop Shadow behind Lyrics Card
+                val cardShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.argb(140, 0, 0, 0)
+                    maskFilter = BlurMaskFilter(56f, BlurMaskFilter.Blur.NORMAL)
+                }
+                canvas.drawRoundRect(
+                    RectF(cardRect.left + 8f, cardRect.top + 24f, cardRect.right - 8f, cardRect.bottom + 24f),
+                    52f,
+                    52f,
+                    cardShadowPaint
+                )
+
+                // Inner Spotify Lyrics Card Fill
+                val cardFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    shader = LinearGradient(
+                        cardRect.left, cardRect.top, cardRect.left, cardRect.bottom,
+                        intArrayOf(pInt, blendColors(pInt, sInt, 0.65f)),
+                        null,
+                        Shader.TileMode.CLAMP
+                    )
+                }
+                canvas.drawRoundRect(cardRect, 52f, 52f, cardFillPaint)
+
+                val innerPad = 68f
+                val headerTop = cardRect.top + innerPad
+                val thumbSize = 132f
+                val thumbRect = RectF(
+                    cardRect.left + innerPad,
+                    headerTop,
+                    cardRect.left + innerPad + thumbSize,
+                    headerTop + thumbSize
+                )
+
+                // Draw Album Cover Thumbnail in Card Header
+                drawRoundedBitmapOrPlaceholder(
+                    canvas = canvas,
+                    bmp = loadedArtBmp,
+                    rect = thumbRect,
+                    cornerRadius = 20f,
+                    fallbackColor = sInt
+                )
+
+                // Draw Song Title & Artist next to Thumbnail
+                val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.WHITE
+                    textSize = 44f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                }
+                val artistPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.argb(210, 255, 255, 255)
+                    textSize = 34f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                }
+
+                val textStartX = thumbRect.right + 32f
+                val maxHeaderTextW = (cardRect.right - innerPad - textStartX).toInt().coerceAtLeast(100)
+                val ellipsizedTitle = android.text.TextUtils.ellipsize(
+                    track.title,
+                    titlePaint,
+                    maxHeaderTextW.toFloat(),
+                    android.text.TextUtils.TruncateAt.END
+                ).toString()
+                val ellipsizedArtist = android.text.TextUtils.ellipsize(
+                    track.artist,
+                    artistPaint,
+                    maxHeaderTextW.toFloat(),
+                    android.text.TextUtils.TruncateAt.END
+                ).toString()
+
+                canvas.drawText(ellipsizedTitle, textStartX, headerTop + 56f, titlePaint)
+                canvas.drawText(ellipsizedArtist, textStartX, headerTop + 106f, artistPaint)
+
+                // Draw Lyric Lines in the Center of the Card
+                val linesToRender = selectedLyricLines.take(4).joinToString("\n\n")
+                val lyricFontSize = when (selectedLyricLines.size) {
+                    1 -> 64f
+                    2 -> 56f
+                    3 -> 48f
+                    else -> 42f
+                }
+
+                val isRtlText = linesToRender.any { it in '\u0600'..'\u06FF' }
+                val lyricPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.WHITE
+                    textSize = lyricFontSize
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                }
+
+                val contentWidth = (cardRect.width() - innerPad * 2).toInt().coerceAtLeast(200)
+                val alignment = if (isRtlText) Layout.Alignment.ALIGN_OPPOSITE else Layout.Alignment.ALIGN_NORMAL
+
+                val staticLayout = StaticLayout.Builder
+                    .obtain(linesToRender, 0, linesToRender.length, lyricPaint, contentWidth)
+                    .setAlignment(alignment)
+                    .setLineSpacing(8f, 1.15f)
+                    .setIncludePad(false)
+                    .build()
+
+                val availableLyricTop = thumbRect.bottom + 72f
+                val availableLyricBottom = cardRect.bottom - 160f
+                val lyricBlockY = (availableLyricTop + (availableLyricBottom - availableLyricTop - staticLayout.height) / 2f)
+                    .coerceAtLeast(availableLyricTop)
+
+                canvas.save()
+                canvas.translate(cardRect.left + innerPad, lyricBlockY)
+                staticLayout.draw(canvas)
+                canvas.restore()
+
+                // Card Footer: Brand Badge + Soundwave Code
+                val footerY = cardRect.bottom - 76f
+                drawSpotifyFooterInsideCard(
+                    canvas = canvas,
+                    leftX = cardRect.left + innerPad,
+                    rightX = cardRect.right - innerPad,
+                    centerY = footerY,
+                    seed = track.title.hashCode(),
+                    accentColor = pInt
+                )
+            } else {
+                // =========================================================================
+                // MODE B: AUTHENTIC SPOTIFY SONG / ALBUM SHARE CARD
+                // =========================================================================
+                val cardMarginH = 84f
+                val cardTop = 240f
+                val cardBottom = 1680f
+                val cardRect = RectF(cardMarginH, cardTop, width - cardMarginH, cardBottom)
+
+                val cardShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.argb(150, 0, 0, 0)
+                    maskFilter = BlurMaskFilter(60f, BlurMaskFilter.Blur.NORMAL)
+                }
+                canvas.drawRoundRect(
+                    RectF(cardRect.left + 8f, cardRect.top + 24f, cardRect.right - 8f, cardRect.bottom + 24f),
+                    52f,
+                    52f,
+                    cardShadowPaint
+                )
+
+                val cardFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    shader = LinearGradient(
+                        cardRect.left, cardRect.top, cardRect.left, cardRect.bottom,
+                        intArrayOf(pInt, blendColors(sInt, Color.BLACK, 0.35f)),
+                        null,
+                        Shader.TileMode.CLAMP
+                    )
+                }
+                canvas.drawRoundRect(cardRect, 52f, 52f, cardFillPaint)
+
+                val innerPad = 68f
+                val artSize = cardRect.width() - innerPad * 2
+                val artLeft = cardRect.left + innerPad
+                val artTop = cardRect.top + innerPad
+                val artRect = RectF(artLeft, artTop, artLeft + artSize, artTop + artSize)
+
+                // Cover Drop Shadow
+                val artShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.argb(120, 0, 0, 0)
+                    maskFilter = BlurMaskFilter(40f, BlurMaskFilter.Blur.NORMAL)
+                }
+                canvas.drawRoundRect(
+                    RectF(artRect.left + 8f, artRect.top + 18f, artRect.right - 8f, artRect.bottom + 18f),
+                    32f,
+                    32f,
+                    artShadow
+                )
+
+                drawRoundedBitmapOrPlaceholder(
+                    canvas = canvas,
+                    bmp = loadedArtBmp,
+                    rect = artRect,
+                    cornerRadius = 32f,
+                    fallbackColor = sInt
+                )
+
+                // Track Title & Artist
+                val titleY = artRect.bottom + 96f
+                val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.WHITE
+                    textSize = 56f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                }
+                val artistPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.argb(210, 255, 255, 255)
+                    textSize = 38f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                }
+
+                val maxTextW = artSize
+                val cleanTitle = android.text.TextUtils.ellipsize(
+                    track.title,
+                    titlePaint,
+                    maxTextW,
+                    android.text.TextUtils.TruncateAt.END
+                ).toString()
+                val cleanArtist = android.text.TextUtils.ellipsize(
+                    track.artist,
+                    artistPaint,
+                    maxTextW,
+                    android.text.TextUtils.TruncateAt.END
+                ).toString()
+
+                canvas.drawText(cleanTitle, artLeft, titleY, titlePaint)
+                canvas.drawText(cleanArtist, artLeft, titleY + 62f, artistPaint)
+
+                // Footer inside card
+                val footerY = cardRect.bottom - 82f
+                drawSpotifyFooterInsideCard(
+                    canvas = canvas,
+                    leftX = artLeft,
+                    rightX = artRect.right,
+                    centerY = footerY,
+                    seed = track.title.hashCode(),
+                    accentColor = pInt
+                )
+            }
+
+            val imagesDir = File(context.cacheDir, "images")
+            imagesDir.mkdirs()
+            val safeId = track.id.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+            val file = File(imagesDir, "share_song_${safeId}_${System.currentTimeMillis()}.png")
+            FileOutputStream(file).use { fos ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos)
+                fos.flush()
+            }
+
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        } catch (e: Exception) {
+            Log.e("SongShareCard", "Error generating share card: ${e.message}", e)
+            null
+        }
+    }
+
+    private fun drawRoundedBitmapOrPlaceholder(
+        canvas: Canvas,
+        bmp: Bitmap?,
+        rect: RectF,
+        cornerRadius: Float,
+        fallbackColor: Int
+    ) {
+        if (bmp != null) {
+            val path = Path().apply {
+                addRoundRect(rect, cornerRadius, cornerRadius, Path.Direction.CW)
+            }
+            canvas.save()
+            canvas.clipPath(path)
+            val srcRatio = bmp.width.toFloat() / bmp.height.toFloat().coerceAtLeast(1f)
+            val dstRatio = rect.width() / rect.height().coerceAtLeast(1f)
+            val srcRect = if (srcRatio > dstRatio) {
+                val newW = (bmp.height * dstRatio).toInt()
+                val xOff = (bmp.width - newW) / 2
+                Rect(xOff, 0, xOff + newW, bmp.height)
+            } else {
+                val newH = (bmp.width / dstRatio).toInt()
+                val yOff = (bmp.height - newH) / 2
+                Rect(0, yOff, bmp.width, yOff + newH)
+            }
+            canvas.drawBitmap(bmp, srcRect, rect, Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
+            canvas.restore()
+        } else {
+            val fallbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = fallbackColor
+            }
+            canvas.drawRoundRect(rect, cornerRadius, cornerRadius, fallbackPaint)
+            val notePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = rect.width() * 0.32f
+                textAlign = Paint.Align.CENTER
+            }
+            canvas.drawText("♪", rect.centerX(), rect.centerY() + rect.width() * 0.1f, notePaint)
+        }
+    }
+
+    private fun drawSpotifyFooterInsideCard(
+        canvas: Canvas,
+        leftX: Float,
+        rightX: Float,
+        centerY: Float,
+        seed: Int,
+        accentColor: Int
+    ) {
+        val circleRadius = 22f
+        val circlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+        }
+        canvas.drawCircle(leftX + circleRadius, centerY, circleRadius, circlePaint)
+
+        val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = accentColor
+            textSize = 26f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText("♪", leftX + circleRadius, centerY + 9f, iconPaint)
+
+        val brandPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 30f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        canvas.drawText("Aura Music", leftX + circleRadius * 2 + 16f, centerY + 10f, brandPaint)
+
+        // Spotify-Code style waveform on the right
+        val bars = 22
+        val totalWaveW = 240f
+        val waveStartX = rightX - totalWaveW
+        val barW = 6.5f
+        val step = totalWaveW / bars
+        val wavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(230, 255, 255, 255)
+        }
+        for (i in 0 until bars) {
+            val norm = (sin(i * 0.65f + seed) * 0.38f + 0.56f).coerceIn(0.22f, 1f)
+            val bh = 42f * norm
+            val bx = waveStartX + i * step
+            canvas.drawRoundRect(
+                RectF(bx, centerY - bh / 2f, bx + barW, centerY + bh / 2f),
+                barW / 2f,
+                barW / 2f,
+                wavePaint
+            )
+        }
+    }
+
+    private fun blendColors(c1: Int, c2: Int, ratio: Float): Int {
+        val r = (Color.red(c1) * (1f - ratio) + Color.red(c2) * ratio).toInt().coerceIn(0, 255)
+        val g = (Color.green(c1) * (1f - ratio) + Color.green(c2) * ratio).toInt().coerceIn(0, 255)
+        val b = (Color.blue(c1) * (1f - ratio) + Color.blue(c2) * ratio).toInt().coerceIn(0, 255)
+        return Color.rgb(r, g, b)
+    }
+}
+
+app/src/main/java/com/example/util/WrappedCardGenerator.kt
+package com.example.util
+
+import android.content.Context
+import android.graphics.*
+import android.net.Uri
+import android.text.TextPaint
+import android.text.TextUtils
+import androidx.core.content.FileProvider
+import com.example.OnlineMusicRepository
+import com.example.audio.AmbientPalette
+import com.example.data.model.AppLanguage
+import com.example.data.model.WrappedStats
+import java.io.File
+import java.io.FileOutputStream
+
+object WrappedCardGenerator {
+
+    fun generateWrappedStoryBitmap(
+        context: Context,
+        stats: WrappedStats,
+        palette: AmbientPalette,
+        lang: AppLanguage
+    ): Uri? {
+        return try {
+            val isFa = lang == AppLanguage.PERSIAN
+            fun fmt(v: Any): String = if (isFa) WrappedEngine.toPersianDigits(v.toString()) else v.toString()
+
+            val width = 1080
+            val height = 1920
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+
+            val spotifyGreen = Color.rgb(30, 215, 96)
+            val primaryInt = Color.rgb(
+                (palette.primary.red * 255).toInt().coerceIn(0, 255),
+                (palette.primary.green * 255).toInt().coerceIn(0, 255),
+                (palette.primary.blue * 255).toInt().coerceIn(0, 255)
+            )
+
+            // 1. Matte Spotify Wrapped Editorial Canvas
+            val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = LinearGradient(
+                    0f, 0f, 0f, height.toFloat(),
+                    intArrayOf(
+                        Color.rgb(20, 20, 22),
+                        Color.rgb(14, 14, 16),
+                        Color.rgb(10, 10, 12)
+                    ),
+                    null,
+                    Shader.TileMode.CLAMP
+                )
+            }
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
+
+            // Subtle Top Editorial Accent Wash
+            val topWashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = RadialGradient(
+                    width * 0.5f, 180f, 720f,
+                    intArrayOf(
+                        Color.argb(95, Color.red(primaryInt), Color.green(primaryInt), Color.blue(primaryInt)),
+                        Color.argb(40, 30, 215, 96),
+                        Color.TRANSPARENT
+                    ),
+                    null,
+                    Shader.TileMode.CLAMP
+                )
+            }
+            canvas.drawCircle(width * 0.5f, 180f, 720f, topWashPaint)
+
+            // 2. Main Editorial Card Container
+            val cardRect = RectF(68f, 120f, width - 68f, height - 120f)
+            val cardBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.rgb(24, 24, 26)
+                style = Paint.Style.FILL
+            }
+            canvas.drawRoundRect(cardRect, 44f, 44f, cardBgPaint)
+
+            val cardStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb(38, 255, 255, 255)
+                style = Paint.Style.STROKE
+                strokeWidth = 2.5f
+            }
+            canvas.drawRoundRect(cardRect, 44f, 44f, cardStrokePaint)
+
+            val padX = 124f
+
+            // 3. Top Header Badge & Period Title
+            val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = spotifyGreen
+                textSize = 26f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                letterSpacing = 0.12f
+            }
+            val periodName = if (isFa) stats.period.displayNameFa else stats.period.displayNameEn.uppercase()
+            canvas.drawText("AURA WRAPPED • $periodName", padX, 215f, badgePaint)
+
+            // 4. Featured #1 Artwork + Hero Stat Row
+            val topArtUri = stats.topSongs.firstOrNull()?.artworkUri
+                ?: stats.topArtists.firstOrNull()?.artworkUri
+                ?: stats.topSongs.firstOrNull()?.trackId?.let {
+                    OnlineMusicRepository.getCoverUrlForTrack(it)
+                }
+
+            var topBmp: Bitmap? = null
+            if (!topArtUri.isNullOrBlank()) {
+                topBmp = OnlineMusicRepository.getCachedCoverBitmap(topArtUri)
+                    ?: OnlineMusicRepository.loadCoverBitmapBlocking(topArtUri)
+            }
+
+            val heroArtRect = RectF(padX, 265f, padX + 280f, 265f + 280f)
+            if (topBmp != null) {
+                val clipPath = Path().apply {
+                    addRoundRect(heroArtRect, 28f, 28f, Path.Direction.CW)
+                }
+                canvas.save()
+                canvas.clipPath(clipPath)
+                canvas.drawBitmap(topBmp, null, heroArtRect, Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
+                canvas.restore()
+            } else {
+                val fallbackArtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.rgb(38, 38, 42)
+                }
+                canvas.drawRoundRect(heroArtRect, 28f, 28f, fallbackArtPaint)
+                val noteP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = spotifyGreen
+                    textSize = 96f
+                    textAlign = Paint.Align.CENTER
+                }
+                canvas.drawText("♪", heroArtRect.centerX(), heroArtRect.centerY() + 32f, noteP)
+            }
+
+            // Minutes Listened & Archetype next to Artwork
+            val statsX = heroArtRect.right + 44f
+            val minsLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.rgb(179, 179, 179)
+                textSize = 28f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            }
+            val minsValuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = 76f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            canvas.drawText(
+                if (isFa) "زمان شنیداری" else "MINUTES LISTENED",
+                statsX,
+                325f,
+                minsLabelPaint
+            )
+            canvas.drawText(
+                fmt(stats.totalListeningMinutes),
+                statsX,
+                415f,
+                minsValuePaint
+            )
+
+            val topGenre = stats.topGenres.firstOrNull()?.name ?: "Pop & Hip-Hop"
+            val genreTitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = spotifyGreen
+                textSize = 32f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            canvas.drawText(
+                if (isFa) "سبک برتر: $topGenre" else "Top Genre: $topGenre",
+                statsX,
+                485f,
+                genreTitlePaint
+            )
+
+            val persona = if (isFa) stats.audioPersonalityFa else stats.audioPersonalityEn
+            val personaPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = 28f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            val cleanPersona = TextUtils.ellipsize(
+                persona,
+                personaPaint,
+                (width - padX - statsX),
+                TextUtils.TruncateAt.END
+            ).toString()
+            canvas.drawText(cleanPersona, statsX, 532f, personaPaint)
+
+            // Divider
+            val divPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb(30, 255, 255, 255)
+                strokeWidth = 2f
+            }
+            canvas.drawLine(padX, 600f, width - padX, 600f, divPaint)
+
+            // 5. Two-Column Spotify Wrapped Lists: TOP ARTISTS & TOP SONGS
+            val colHeaderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.rgb(179, 179, 179)
+                textSize = 26f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                letterSpacing = 0.08f
+            }
+
+            // Section A: Top Songs (Full Width Ranked List)
+            canvas.drawText(
+                if (isFa) "برترین آهنگ‌ها" else "TOP SONGS",
+                padX,
+                665f,
+                colHeaderPaint
+            )
+
+            val itemRankPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = spotifyGreen
+                textSize = 36f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            val itemTitlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = 36f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            val itemSubPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.rgb(179, 179, 179)
+                textSize = 27f
+            }
+            val itemCountPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = spotifyGreen
+                textSize = 30f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = Paint.Align.RIGHT
+            }
+
+            var songY = 735f
+            stats.topSongs.take(5).forEachIndexed { idx, song ->
+                canvas.drawText(fmt(idx + 1), padX, songY, itemRankPaint)
+
+                val maxSongW = width - padX * 2 - 160f
+                val sTitle = TextUtils.ellipsize(song.title, itemTitlePaint, maxSongW, TextUtils.TruncateAt.END).toString()
+                val sArtist = TextUtils.ellipsize(song.artist, itemSubPaint, maxSongW, TextUtils.TruncateAt.END).toString()
+
+                canvas.drawText(sTitle, padX + 56f, songY - 8f, itemTitlePaint)
+                canvas.drawText(sArtist, padX + 56f, songY + 28f, itemSubPaint)
+                canvas.drawText("${fmt(song.playCount)}x", width - padX, songY, itemCountPaint)
+
+                songY += 102f
+            }
+
+            canvas.drawLine(padX, songY + 10f, width - padX, songY + 10f, divPaint)
+
+            // Section B: Top Artists
+            val artistsHeaderY = songY + 72f
+            canvas.drawText(
+                if (isFa) "برترین خواننده‌ها" else "TOP ARTISTS",
+                padX,
+                artistsHeaderY,
+                colHeaderPaint
+            )
+
+            var artistY = artistsHeaderY + 64f
+            stats.topArtists.take(4).forEachIndexed { idx, artist ->
+                canvas.drawText(fmt(idx + 1), padX, artistY, itemRankPaint)
+                val maxArtW = width - padX * 2 - 160f
+                val aName = TextUtils.ellipsize(artist.name, itemTitlePaint, maxArtW, TextUtils.TruncateAt.END).toString()
+                canvas.drawText(aName, padX + 56f, artistY, itemTitlePaint)
+                canvas.drawText("${fmt(artist.count)}x", width - padX, artistY, itemCountPaint)
+                artistY += 74f
+            }
+
+            // 6. Clean Brand Footer
+            val footerBrandPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = 30f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            val footerUrlPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = spotifyGreen
+                textSize = 26f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = Paint.Align.RIGHT
+            }
+
+            canvas.drawText("Aura Music", padX, height - 175f, footerBrandPaint)
+            canvas.drawText("WRAPPED", width - padX, height - 175f, footerUrlPaint)
+
+            val cachePath = File(context.cacheDir, "images")
+            cachePath.mkdirs()
+            val file = File(cachePath, "wrapped_story_${System.currentTimeMillis()}.png")
+            FileOutputStream(file).use { stream ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+            }
+
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        } catch (_: Exception) {
+            null
+        }
+    }
+}
+

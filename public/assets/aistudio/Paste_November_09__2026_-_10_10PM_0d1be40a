@@ -1,0 +1,2159 @@
+app/src/main/java/com/example/ui/theme/Color.kt
+package com.example.ui.theme
+
+import androidx.compose.ui.graphics.Color
+
+// Core Spotify-Inspired Matte Dark Surfaces
+val AuraBlack = Color(0xFF0A0A0A)
+val AuraCanvas = Color(0xFF121212)
+val AuraSurface = Color(0xFF181818)
+val AuraSurfaceElevated = Color(0xFF242424)
+val AuraSurfaceHighlight = Color(0xFF2A2A2A)
+val AuraBorderSubtle = Color(0x14FFFFFF)
+
+// Controlled Brand & Accent Palette
+val AuraSpotifyGreen = Color(0xFF1ED760)
+val AuraPrimaryAccent = Color(0xFF1DB954)
+val AuraSecondaryAccent = Color(0xFF38BDF8)
+
+// Legacy & Compatibility Tokens (Refined for Minimalist Dark UI)
+val DeepObsidian = Color(0xFF0A0A0A)
+val SurfaceDark = Color(0xFF121212)
+val SurfaceVariantDark = Color(0xFF1E1E1E)
+val SurfaceGlass = Color(0xF2181818)
+val BorderGlass = Color(0x14FFFFFF)
+
+val NeonViolet = Color(0xFF8B5CF6)
+val NeonCyan = Color(0xFF38BDF8)
+val NeonRose = Color(0xFFF43F5E)
+val RadiantPurple = Color(0xFF1ED760)
+val ElectricBlue = Color(0xFF38BDF8)
+val EmeraldGlow = Color(0xFF1ED760)
+val AmberWarm = Color(0xFFF59E0B)
+
+// Typography Hierarchy Tokens
+val TextPrimary = Color(0xFFFFFFFF)
+val TextSecondary = Color(0xFFB3B3B3)
+val TextMuted = Color(0xFF727272)
+
+// Theme Background Tokens
+val MidnightBackground = Color(0xFF121212)
+val PureBlackBackground = Color(0xFF000000)
+val GraphiteBackground = Color(0xFF121212)
+val GlassBackground = Color(0xFF121212)
+val NeonBackground = Color(0xFF0E0E10)
+val CinemaBackground = Color(0xFF101012)
+val MinimalBackground = Color(0xFF121212)
+
+app/src/main/java/com/example/ui/theme/Type.kt
+package com.example.ui.theme
+
+import androidx.compose.material3.Typography
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import com.example.R
+
+val ModernPersianFontFamily = FontFamily(
+    Font(R.font.vazirmatn_regular, FontWeight.Normal),
+    Font(R.font.vazirmatn_medium, FontWeight.Medium),
+    Font(R.font.vazirmatn_semibold, FontWeight.SemiBold),
+    Font(R.font.vazirmatn_bold, FontWeight.Bold)
+)
+
+val Typography = Typography(
+    displayLarge = TextStyle(
+        fontFamily = ModernPersianFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 44.sp,
+        lineHeight = 50.sp,
+        letterSpacing = (-0.5).sp
+    ),
+    displayMedium = TextStyle(
+        fontFamily = ModernPersianFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 34.sp,
+        lineHeight = 40.sp,
+        letterSpacing = (-0.4).sp
+    ),
+    displaySmall = TextStyle(
+        fontFamily = ModernPersianFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 28.sp,
+        lineHeight = 34.sp,
+        letterSpacing = (-0.3).sp
+    ),
+    headlineLarge = TextStyle(
+        fontFamily = ModernPersianFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 24.sp,
+        lineHeight = 30.sp,
+        letterSpacing = (-0.3).sp
+    ),
+    headlineMedium = TextStyle(
+        fontFamily = ModernPersianFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 22.sp,
+        lineHeight = 28.sp,
+        letterSpacing = (-0.2).sp
+    ),
+    headlineSmall = TextStyle(
+        fontFamily = ModernPersianFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 18.sp,
+        lineHeight = 24.sp
+    ),
+    titleLarge = TextStyle(
+        fontFamily = ModernPersianFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 18.sp,
+        lineHeight = 24.sp
+    ),
+    titleMedium = TextStyle(
+        fontFamily = ModernPersianFontFamily,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 15.sp,
+        lineHeight = 20.sp
+    ),
+    titleSmall = TextStyle(
+        fontFamily = ModernPersianFontFamily,
+        fontWeight = FontWeight.Medium,
+        fontSize = 13.5.sp,
+        lineHeight = 18.sp
+    ),
+    bodyLarge = TextStyle(
+        fontFamily = ModernPersianFontFamily,
+        fontWeight = FontWeight.Normal,
+        fontSize = 15.sp,
+        lineHeight = 21.sp
+    ),
+    bodyMedium = TextStyle(
+        fontFamily = ModernPersianFontFamily,
+        fontWeight = FontWeight.Medium,
+        fontSize = 14.sp,
+        lineHeight = 19.sp
+    ),
+    bodySmall = TextStyle(
+        fontFamily = ModernPersianFontFamily,
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        lineHeight = 16.sp
+    ),
+    labelLarge = TextStyle(
+        fontFamily = ModernPersianFontFamily,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 13.sp,
+        lineHeight = 18.sp
+    ),
+    labelMedium = TextStyle(
+        fontFamily = ModernPersianFontFamily,
+        fontWeight = FontWeight.Medium,
+        fontSize = 12.sp,
+        lineHeight = 16.sp
+    ),
+    labelSmall = TextStyle(
+        fontFamily = ModernPersianFontFamily,
+        fontWeight = FontWeight.Medium,
+        fontSize = 11.sp,
+        lineHeight = 14.sp
+    )
+)
+
+app/src/main/java/com/example/ui/theme/Theme.kt
+package com.example.ui.theme
+
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.Color
+import com.example.data.model.AppTheme
+
+fun createAuraColorScheme(appTheme: AppTheme, accentColor: Color = AuraSpotifyGreen) = darkColorScheme(
+    primary = accentColor,
+    onPrimary = Color.Black,
+    primaryContainer = AuraSurfaceElevated,
+    onPrimaryContainer = TextPrimary,
+    secondary = AuraSecondaryAccent,
+    onSecondary = Color.Black,
+    secondaryContainer = AuraSurfaceHighlight,
+    tertiary = AuraSpotifyGreen,
+    background = when (appTheme) {
+        AppTheme.DIGITAL_ACID -> Color(0xFF000000)
+        AppTheme.MONOCHROME_NOIR -> Color(0xFF0A0A0A)
+        else -> AuraCanvas
+    },
+    onBackground = TextPrimary,
+    surface = when (appTheme) {
+        AppTheme.DIGITAL_ACID -> Color(0xFF0E0E0E)
+        AppTheme.MONOCHROME_NOIR -> Color(0xFF141414)
+        else -> AuraSurface
+    },
+    onSurface = TextPrimary,
+    surfaceVariant = AuraSurfaceElevated,
+    onSurfaceVariant = TextSecondary,
+    outline = AuraBorderSubtle
+)
+
+@Composable
+fun MyApplicationTheme(
+    appTheme: AppTheme = AppTheme.PURE_LIQUID_GLASS,
+    accentColor: Color = AuraSpotifyGreen,
+    content: @Composable () -> Unit
+) {
+    val colorScheme = createAuraColorScheme(appTheme, accentColor)
+    CompositionLocalProvider(LocalAppTheme provides appTheme) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography,
+            content = content
+        )
+    }
+}
+
+app/src/main/java/com/example/ui/theme/LiquidGlass.kt
+package com.example.ui.theme
+
+import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import com.example.data.model.AppTheme
+
+/**
+ * Retained for full binary & source compatibility with existing components.
+ * Sensor registration is kept no-op by default to eliminate battery drain and unnecessary UI jitter.
+ */
+object HardwareGyroscopeManager : SensorEventListener {
+    var roll by mutableFloatStateOf(0f)
+        private set
+    var pitch by mutableFloatStateOf(0f)
+        private set
+
+    fun acquire(context: Context) = Unit
+    fun release() = Unit
+    override fun onSensorChanged(event: SensorEvent?) = Unit
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+}
+
+@Composable
+fun rememberGyroscopeSensorActive() = Unit
+
+@Composable
+fun rememberGyroscopeTilt(): Pair<Float, Float> = 0f to 0f
+
+val LocalAppTheme = compositionLocalOf { AppTheme.PURE_LIQUID_GLASS }
+
+enum class GlassThickness {
+    THIN,
+    REGULAR,
+    THICK
+}
+
+data class LiquidGlassSpec(
+    val surfaceGradient: Brush,
+    val borderGradient: Brush,
+    val shadowElevation: Dp,
+    val shadowColor: Color,
+    val specularReflectionAlpha: Float = 0.0f
+)
+
+object LiquidGlassDesign {
+    fun getSpec(
+        thickness: GlassThickness,
+        accentColor: Color = Color.White,
+        theme: AppTheme = AppTheme.PURE_LIQUID_GLASS
+    ): LiquidGlassSpec {
+        return when (thickness) {
+            GlassThickness.THIN -> LiquidGlassSpec(
+                surfaceGradient = Brush.verticalGradient(
+                    listOf(Color(0xFF181818), Color(0xFF141414))
+                ),
+                borderGradient = Brush.linearGradient(
+                    listOf(Color(0x12FFFFFF), Color(0x08FFFFFF))
+                ),
+                shadowElevation = 0.dp,
+                shadowColor = Color.Transparent,
+                specularReflectionAlpha = 0f
+            )
+            GlassThickness.REGULAR -> LiquidGlassSpec(
+                surfaceGradient = Brush.verticalGradient(
+                    listOf(Color(0xFF202020), Color(0xFF181818))
+                ),
+                borderGradient = Brush.linearGradient(
+                    listOf(Color(0x16FFFFFF), Color(0x0AFFFFFF))
+                ),
+                shadowElevation = 2.dp,
+                shadowColor = Color.Black.copy(alpha = 0.35f),
+                specularReflectionAlpha = 0f
+            )
+            GlassThickness.THICK -> LiquidGlassSpec(
+                surfaceGradient = Brush.verticalGradient(
+                    listOf(Color(0xFF262626), Color(0xFF1C1C1C))
+                ),
+                borderGradient = Brush.linearGradient(
+                    listOf(Color(0x1FFFFFFF), Color(0x0FFFFFFF))
+                ),
+                shadowElevation = 4.dp,
+                shadowColor = Color.Black.copy(alpha = 0.45f),
+                specularReflectionAlpha = 0f
+            )
+        }
+    }
+}
+
+/**
+ * Redesigned to deliver a clean, Spotify-grade matte surface with subtle tonal elevation
+ * and zero heavy neon/rainbow border clutter or scroll-position recomposition overhead.
+ */
+fun Modifier.liquidGlass(
+    shape: Shape = RoundedCornerShape(12.dp),
+    thickness: GlassThickness = GlassThickness.REGULAR,
+    tintColor: Color = Color.Transparent,
+    tintAlpha: Float = 0.08f,
+    borderWidth: Dp = 0.5.dp,
+    appTheme: AppTheme? = null,
+    accentColor: Color = tintColor,
+    secondaryAccent: Color = Color.Transparent
+): Modifier = composed {
+    val baseColor = when (thickness) {
+        GlassThickness.THIN -> Color(0xFF181818)
+        GlassThickness.REGULAR -> Color(0xFF202020)
+        GlassThickness.THICK -> Color(0xFF262626)
+    }
+
+    val effectiveSurface = remember(baseColor, tintColor, tintAlpha) {
+        if (tintColor != Color.Transparent && tintColor != Color.Unspecified && tintAlpha > 0.01f) {
+            val clampedRatio = (tintAlpha * 0.25f).coerceIn(0.02f, 0.12f)
+            lerp(baseColor, tintColor.copy(alpha = 1f), clampedRatio)
+        } else {
+            baseColor
+        }
+    }
+
+    val subtleBorderColor = remember(thickness) {
+        when (thickness) {
+            GlassThickness.THIN -> Color(0x0DFFFFFF)
+            GlassThickness.REGULAR -> Color(0x14FFFFFF)
+            GlassThickness.THICK -> Color(0x1FFFFFFF)
+        }
+    }
+
+    this
+        .clip(shape)
+        .drawWithCache {
+            val outline = shape.createOutline(size, layoutDirection, this)
+            val outlinePath = Path().apply {
+                when (outline) {
+                    is Outline.Generic -> addPath(outline.path)
+                    is Outline.Rounded -> addRoundRect(outline.roundRect)
+                    is Outline.Rectangle -> addRect(outline.rect)
+                }
+            }
+            val strokePx = borderWidth.coerceAtMost(1.dp).toPx()
+
+            onDrawWithContent {
+                drawPath(path = outlinePath, color = effectiveSurface)
+                drawContent()
+                if (strokePx > 0f) {
+                    drawPath(
+                        path = outlinePath,
+                        color = subtleBorderColor,
+                        style = Stroke(width = strokePx)
+                    )
+                }
+            }
+        }
+}
+
+@Composable
+fun Modifier.premiumTrackGlowingBorder(
+    primaryColor: Color = AuraSpotifyGreen,
+    secondaryColor: Color = AuraSpotifyGreen,
+    isPlaying: Boolean = false,
+    cornerRadius: Dp = 8.dp,
+    borderWidth: Dp = if (isPlaying) 1.dp else 0.dp
+): Modifier = composed {
+    this.liquidGlass(
+        shape = RoundedCornerShape(cornerRadius),
+        thickness = if (isPlaying) GlassThickness.REGULAR else GlassThickness.THIN,
+        tintColor = if (isPlaying) primaryColor else Color.Transparent,
+        tintAlpha = if (isPlaying) 0.15f else 0f,
+        borderWidth = borderWidth
+    )
+}
+
+app/src/main/java/com/example/ui/components/ModernAuroraMotionBackground.kt
+package com.example.ui.components
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import com.example.audio.AmbientPalette
+import com.example.data.model.AppTheme
+import com.example.ui.theme.AuraCanvas
+
+/**
+ * Clean Spotify-style ambient top wash over a matte #121212 dark background.
+ * Eliminates GPU-heavy moving blobs and distracting neon noise.
+ */
+@Composable
+fun ModernAuroraMotionBackground(
+    palette: AmbientPalette,
+    appTheme: AppTheme = AppTheme.PURE_LIQUID_GLASS,
+    energyBoostProvider: () -> Float = { 0f },
+    modifier: Modifier = Modifier
+) {
+    val baseBackground = when (appTheme) {
+        AppTheme.DIGITAL_ACID -> Color(0xFF000000)
+        AppTheme.MONOCHROME_NOIR -> Color(0xFF0A0A0A)
+        else -> AuraCanvas
+    }
+
+    val topWashTarget = lerp(baseBackground, palette.primary.copy(alpha = 1f), 0.16f)
+    val animatedTopWash by animateColorAsState(
+        targetValue = topWashTarget,
+        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        label = "ambientTopWash"
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0.0f to animatedTopWash,
+                        0.32f to baseBackground,
+                        1.0f to baseBackground
+                    )
+                )
+            )
+    )
+}
+
+app/src/main/java/com/example/ui/components/MiniPlayer.kt
+package com.example.ui.components
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.audio.AmbientPalette
+import com.example.audio.AudioAnalysisData
+import com.example.audio.ConnectedAudioDevice
+import com.example.data.model.PlaybackState
+import com.example.data.model.PlayerStatus
+import com.example.ui.theme.AuraSpotifyGreen
+import com.example.ui.theme.TextSecondary
+
+/**
+ * Spotify-style Floating MiniPlayer Bar:
+ * - Compact 56dp height with 8dp rounded corners
+ * - Tonal dark surface subtly tinted from the album cover
+ * - Crisp 40dp artwork, clear title & artist/device subtitle, tactile Play/Pause & Next controls
+ * - Zero-recomposition 2dp bottom progress bar
+ */
+@Composable
+fun MiniPlayer(
+    playbackState: PlaybackState,
+    palette: AmbientPalette,
+    onTogglePlay: () -> Unit,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    onExpandNowPlaying: () -> Unit,
+    modifier: Modifier = Modifier,
+    connectedDevice: ConnectedAudioDevice? = null,
+    analysisDataProvider: () -> AudioAnalysisData = { AudioAnalysisData() },
+    currentPositionProvider: () -> Long = { playbackState.currentPositionMs },
+    onSeekTo: (Long) -> Unit = {}
+) {
+    val track = playbackState.currentTrack ?: return
+    val isPlaying = playbackState.status == PlayerStatus.PLAYING
+
+    val targetContainerColor = remember(palette.primary, palette.isMonochrome) {
+        if (palette.isMonochrome) {
+            Color(0xFF282828)
+        } else {
+            lerp(Color(0xFF222222), palette.primary.copy(alpha = 1f), 0.24f)
+        }
+    }
+
+    val containerColor by animateColorAsState(
+        targetValue = targetContainerColor,
+        animationSpec = tween(450, easing = FastOutSlowInEasing),
+        label = "miniPlayerBg"
+    )
+
+    val durationMs = remember(playbackState.durationMs, track.durationMs) {
+        (if (playbackState.durationMs > 1000L) playbackState.durationMs else track.durationMs).coerceAtLeast(1L)
+    }
+
+    var dragAccumulated by remember { mutableFloatStateOf(0f) }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .height(56.dp)
+            .shadow(elevation = 10.dp, shape = RoundedCornerShape(8.dp), spotColor = Color.Black)
+            .clip(RoundedCornerShape(8.dp))
+            .background(containerColor)
+            .pointerInput(track.id) {
+                detectHorizontalDragGestures(
+                    onDragStart = { dragAccumulated = 0f },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        dragAccumulated += dragAmount
+                    },
+                    onDragEnd = {
+                        if (dragAccumulated < -72f) {
+                            onNext()
+                        } else if (dragAccumulated > 72f) {
+                            onPrevious()
+                        }
+                        dragAccumulated = 0f
+                    }
+                )
+            }
+            .clickable { onExpandNowPlaying() }
+            .drawWithContent {
+                drawContent()
+                val progress = (currentPositionProvider().toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                val barHeight = 2.dp.toPx()
+                val y = size.height - barHeight
+                // Subtle track background line
+                drawRect(
+                    color = Color.White.copy(alpha = 0.16f),
+                    topLeft = Offset(0f, y),
+                    size = Size(size.width, barHeight)
+                )
+                // Active progress indicator
+                drawRect(
+                    color = Color.White,
+                    topLeft = Offset(0f, y),
+                    size = Size(size.width * progress, barHeight)
+                )
+            }
+            .testTag("mini_player")
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 8.dp, end = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TrackArtworkThumbnail(
+                artworkUri = track.artworkUri,
+                accentColor = palette.primary,
+                size = 40.dp,
+                shape = RoundedCornerShape(6.dp),
+                iconSize = 20.dp,
+                title = track.title,
+                artist = track.artist,
+                trackId = track.id
+            )
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
+                        fontSize = 13.5.sp
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (connectedDevice != null) {
+                        Icon(
+                            imageVector = Icons.Default.Devices,
+                            contentDescription = null,
+                            tint = AuraSpotifyGreen,
+                            modifier = Modifier.size(11.dp)
+                        )
+                    }
+                    Text(
+                        text = track.artist,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            IconButton(
+                onClick = onTogglePlay,
+                modifier = Modifier
+                    .size(40.dp)
+                    .testTag("mini_player_play_pause")
+            ) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+
+            IconButton(
+                onClick = onNext,
+                modifier = Modifier
+                    .size(36.dp)
+                    .testTag("mini_player_next")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SkipNext,
+                    contentDescription = "Next",
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+    }
+}
+
+app/src/main/java/com/example/ui/screens/MainScreen.kt
+package com.example.ui.screens
+
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.model.AppLanguage
+import com.example.ui.components.*
+import com.example.ui.theme.LocalAppTheme
+import com.example.ui.theme.TextSecondary
+import com.example.ui.viewmodel.MusicPlayerViewModel
+import com.example.util.Localization
+import kotlinx.coroutines.launch
+
+enum class MainTab {
+    HOME,
+    SEARCH,
+    LIBRARY,
+    WRAPPED,
+    PLAYLISTS,
+    SETTINGS
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MainScreen(
+    viewModel: MusicPlayerViewModel,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+
+    val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val palette by viewModel.activePalette.collectAsStateWithLifecycle()
+    val appSettings by viewModel.appSettings.collectAsStateWithLifecycle()
+    val allTracks by viewModel.allTracks.collectAsStateWithLifecycle()
+    val favoriteTracks by viewModel.favoriteTracks.collectAsStateWithLifecycle()
+    val recentlyPlayed by viewModel.recentlyPlayed.collectAsStateWithLifecycle()
+    val mostPlayed by viewModel.mostPlayed.collectAsStateWithLifecycle()
+    val recentlyAdded by viewModel.recentlyAdded.collectAsStateWithLifecycle()
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val currentLyrics by viewModel.currentLyrics.collectAsStateWithLifecycle()
+    val currentAudioProfile by viewModel.currentTrackAudioProfile.collectAsStateWithLifecycle()
+    val livePositionMs by viewModel.currentPositionMs.collectAsStateWithLifecycle()
+
+    val timeSlotTracks by viewModel.timeSlotTracks.collectAsStateWithLifecycle()
+    val onlineTrendingTracks by viewModel.onlineTrendingTracks.collectAsStateWithLifecycle()
+    val selectedTrendingMode by viewModel.selectedTrendingMode.collectAsStateWithLifecycle()
+    val isLoadingOnlineRecommendations by viewModel.isLoadingOnlineRecommendations.collectAsStateWithLifecycle()
+    val userTopArtists by viewModel.userTopArtists.collectAsStateWithLifecycle()
+    val onlineRecentTracks by viewModel.onlineRecentTracks.collectAsStateWithLifecycle()
+    val onThisDayHighlight by viewModel.onThisDayHighlight.collectAsStateWithLifecycle()
+    val weeklyRecapStats by viewModel.weeklyRecapStats.collectAsStateWithLifecycle()
+    val duplicateGroups by viewModel.duplicateGroups.collectAsStateWithLifecycle()
+    val unlockedStyles by viewModel.unlockedStyles.collectAsStateWithLifecycle()
+    val didRestoreSession by viewModel.didRestoreSession.collectAsStateWithLifecycle()
+    val isScanningMedia by viewModel.isScanningMedia.collectAsStateWithLifecycle()
+
+    val wrappedPeriods by viewModel.wrappedPeriods.collectAsStateWithLifecycle()
+    val selectedWrappedPeriod by viewModel.selectedWrappedPeriod.collectAsStateWithLifecycle()
+    val wrappedStats by viewModel.wrappedStats.collectAsStateWithLifecycle()
+
+    val isNowPlayingExpanded by viewModel.isNowPlayingExpanded.collectAsStateWithLifecycle()
+    val showLyricsEditor by viewModel.showLyricsEditor.collectAsStateWithLifecycle()
+    val showEqualizer by viewModel.showEqualizer.collectAsStateWithLifecycle()
+    val showQueue by viewModel.showQueue.collectAsStateWithLifecycle()
+    val showSleepTimer by viewModel.showSleepTimer.collectAsStateWithLifecycle()
+    val editingTrackMetadata by viewModel.editingTrackMetadata.collectAsStateWithLifecycle()
+    val connectedDevice by viewModel.connectedAudioDevice.collectAsStateWithLifecycle()
+    val loopStartMs by viewModel.loopStartMs.collectAsStateWithLifecycle()
+    val loopEndMs by viewModel.loopEndMs.collectAsStateWithLifecycle()
+    val showShareCard by viewModel.showShareCard.collectAsStateWithLifecycle()
+    val showHearingProfileTest by viewModel.showHearingProfileTest.collectAsStateWithLifecycle()
+    val showDuplicatesReview by viewModel.showDuplicatesReview.collectAsStateWithLifecycle()
+
+    var showVipPaywallForFeature by remember { mutableStateOf<String?>(null) }
+    var showAchievementsDialog by remember { mutableStateOf(false) }
+    var achievementItems by remember { mutableStateOf<List<com.example.monetization.AchievementItem>>(emptyList()) }
+    val coroutineScope = rememberCoroutineScope()
+
+    var currentTab by remember { mutableStateOf(MainTab.HOME) }
+    val lang = appSettings.language
+
+    val openAchievementsAction: () -> Unit = {
+        coroutineScope.launch {
+            val stats = viewModel.getListeningStatsForAchievements()
+            achievementItems = com.example.monetization.AchievementManager.getAchievements(
+                context = context,
+                totalListenedMs = stats.first,
+                uniqueTracksCount = stats.second,
+                activeStreakDays = stats.third
+            )
+            showAchievementsDialog = true
+        }
+    }
+
+    BackHandler(
+        enabled = showVipPaywallForFeature != null || showAchievementsDialog || isNowPlayingExpanded || showLyricsEditor || showEqualizer || showQueue || showSleepTimer || showHearingProfileTest || showDuplicatesReview || editingTrackMetadata != null || showShareCard != null || currentTab != MainTab.HOME
+    ) {
+        when {
+            showVipPaywallForFeature != null -> showVipPaywallForFeature = null
+            showAchievementsDialog -> showAchievementsDialog = false
+            showShareCard != null -> viewModel.dismissShareCard()
+            showHearingProfileTest -> viewModel.showHearingProfileTest.value = false
+            showDuplicatesReview -> viewModel.showDuplicatesReview.value = false
+            showLyricsEditor -> viewModel.showLyricsEditor.value = false
+            showEqualizer -> viewModel.showEqualizer.value = false
+            showQueue -> viewModel.showQueue.value = false
+            showSleepTimer -> viewModel.showSleepTimer.value = false
+            editingTrackMetadata != null -> viewModel.editingTrackMetadata.value = null
+            isNowPlayingExpanded -> viewModel.isNowPlayingExpanded.value = false
+            currentTab != MainTab.HOME -> currentTab = MainTab.HOME
+        }
+    }
+
+    CompositionLocalProvider(LocalAppTheme provides appSettings.theme) {
+        Box(modifier = modifier.fillMaxSize()) {
+            ModernAuroraMotionBackground(
+                palette = palette,
+                appTheme = appSettings.theme,
+                energyBoostProvider = { viewModel.analysisData.value.haloExpansion },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            Scaffold(
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                bottomBar = {
+                    if (!isNowPlayingExpanded) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    Brush.verticalGradient(
+                                        colorStops = arrayOf(
+                                            0.0f to Color.Transparent,
+                                            0.28f to Color(0xD9121212),
+                                            1.0f to Color(0xFF0A0A0A)
+                                        )
+                                    )
+                                )
+                                .navigationBarsPadding()
+                        ) {
+                            if (playbackState.currentTrack != null) {
+                                MiniPlayer(
+                                    playbackState = playbackState,
+                                    palette = palette,
+                                    onTogglePlay = { viewModel.togglePlayPause() },
+                                    onNext = { viewModel.nextTrack() },
+                                    onPrevious = { viewModel.previousTrack() },
+                                    onExpandNowPlaying = { viewModel.isNowPlayingExpanded.value = true },
+                                    connectedDevice = connectedDevice,
+                                    analysisDataProvider = { viewModel.analysisData.value },
+                                    currentPositionProvider = { viewModel.currentPositionMs.value },
+                                    onSeekTo = { viewModel.seekTo(it) }
+                                )
+                            }
+
+                            // Spotify-Architecture Flat Bottom Navigation Bar
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(58.dp)
+                                    .padding(horizontal = 4.dp)
+                                    .testTag("main_navigation_bar"),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                SpotifyNavBarItem(
+                                    selected = currentTab == MainTab.HOME,
+                                    selectedIcon = Icons.Filled.Home,
+                                    unselectedIcon = Icons.Outlined.Home,
+                                    label = Localization.getString("home", lang),
+                                    onClick = { currentTab = MainTab.HOME },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                SpotifyNavBarItem(
+                                    selected = currentTab == MainTab.SEARCH,
+                                    selectedIcon = Icons.Filled.Search,
+                                    unselectedIcon = Icons.Outlined.Search,
+                                    label = Localization.getString("search", lang),
+                                    onClick = { currentTab = MainTab.SEARCH },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                SpotifyNavBarItem(
+                                    selected = currentTab == MainTab.LIBRARY,
+                                    selectedIcon = Icons.Filled.LibraryMusic,
+                                    unselectedIcon = Icons.Outlined.LibraryMusic,
+                                    label = Localization.getString("library", lang),
+                                    onClick = { currentTab = MainTab.LIBRARY },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                SpotifyNavBarItem(
+                                    selected = currentTab == MainTab.PLAYLISTS,
+                                    selectedIcon = Icons.Filled.QueueMusic,
+                                    unselectedIcon = Icons.Outlined.QueueMusic,
+                                    label = Localization.getString("playlists", lang),
+                                    onClick = { currentTab = MainTab.PLAYLISTS },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                SpotifyNavBarItem(
+                                    selected = currentTab == MainTab.WRAPPED,
+                                    selectedIcon = Icons.Filled.BarChart,
+                                    unselectedIcon = Icons.Outlined.BarChart,
+                                    label = Localization.getString("wrapped", lang),
+                                    onClick = { currentTab = MainTab.WRAPPED },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                SpotifyNavBarItem(
+                                    selected = currentTab == MainTab.SETTINGS,
+                                    selectedIcon = Icons.Filled.Settings,
+                                    unselectedIcon = Icons.Outlined.Settings,
+                                    label = Localization.getString("settings", lang),
+                                    onClick = { currentTab = MainTab.SETTINGS },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                },
+                containerColor = Color.Transparent
+            ) { paddingValues ->
+                val bottomBarPadding = paddingValues.calculateBottomPadding()
+
+                when (currentTab) {
+                    MainTab.HOME -> {
+                        HomeScreen(
+                            playbackState = playbackState,
+                            allTracks = allTracks,
+                            recentlyPlayed = recentlyPlayed,
+                            favoriteTracks = favoriteTracks,
+                            palette = palette,
+                            appSettings = appSettings,
+                            onPlayTrack = { track, list ->
+                                viewModel.playTrack(track, list)
+                            },
+                            onTogglePlay = { viewModel.togglePlayPause() },
+                            onOpenLibrary = { currentTab = MainTab.LIBRARY },
+                            onOpenWrapped = { currentTab = MainTab.WRAPPED },
+                            onExpandNowPlaying = { viewModel.isNowPlayingExpanded.value = true },
+                            timeSlotTracks = timeSlotTracks,
+                            onThisDayHighlight = onThisDayHighlight,
+                            weeklyRecapStats = weeklyRecapStats,
+                            didRestoreSession = didRestoreSession,
+                            duplicateCount = duplicateGroups.sumOf { it.losers.size },
+                            onOpenDuplicatesReview = { viewModel.showDuplicatesReview.value = true },
+                            currentPositionProvider = { viewModel.currentPositionMs.value },
+                            onSeekTo = { viewModel.seekTo(it) },
+                            onToggleGymMode = { viewModel.toggleGymMode() },
+                            onlineTrendingTracks = onlineTrendingTracks,
+                            selectedTrendingMode = selectedTrendingMode,
+                            isLoadingOnlineRecommendations = isLoadingOnlineRecommendations,
+                            userTopArtists = userTopArtists,
+                            onlineRecentTracks = onlineRecentTracks,
+                            onSelectTrendingMode = { viewModel.selectTrendingMode(it) },
+                            onRefreshOnlineRecommendations = { viewModel.refreshOnlineRecommendations() },
+                            onDownloadTrack = { viewModel.downloadTrackToDeviceLibrary(it) },
+                            bottomPadding = bottomBarPadding,
+                            modifier = Modifier.statusBarsPadding()
+                        )
+                    }
+                    MainTab.SEARCH -> {
+                        SearchScreen(
+                            tracks = allTracks,
+                            playlists = playlists,
+                            playbackState = playbackState,
+                            palette = palette,
+                            appSettings = appSettings,
+                            onPlayTrack = { track, list ->
+                                viewModel.playTrack(track, list)
+                            },
+                            onPlayNext = { viewModel.playNextInQueue(it) },
+                            onAddToQueue = { viewModel.addToQueue(it) },
+                            onToggleFavorite = { viewModel.toggleFavorite(it) },
+                            onDownloadTrack = { viewModel.downloadTrackToDeviceLibrary(it) },
+                            onPauseOfflinePlayer = { viewModel.pause() },
+                            bottomPadding = bottomBarPadding,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    MainTab.LIBRARY -> {
+                        LibraryScreen(
+                            tracks = allTracks,
+                            playlists = playlists,
+                            playbackState = playbackState,
+                            palette = palette,
+                            settings = appSettings,
+                            onPlayTrack = { track, list ->
+                                viewModel.playTrack(track, list)
+                            },
+                            onPlayNext = { viewModel.playNextInQueue(it) },
+                            onAddToQueue = { viewModel.addToQueue(it) },
+                            onToggleFavorite = { viewModel.toggleFavorite(it) },
+                            onAddToPlaylist = { pl, trk -> viewModel.addTrackToPlaylist(pl.id, trk.id) },
+                            onEditMetadata = { viewModel.editingTrackMetadata.value = it },
+                            onDeleteTrack = { viewModel.deleteTrack(it) },
+                            onRescanMedia = {
+                                viewModel.scanDeviceLibrary { count ->
+                                    Toast.makeText(context, "Scanned $count tracks", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            onCreatePlaylist = { name -> viewModel.createPlaylist(name) },
+                            onCreatePlaylistWithTracks = { name, trackList -> viewModel.createPlaylistWithTracks(name, trackList) },
+                            onDeletePlaylist = { id -> viewModel.deletePlaylist(id) },
+                            onRemoveTrackFromPlaylist = { plId, trkId -> viewModel.removeTrackFromPlaylist(plId, trkId) },
+                            onShareTrack = { track -> viewModel.showShareCard(track) },
+                            isScanningMedia = isScanningMedia,
+                            bottomPadding = bottomBarPadding,
+                            modifier = Modifier.statusBarsPadding()
+                        )
+                    }
+                    MainTab.WRAPPED -> {
+                        LaunchedEffect(Unit) {
+                            viewModel.refreshWrappedPeriods()
+                        }
+                        WrappedScreen(
+                            appSettings = appSettings,
+                            palette = palette,
+                            periods = wrappedPeriods,
+                            selectedPeriod = selectedWrappedPeriod,
+                            wrappedStats = wrappedStats,
+                            onSelectPeriod = { viewModel.selectWrappedPeriod(it) },
+                            onPlayTrackById = { trackId ->
+                                val onlineTaste = try {
+                                    com.example.OnlineTasteEngine.getRecentOnlineTracks(context)
+                                } catch (_: Exception) {
+                                    emptyList()
+                                }
+                                val onlineMem = try {
+                                    com.example.OnlineMusicRepository.getMemoryCachedAppTracks()
+                                } catch (_: Exception) {
+                                    emptyList()
+                                }
+                                val combined = (allTracks + onlineTaste + onlineMem).distinctBy { it.id }
+                                combined.firstOrNull { it.id == trackId }?.let { target ->
+                                    viewModel.playTrack(target, combined)
+                                }
+                            },
+                            bottomPadding = bottomBarPadding,
+                            modifier = Modifier.statusBarsPadding()
+                        )
+                    }
+                    MainTab.PLAYLISTS -> {
+                        PlaylistsScreen(
+                            playlists = playlists,
+                            allTracks = allTracks,
+                            favoriteTracks = favoriteTracks,
+                            mostPlayedTracks = mostPlayed,
+                            recentlyAddedTracks = recentlyAdded,
+                            palette = palette,
+                            settings = appSettings,
+                            onCreatePlaylist = { name -> viewModel.createPlaylist(name) },
+                            onCreatePlaylistWithTracks = { name, trackIds -> viewModel.createPlaylistWithTracks(name, trackIds) },
+                            onAddTracksToPlaylist = { plId, trackIds -> viewModel.addTracksToPlaylist(plId, trackIds) },
+                            onRenamePlaylist = { plId, newName -> viewModel.renamePlaylist(plId, newName) },
+                            onDeletePlaylist = { id -> viewModel.deletePlaylist(id) },
+                            onRemoveTrackFromPlaylist = { plId, trkId -> viewModel.removeTrackFromPlaylist(plId, trkId) },
+                            onPlayTrack = { trk, list -> viewModel.playTrack(trk, list) },
+                            onPlayTrackList = { list ->
+                                list.firstOrNull()?.let { viewModel.playTrack(it, list) }
+                            },
+                            bottomPadding = bottomBarPadding,
+                            modifier = Modifier.statusBarsPadding()
+                        )
+                    }
+                    MainTab.SETTINGS -> {
+                        SettingsScreen(
+                            settings = appSettings,
+                            palette = palette,
+                            onUpdateSettings = { viewModel.updateSettings(it) },
+                            onSetPreset = { viewModel.setVisualizerPreset(it) },
+                            onExportBackup = { viewModel.exportBackupJson() },
+                            onImportBackup = { viewModel.importBackupJson(it) },
+                            onRescanLibrary = {
+                                viewModel.scanDeviceLibrary { count ->
+                                    Toast.makeText(context, "Rescanned $count tracks", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            onClearPlaybackHistory = { viewModel.clearPlaybackHistory() },
+                            onOpenEqualizer = { viewModel.showEqualizer.value = true },
+                            unlockedStyles = unlockedStyles,
+                            onOpenHearingProfileTest = { viewModel.showHearingProfileTest.value = true },
+                            onOpenDuplicatesReview = {
+                                viewModel.checkDuplicates()
+                            },
+                            onSelectNowPlayingStyle = { styleId -> viewModel.selectNowPlayingStyle(styleId) },
+                            onOpenVipPaywall = { featureId -> showVipPaywallForFeature = featureId ?: "vip_general" },
+                            onOpenAchievements = openAchievementsAction,
+                            bottomPadding = bottomBarPadding,
+                            modifier = Modifier.statusBarsPadding()
+                        )
+                    }
+                }
+
+                // Smooth Spotify-style slide-up transition for Full NowPlayingScreen
+                AnimatedVisibility(
+                    visible = isNowPlayingExpanded && playbackState.currentTrack != null,
+                    enter = slideInVertically(
+                        initialOffsetY = { it },
+                        animationSpec = tween(320, easing = FastOutSlowInEasing)
+                    ) + fadeIn(tween(220)),
+                    exit = slideOutVertically(
+                        targetOffsetY = { it },
+                        animationSpec = tween(280, easing = FastOutSlowInEasing)
+                    ) + fadeOut(tween(200))
+                ) {
+                    NowPlayingScreen(
+                        playbackState = playbackState,
+                        palette = palette,
+                        currentLyrics = currentLyrics,
+                        appSettings = appSettings,
+                        analysisDataProvider = { viewModel.analysisData.value },
+                        currentPositionProvider = { livePositionMs },
+                        audioProfile = currentAudioProfile,
+                        onCollapse = { viewModel.isNowPlayingExpanded.value = false },
+                        onTogglePlay = { viewModel.togglePlayPause() },
+                        onNext = { viewModel.nextTrack() },
+                        onPrevious = { viewModel.previousTrack() },
+                        onSeekTo = { viewModel.seekTo(it) },
+                        onToggleFavorite = { viewModel.toggleFavorite(it) },
+                        onToggleShuffle = { viewModel.toggleShuffle() },
+                        onCycleShuffleMode = { viewModel.toggleShuffle() },
+                        onCycleRepeat = { viewModel.cycleRepeatMode() },
+                        onOpenLyricsEditor = { viewModel.showLyricsEditor.value = true },
+                        onOpenEqualizer = { viewModel.showEqualizer.value = true },
+                        onOpenQueue = { viewModel.showQueue.value = true },
+                        onSelectVisualizerMode = { viewModel.setVisualizerMode(it) },
+                        onOpenSleepTimer = { viewModel.showSleepTimer.value = true },
+                        onOpenMetadataEditor = { viewModel.editingTrackMetadata.value = it },
+                        onOpenHearingCalibration = { viewModel.showHearingProfileTest.value = true },
+                        onOpenVipPaywall = { featureId -> showVipPaywallForFeature = featureId ?: "vip_general" },
+                        onSelectNowPlayingStyle = { styleId ->
+                            viewModel.updateSettings(appSettings.copy(selectedNowPlayingStyle = styleId))
+                        },
+                        onUpdateTrackArtwork = { trk, artworkUri ->
+                            viewModel.updateTrackArtwork(trk, artworkUri)
+                        },
+                        connectedDevice = connectedDevice,
+                        onShareSong = { trk -> viewModel.showShareCard(trk) },
+                        onPlaybackSpeedChange = { speed -> viewModel.setPlaybackSpeed(speed) },
+                        loopStartMs = loopStartMs,
+                        loopEndMs = loopEndMs,
+                        onSetAbLoop = { a, b -> viewModel.setAbLoop(a, b) },
+                        onClearAbLoop = { viewModel.clearAbLoop() },
+                        onDownloadTrack = { trk -> viewModel.downloadTrackToDeviceLibrary(trk) }
+                    )
+                }
+            }
+        }
+
+        // Modal Sheets & Dialogs
+        showShareCard?.let { trk ->
+            ShareSongDialog(
+                track = trk,
+                palette = palette,
+                language = lang,
+                lyrics = currentLyrics,
+                onDismiss = { viewModel.dismissShareCard() }
+            )
+        }
+
+        if (showHearingProfileTest) {
+            HearingProfileTestSheet(
+                palette = palette,
+                lang = lang,
+                onApplyCalibratedProfile = { calibratedBands ->
+                    viewModel.applyHearingCalibration(calibratedBands)
+                    viewModel.showHearingProfileTest.value = false
+                    Toast.makeText(
+                        context,
+                        if (lang == AppLanguage.PERSIAN) "پروفایل اختصاصی شنوایی شما ذخیره و اعمال شد." else "Hearing calibrated profile applied!",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                },
+                onDismiss = { viewModel.showHearingProfileTest.value = false }
+            )
+        }
+
+        if (showDuplicatesReview && duplicateGroups.isNotEmpty()) {
+            DuplicatesReviewDialog(
+                groups = duplicateGroups,
+                palette = palette,
+                lang = lang,
+                onKeepAllHigherQuality = {
+                    viewModel.applyDuplicateGroupWinners(duplicateGroups)
+                    viewModel.showDuplicatesReview.value = false
+                    Toast.makeText(
+                        context,
+                        if (lang == AppLanguage.PERSIAN) "فایل‌های تکراری با موفقیت بهینه‌سازی شدند." else "Duplicate tracks optimized!",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                },
+                onDismiss = { viewModel.showDuplicatesReview.value = false }
+            )
+        }
+
+        if (showLyricsEditor) {
+            LyricsEditorSheet(
+                track = playbackState.currentTrack,
+                currentLyrics = currentLyrics,
+                currentPositionMs = viewModel.currentPositionMs.value,
+                palette = palette,
+                lang = appSettings.language,
+                onSave = { rawLrc, offsetMs ->
+                    playbackState.currentTrack?.let {
+                        viewModel.saveLyrics(it.id, rawLrc, offsetMs)
+                    }
+                },
+                onClose = { viewModel.showLyricsEditor.value = false }
+            )
+        }
+
+        if (showEqualizer) {
+            EqualizerSheet(
+                settings = appSettings,
+                palette = palette,
+                onUpdateSettings = { viewModel.updateSettings(it) },
+                onClose = { viewModel.showEqualizer.value = false }
+            )
+        }
+
+        if (showQueue) {
+            QueueSheet(
+                playbackState = playbackState,
+                palette = palette,
+                lang = appSettings.language,
+                onPlayTrack = { viewModel.playTrack(it) },
+                onRemoveFromQueue = { viewModel.removeFromQueue(it) },
+                onClearQueue = { viewModel.clearQueue() },
+                onReorder = { from, to -> viewModel.reorderQueue(from, to) },
+                onSaveAsPlaylist = { name -> viewModel.createPlaylist(name) },
+                onClose = { viewModel.showQueue.value = false }
+            )
+        }
+
+        if (showSleepTimer) {
+            SleepTimerDialog(
+                currentMinutes = appSettings.sleepTimerMinutes,
+                lang = appSettings.language,
+                onSelectMinutes = { viewModel.setSleepTimer(it) },
+                onDismiss = { viewModel.showSleepTimer.value = false }
+            )
+        }
+
+        editingTrackMetadata?.let { trk ->
+            MetadataEditorDialog(
+                track = trk,
+                lang = appSettings.language,
+                onSave = { title, artist, album, genre, year, artworkUri ->
+                    viewModel.updateTrackMetadata(trk, title, artist, album, genre, year, artworkUri)
+                    viewModel.editingTrackMetadata.value = null
+                },
+                onDismiss = { viewModel.editingTrackMetadata.value = null }
+            )
+        }
+
+        if (showVipPaywallForFeature != null) {
+            VipPaywallSheet(
+                onDismiss = { showVipPaywallForFeature = null },
+                onUnlockedSuccess = {
+                    showVipPaywallForFeature = null
+                    viewModel.refreshUnlockedStyles()
+                }
+            )
+        }
+
+        if (showAchievementsDialog) {
+            AchievementsDialog(
+                achievements = achievementItems,
+                palette = palette,
+                lang = lang,
+                onDismiss = { showAchievementsDialog = false },
+                onRewardClaimed = { _ ->
+                    viewModel.refreshUnlockedStyles()
+                    viewModel.updateSettings(appSettings.copy())
+                    coroutineScope.launch {
+                        val stats = viewModel.getListeningStatsForAchievements()
+                        achievementItems = com.example.monetization.AchievementManager.getAchievements(
+                            context = context,
+                            totalListenedMs = stats.first,
+                            uniqueTracksCount = stats.second,
+                            activeStreakDays = stats.third
+                        )
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SpotifyNavBarItem(
+    selected: Boolean,
+    selectedIcon: ImageVector,
+    unselectedIcon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val color = if (selected) Color.White else TextSecondary
+
+    Column(
+        modifier = modifier
+            .fillMaxHeight()
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = if (selected) selectedIcon else unselectedIcon,
+            contentDescription = label,
+            tint = color,
+            modifier = Modifier.size(23.dp)
+        )
+        Spacer(modifier = Modifier.height(3.dp))
+        Text(
+            text = label,
+            color = color,
+            fontSize = 10.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+app/src/main/java/com/example/ui/screens/HomeScreen.kt
+package com.example.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.OnlineCacheHolder
+import com.example.OnlineMusicRepository
+import com.example.audio.AmbientPalette
+import com.example.data.model.*
+import com.example.ui.components.TrackArtworkThumbnail
+import com.example.ui.theme.AuraSpotifyGreen
+import com.example.ui.theme.AuraSurface
+import com.example.ui.theme.AuraSurfaceElevated
+import com.example.ui.theme.TextSecondary
+import java.util.Calendar
+import kotlinx.coroutines.launch
+
+@Composable
+fun HomeScreen(
+    playbackState: PlaybackState,
+    allTracks: List<Track>,
+    recentlyPlayed: List<Track>,
+    favoriteTracks: List<Track>,
+    palette: AmbientPalette,
+    appSettings: AppSettings,
+    onPlayTrack: (Track, List<Track>) -> Unit,
+    onTogglePlay: () -> Unit,
+    onOpenLibrary: () -> Unit,
+    onOpenWrapped: () -> Unit,
+    onExpandNowPlaying: () -> Unit = {},
+    bottomPadding: Dp = 120.dp,
+    timeSlotTracks: List<Track> = emptyList(),
+    onThisDayHighlight: TopSongItem? = null,
+    weeklyRecapStats: WrappedStats? = null,
+    didRestoreSession: Boolean = false,
+    duplicateCount: Int = 0,
+    onOpenDuplicatesReview: () -> Unit = {},
+    onToggleFocusMode: () -> Unit = {},
+    onToggleGymMode: () -> Unit = {},
+    currentPositionProvider: () -> Long = { playbackState.currentPositionMs },
+    onSeekTo: (Long) -> Unit = {},
+    onlineTrendingTracks: List<Track> = emptyList(),
+    selectedTrendingMode: String = "FOR_YOU",
+    isLoadingOnlineRecommendations: Boolean = false,
+    userTopArtists: List<String> = emptyList(),
+    onlineRecentTracks: List<Track> = emptyList(),
+    onSelectTrendingMode: (String) -> Unit = {},
+    onRefreshOnlineRecommendations: () -> Unit = {},
+    onDownloadTrack: (Track) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val lang = appSettings.language
+    val isFa = lang == AppLanguage.PERSIAN
+    val context = LocalContext.current
+    val downloadedIds by OnlineCacheHolder.downloadedTrackIds.collectAsState()
+
+    val mergedRecentlyPlayed = remember(onlineRecentTracks, recentlyPlayed) {
+        (onlineRecentTracks + recentlyPlayed)
+            .distinctBy { "${it.title.lowercase().trim()}|${it.artist.lowercase().trim()}" }
+            .take(16)
+    }
+
+    // 6-item or 8-item Quick-Access Spotify Grid at the top of Home
+    val quickGridTracks = remember(mergedRecentlyPlayed, favoriteTracks, allTracks) {
+        (mergedRecentlyPlayed + favoriteTracks + allTracks)
+            .distinctBy { it.id }
+            .take(6)
+    }
+
+    val currentHour = remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
+    val greetingText = remember(currentHour, isFa) {
+        when (currentHour) {
+            in 5..11 -> if (isFa) "صبح بخیر" else "Good morning"
+            in 12..16 -> if (isFa) "ظهر بخیر" else "Good afternoon"
+            in 17..21 -> if (isFa) "عصر بخیر" else "Good evening"
+            else -> if (isFa) "شب بخیر" else "Good night"
+        }
+    }
+
+    var userShuffledHeroTrack by remember { mutableStateOf<Track?>(null) }
+    val sessionRandomTrack = remember(allTracks.size, onlineRecentTracks.size) {
+        val pool = (allTracks + onlineRecentTracks).ifEmpty { favoriteTracks }
+        pool.shuffled().firstOrNull()
+    }
+    val heroTrack = userShuffledHeroTrack
+        ?: playbackState.currentTrack
+        ?: mergedRecentlyPlayed.firstOrNull()
+        ?: sessionRandomTrack
+        ?: favoriteTracks.firstOrNull()
+        ?: allTracks.firstOrNull()
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            top = 14.dp,
+            bottom = maxOf(bottomPadding + 24.dp, 128.dp)
+        ),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
+        // 1. Spotify Top Header & Filter Pills (All, Gym Mode, Stats, Library)
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = greetingText,
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontSize = 23.sp
+                        )
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = onOpenWrapped,
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.BarChart,
+                                contentDescription = "Listening Stats",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = onOpenLibrary,
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.History,
+                                contentDescription = "History & Library",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Filter Pills Row (Spotify Architecture)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SpotifyFilterChip(
+                        label = if (isFa) "همه" else "All",
+                        selected = !appSettings.gymModeEnabled,
+                        onClick = {
+                            if (appSettings.gymModeEnabled) onToggleGymMode()
+                        }
+                    )
+
+                    SpotifyFilterChip(
+                        label = if (isFa) {
+                            if (appSettings.gymModeEnabled) "حالت باشگاه • فعال" else "حالت باشگاه"
+                        } else {
+                            if (appSettings.gymModeEnabled) "Gym Mode • ON" else "Gym Mode"
+                        },
+                        selected = appSettings.gymModeEnabled,
+                        leadingIcon = Icons.Default.FitnessCenter,
+                        onClick = onToggleGymMode,
+                        modifier = Modifier.testTag("gym_mode_toggle_btn")
+                    )
+
+                    if (duplicateCount > 0) {
+                        SpotifyFilterChip(
+                            label = if (isFa) "$duplicateCount تکراری" else "$duplicateCount Duplicates",
+                            selected = false,
+                            leadingIcon = Icons.Default.CleaningServices,
+                            onClick = onOpenDuplicatesReview
+                        )
+                    }
+                }
+            }
+        }
+
+        // 2. Spotify 2-Column Compact Quick-Access Grid
+        if (quickGridTracks.isNotEmpty()) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val rows = quickGridTracks.chunked(2)
+                    rows.forEach { rowTracks ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowTracks.forEach { track ->
+                                val isPlayingThis = playbackState.currentTrack?.id == track.id &&
+                                    playbackState.status == PlayerStatus.PLAYING
+                                SpotifyQuickGridItem(
+                                    track = track,
+                                    isPlayingThis = isPlayingThis,
+                                    palette = palette,
+                                    onClick = { onPlayTrack(track, quickGridTracks) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            if (rowTracks.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Featured Now Playing / Spotlight Card (Clean Editorial Layout)
+        if (heroTrack != null) {
+            item {
+                SpotifyFeaturedCard(
+                    heroTrack = heroTrack,
+                    playbackState = playbackState,
+                    palette = palette,
+                    isFa = isFa,
+                    hasActiveTrack = playbackState.currentTrack != null,
+                    onPlayOrToggle = {
+                        if (playbackState.currentTrack?.id == heroTrack.id) {
+                            onTogglePlay()
+                        } else {
+                            val pool = mergedRecentlyPlayed.ifEmpty { allTracks.ifEmpty { listOf(heroTrack) } }
+                            onPlayTrack(heroTrack, pool)
+                        }
+                    },
+                    onShuffleNextHero = {
+                        val pool = (allTracks + onlineRecentTracks + mergedRecentlyPlayed + favoriteTracks).distinctBy { it.id }
+                        if (pool.size > 1) {
+                            userShuffledHeroTrack = pool.filter { it.id != heroTrack.id }.shuffled().firstOrNull()
+                        }
+                    },
+                    onExpandNowPlaying = onExpandNowPlaying,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+        }
+
+        // 4. Suggested Songs for Today (Horizontal Spotify Shelf)
+        item {
+            HomeCloudflareSpotlightSection(
+                cloudflareTracks = onlineTrendingTracks,
+                isFa = isFa,
+                onPlayTrack = onPlayTrack
+            )
+        }
+
+        // 5. Recently Played Shelf
+        if (mergedRecentlyPlayed.isNotEmpty()) {
+            item {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    SpotifySectionHeader(
+                        title = if (isFa) "اخیراً گوش داده شده" else "Recently played",
+                        actionText = if (isFa) "نمایش همه" else "Show all",
+                        onActionClick = onOpenLibrary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        items(mergedRecentlyPlayed, key = { "recent_${it.id}" }) { track ->
+                            val isOnline = track.id.startsWith("online_") || track.uri.startsWith("http")
+                            val isSaved = downloadedIds.contains(track.id) ||
+                                downloadedIds.contains(track.id.removePrefix("online_")) ||
+                                OnlineCacheHolder.isTrackCached(context, track.id) ||
+                                !isOnline
+
+                            SpotifyAlbumCard(
+                                track = track,
+                                accentColor = palette.primary,
+                                showDownloadBadge = isOnline && !isSaved,
+                                onClick = { onPlayTrack(track, mergedRecentlyPlayed) },
+                                onDownloadClick = { onDownloadTrack(track) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 6. Favorites List / Shelf
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (isFa) "آهنگ‌های مورد علاقه" else "Liked Songs",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    )
+                    if (favoriteTracks.isNotEmpty()) {
+                        Text(
+                            text = if (isFa) "${favoriteTracks.size} آهنگ" else "${favoriteTracks.size} songs",
+                            style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (favoriteTracks.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        favoriteTracks.take(10).forEach { track ->
+                            val isCurrent = playbackState.currentTrack?.id == track.id
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { onPlayTrack(track, favoriteTracks) }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TrackArtworkThumbnail(
+                                    artworkUri = track.artworkUri,
+                                    accentColor = palette.primary,
+                                    size = 48.dp,
+                                    shape = RoundedCornerShape(6.dp),
+                                    iconSize = 22.dp,
+                                    title = track.title,
+                                    artist = track.artist,
+                                    trackId = track.id
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = track.title,
+                                        style = MaterialTheme.typography.bodyLarge.copy(
+                                            fontWeight = FontWeight.Medium,
+                                            color = if (isCurrent) AuraSpotifyGreen else Color.White
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = track.artist,
+                                        style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Default.Favorite,
+                                    contentDescription = null,
+                                    tint = AuraSpotifyGreen,
+                                    modifier = Modifier
+                                        .padding(horizontal = 8.dp)
+                                        .size(18.dp)
+                                )
+                                Text(
+                                    text = track.durationFormatted,
+                                    style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(AuraSurface)
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.FavoriteBorder,
+                                contentDescription = null,
+                                tint = TextSecondary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = if (isFa) "هنوز آهنگی به علاقه‌مندی‌ها اضافه نشده است" else "Songs you like will appear here",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    color = TextSecondary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpotifyFilterChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null
+) {
+    val bgColor = if (selected) AuraSpotifyGreen else AuraSurfaceElevated
+    val contentColor = if (selected) Color.Black else Color.White
+
+    Row(
+        modifier = modifier
+            .height(32.dp)
+            .clip(RoundedCornerShape(50))
+            .background(bgColor)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        if (leadingIcon != null) {
+            Icon(
+                imageVector = leadingIcon,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(15.dp)
+            )
+        }
+        Text(
+            text = label,
+            color = contentColor,
+            fontSize = 12.5.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun SpotifyQuickGridItem(
+    track: Track,
+    isPlayingThis: Boolean,
+    palette: AmbientPalette,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .height(56.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(AuraSurfaceElevated)
+            .clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TrackArtworkThumbnail(
+            artworkUri = track.artworkUri,
+            accentColor = palette.primary,
+            size = 56.dp,
+            shape = RoundedCornerShape(topStart = 6.dp, bottomStart = 6.dp),
+            iconSize = 24.dp,
+            title = track.title,
+            artist = track.artist,
+            trackId = track.id
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = track.title,
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontWeight = FontWeight.Bold,
+                color = if (isPlayingThis) AuraSpotifyGreen else Color.White,
+                fontSize = 12.5.sp,
+                lineHeight = 15.sp
+            ),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 6.dp)
+        )
+        if (isPlayingThis) {
+            Icon(
+                imageVector = Icons.Default.GraphicEq,
+                contentDescription = "Playing",
+                tint = AuraSpotifyGreen,
+                modifier = Modifier
+                    .padding(end = 8.dp)
+                    .size(16.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SpotifyFeaturedCard(
+    heroTrack: Track,
+    playbackState: PlaybackState,
+    palette: AmbientPalette,
+    isFa: Boolean,
+    hasActiveTrack: Boolean,
+    onPlayOrToggle: () -> Unit,
+    onShuffleNextHero: () -> Unit,
+    onExpandNowPlaying: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isPlaying = playbackState.status == PlayerStatus.PLAYING &&
+        playbackState.currentTrack?.id == heroTrack.id
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(AuraSurface)
+            .border(0.5.dp, Color(0x14FFFFFF), RoundedCornerShape(10.dp))
+            .clickable {
+                if (hasActiveTrack && playbackState.currentTrack?.id == heroTrack.id) {
+                    onExpandNowPlaying()
+                } else {
+                    onPlayOrToggle()
+                }
+            }
+            .padding(14.dp)
+            .testTag("hero_quick_play_card")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TrackArtworkThumbnail(
+                artworkUri = heroTrack.artworkUri,
+                accentColor = palette.primary,
+                size = 76.dp,
+                shape = RoundedCornerShape(8.dp),
+                iconSize = 32.dp,
+                title = heroTrack.title,
+                artist = heroTrack.artist,
+                trackId = heroTrack.id
+            )
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (isPlaying) {
+                        if (isFa) "در حال پخش" else "NOW PLAYING"
+                    } else {
+                        if (isFa) "پیشنهاد ویژه" else "FEATURED TRACK"
+                    },
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = if (isPlaying) AuraSpotifyGreen else TextSecondary,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        fontSize = 10.sp
+                    )
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = heroTrack.title,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        fontSize = 16.sp
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = heroTrack.artist,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = TextSecondary,
+                        fontSize = 13.sp
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            IconButton(
+                onClick = onShuffleNextHero,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Shuffle,
+                    contentDescription = "Shuffle Featured",
+                    tint = TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(4.dp))
+
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(AuraSpotifyGreen)
+                    .clickable(onClick = onPlayOrToggle)
+                    .testTag("hero_play_button"),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    tint = Color.Black,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpotifySectionHeader(
+    title: String,
+    actionText: String? = null,
+    onActionClick: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                fontSize = 20.sp
+            )
+        )
+        if (actionText != null && onActionClick != null) {
+            Text(
+                text = actionText,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    color = TextSecondary,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable(onClick = onActionClick)
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SpotifyAlbumCard(
+    track: Track,
+    accentColor: Color,
+    showDownloadBadge: Boolean,
+    onClick: () -> Unit,
+    onDownloadClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(142.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Box(modifier = Modifier.size(142.dp)) {
+            TrackArtworkThumbnail(
+                artworkUri = track.artworkUri,
+                accentColor = accentColor,
+                size = 142.dp,
+                shape = RoundedCornerShape(8.dp),
+                iconSize = 40.dp,
+                title = track.title,
+                artist = track.artist,
+                trackId = track.id
+            )
+            if (showDownloadBadge) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xD9121212))
+                        .clickable(onClick = onDownloadClick),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = "Save to device",
+                        tint = Color.White,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = track.title,
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                fontSize = 13.5.sp
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = track.artist,
+            style = MaterialTheme.typography.bodySmall.copy(
+                color = TextSecondary,
+                fontSize = 12.sp
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+fun HomeCloudflareSpotlightSection(
+    cloudflareTracks: List<Track> = emptyList(),
+    isFa: Boolean = true,
+    onPlayTrack: (Track, List<Track>) -> Unit
+) {
+    val repoTracks by OnlineMusicRepository.onlineTracksFlow.collectAsState()
+    var loadedOnlineTracks by remember {
+        mutableStateOf(OnlineMusicRepository.getMemoryCachedAppTracks())
+    }
+    var shuffleSeed by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        if (loadedOnlineTracks.isEmpty() && repoTracks.isEmpty() && cloudflareTracks.isEmpty()) {
+            val cached = OnlineMusicRepository.loadCachedAppTracksAsync()
+            if (cached.isNotEmpty()) {
+                loadedOnlineTracks = cached
+            } else {
+                try {
+                    val resp = OnlineMusicRepository.fetchFromWorker()
+                    if (resp.tracks.isNotEmpty()) {
+                        loadedOnlineTracks = resp.tracks.map { it.toAppTrack(it.resolvedStreamUrl()) }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    val displayPool = when {
+        repoTracks.isNotEmpty() -> repoTracks
+        loadedOnlineTracks.isNotEmpty() -> loadedOnlineTracks
+        else -> cloudflareTracks
+    }
+
+    val spotlightTracks = remember(displayPool.size, shuffleSeed) {
+        if (displayPool.isEmpty()) emptyList()
+        else displayPool.shuffled().take(14)
+    }
+
+    LaunchedEffect(spotlightTracks) {
+        spotlightTracks.take(8).forEach { track ->
+            val url = track.artworkUri
+            if (!url.isNullOrBlank()) {
+                launch(kotlinx.coroutines.Dispatchers.IO) {
+                    OnlineMusicRepository.loadCoverBitmap(url)
+                }
+            }
+        }
+    }
+
+    if (spotlightTracks.isNotEmpty()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            SpotifySectionHeader(
+                title = if (isFa) "پیشنهاد امروز برای شما" else "Made For You Today",
+                actionText = if (isFa) "بروزرسانی" else "Refresh",
+                onActionClick = { shuffleSeed++ }
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                items(spotlightTracks, key = { "home_cf_${it.id}" }) { track ->
+                    SpotifyAlbumCard(
+                        track = track,
+                        accentColor = AuraSpotifyGreen,
+                        showDownloadBadge = false,
+                        onClick = { onPlayTrack(track, spotlightTracks) },
+                        onDownloadClick = {}
+                    )
+                }
+            }
+        }
+    }
+}
+

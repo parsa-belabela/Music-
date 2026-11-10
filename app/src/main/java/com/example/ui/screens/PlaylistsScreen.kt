@@ -1,11 +1,5 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -21,12 +15,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
@@ -37,8 +30,10 @@ import com.example.data.model.Track
 import com.example.ui.components.PlaylistDetailSheet
 import com.example.ui.components.TrackArtworkThumbnail
 import com.example.ui.components.TrackPickerSheet
-import com.example.ui.theme.GlassThickness
-import com.example.ui.theme.liquidGlass
+import com.example.ui.theme.AuraSpotifyGreen
+import com.example.ui.theme.AuraSurface
+import com.example.ui.theme.AuraSurfaceElevated
+import com.example.ui.theme.TextSecondary
 import com.example.util.Localization
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,7 +54,7 @@ fun PlaylistsScreen(
     onRemoveTrackFromPlaylist: (String, String) -> Unit = { _, _ -> },
     onPlayTrack: (Track, List<Track>) -> Unit = { _, _ -> },
     onPlayTrackList: (List<Track>) -> Unit,
-    bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
+    bottomPadding: Dp = 120.dp,
     modifier: Modifier = Modifier
 ) {
     var showNameDialog by remember { mutableStateOf(false) }
@@ -71,6 +66,7 @@ fun PlaylistsScreen(
     var selectedPlaylistId by remember { mutableStateOf<String?>(null) }
     var playlistSearchQuery by remember { mutableStateOf("") }
     val lang = settings.language
+    val isFa = lang == AppLanguage.PERSIAN
 
     val selectedPlaylist = remember(selectedPlaylistId, playlists) {
         playlists.firstOrNull { it.id == selectedPlaylistId }
@@ -90,97 +86,81 @@ fun PlaylistsScreen(
             .statusBarsPadding()
             .padding(horizontal = 16.dp)
     ) {
-        // Header
+        // 1. Spotify Playlists Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 16.dp, bottom = 12.dp),
+                .padding(top = 14.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Text(
-                    text = Localization.getString("collections", lang).uppercase(),
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        letterSpacing = 1.5.sp,
-                        color = palette.accent,
-                        fontWeight = FontWeight.Bold
-                    )
+            Text(
+                text = Localization.getString("playlists", lang),
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    fontSize = 23.sp
                 )
-                Text(
-                    text = Localization.getString("playlists", lang),
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                )
-            }
+            )
 
-            Box(
+            Row(
                 modifier = Modifier
-                    .liquidGlass(
-                        shape = RoundedCornerShape(14.dp),
-                        thickness = GlassThickness.REGULAR,
-                        tintColor = palette.primary,
-                        tintAlpha = 0.22f,
-                        borderWidth = 1.dp
-                    )
+                    .height(34.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(AuraSpotifyGreen)
                     .clickable {
                         pendingPlaylistName = ""
                         showNameDialog = true
                     }
-                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                    .testTag("create_playlist_button")
+                    .padding(horizontal = 14.dp)
+                    .testTag("create_playlist_button"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "New Playlist",
-                        tint = palette.accent,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text(
-                        text = Localization.getString("new_playlist", lang),
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "New Playlist",
+                    tint = Color.Black,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = Localization.getString("new_playlist", lang),
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Black,
+                    fontSize = 12.5.sp
+                )
             }
         }
 
-        // Search in playlists (if there are playlists)
-        if (playlists.size > 3) {
+        // 2. Search in Playlists
+        if (playlists.size > 2) {
             OutlinedTextField(
                 value = playlistSearchQuery,
                 onValueChange = { playlistSearchQuery = it },
                 placeholder = {
                     Text(
-                        text = if (lang == AppLanguage.PERSIAN) "جستجوی پلی‌لیست..." else "Search playlists...",
-                        color = Color(0xFF8E8EA0),
-                        fontSize = 13.sp
+                        text = if (isFa) "جستجوی پلی‌لیست..." else "Find in playlists...",
+                        color = TextSecondary,
+                        fontSize = 14.sp
                     )
                 },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = null,
-                        tint = palette.accent,
-                        modifier = Modifier.size(18.dp)
+                        tint = TextSecondary,
+                        modifier = Modifier.size(20.dp)
                     )
                 },
                 singleLine = true,
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(8.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
-                    focusedContainerColor = Color(0x18182236),
-                    unfocusedContainerColor = Color(0x10182030),
-                    focusedBorderColor = palette.primary,
-                    unfocusedBorderColor = Color(0x25FFFFFF)
+                    focusedContainerColor = AuraSurfaceElevated,
+                    unfocusedContainerColor = AuraSurface,
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -188,61 +168,57 @@ fun PlaylistsScreen(
             )
         }
 
+        // 3. Playlists List
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
-            contentPadding = PaddingValues(bottom = maxOf(bottomPadding + 20.dp, 120.dp)),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentPadding = PaddingValues(bottom = maxOf(bottomPadding + 24.dp, 128.dp)),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             if (playlists.isEmpty()) {
                 item {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 30.dp)
-                            .liquidGlass(
-                                shape = RoundedCornerShape(24.dp),
-                                thickness = GlassThickness.REGULAR,
-                                tintColor = palette.primary,
-                                tintAlpha = 0.16f,
-                                borderWidth = 1.dp
-                            )
+                            .padding(top = 40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(AuraSurface)
                             .padding(28.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(64.dp)
+                                    .size(60.dp)
                                     .clip(CircleShape)
-                                    .background(palette.primary.copy(alpha = 0.25f)),
+                                    .background(AuraSurfaceElevated),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.QueueMusic,
                                     contentDescription = null,
-                                    tint = palette.accent,
-                                    modifier = Modifier.size(34.dp)
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(30.dp)
                                 )
                             }
                             Text(
-                                text = if (lang == AppLanguage.PERSIAN) "هنوز هیچ پلی‌لیستی ایجاد نشده است" else "No playlists yet",
+                                text = if (isFa) "اولین پلی‌لیست خود را بسازید" else "Create your first playlist",
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
                                 )
                             )
                             Text(
-                                text = if (lang == AppLanguage.PERSIAN)
-                                    "برای ساخت کالکشن اختصاصی، نام پلی‌لیست را وارد کرده و آهنگ‌های دلخواهتان را انتخاب کنید."
+                                text = if (isFa)
+                                    "آهنگ‌های مورد علاقه‌تان را در مجموعه‌های دلخواه دسته‌بندی کنید."
                                 else
-                                    "Create your custom collection by naming a playlist and picking your favorite tracks.",
+                                    "It's easy, we'll help you organize your favorite songs.",
                                 style = MaterialTheme.typography.bodySmall.copy(
-                                    color = Color(0xFFA0A0B8),
+                                    color = TextSecondary,
                                     textAlign = TextAlign.Center
                                 )
                             )
@@ -252,15 +228,17 @@ fun PlaylistsScreen(
                                     pendingPlaylistName = ""
                                     showNameDialog = true
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.height(48.dp)
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color.White,
+                                    contentColor = Color.Black
+                                ),
+                                shape = RoundedCornerShape(50),
+                                modifier = Modifier.height(42.dp)
                             ) {
-                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = Localization.getString("create_playlist", lang),
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
                                 )
                             }
                         }
@@ -274,209 +252,166 @@ fun PlaylistsScreen(
                     }
                     val firstArt = plTracks.firstOrNull()?.artworkUri
 
-                    Box(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .liquidGlass(
-                                shape = RoundedCornerShape(20.dp),
-                                thickness = GlassThickness.REGULAR,
-                                tintColor = palette.primary,
-                                tintAlpha = 0.16f,
-                                borderWidth = 1.dp,
-                                appTheme = settings.theme
-                            )
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable { selectedPlaylistId = pl.id }
-                            .padding(14.dp)
+                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(AuraSurfaceElevated),
+                            contentAlignment = Alignment.Center
                         ) {
-                            // Cover / Icon
-                            Box(
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(palette.primary.copy(alpha = 0.25f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (firstArt != null) {
-                                    TrackArtworkThumbnail(
-                                        artworkUri = firstArt,
-                                        accentColor = palette.primary,
-                                        size = 56.dp,
-                                        shape = RoundedCornerShape(14.dp),
-                                        iconSize = 28.dp
-                                    )
-                                } else {
+                            if (firstArt != null) {
+                                TrackArtworkThumbnail(
+                                    artworkUri = firstArt,
+                                    accentColor = palette.primary,
+                                    size = 56.dp,
+                                    shape = RoundedCornerShape(6.dp),
+                                    iconSize = 26.dp
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.QueueMusic,
+                                    contentDescription = null,
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(14.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = pl.name,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White,
+                                    fontSize = 15.5.sp
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = "${pl.trackIds.size} ${Localization.getString("tracks", lang)}",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = TextSecondary,
+                                    fontSize = 12.5.sp
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            if (plTracks.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { onPlayTrackList(plTracks) },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
                                     Icon(
-                                        imageVector = Icons.Default.QueueMusic,
-                                        contentDescription = null,
-                                        tint = palette.accent,
+                                        imageVector = Icons.Default.PlayCircleFilled,
+                                        contentDescription = "Play",
+                                        tint = AuraSpotifyGreen,
                                         modifier = Modifier.size(28.dp)
                                     )
                                 }
                             }
 
-                            Spacer(modifier = Modifier.width(14.dp))
-
-                            // Playlist Name & Tracks Count
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = pl.name,
-                                    style = MaterialTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "${pl.trackIds.size} ${Localization.getString("tracks", lang)}",
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            // Actions: Clean, compact, professional
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                if (plTracks.isNotEmpty()) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(34.dp)
-                                            .clip(CircleShape)
-                                            .background(palette.primary.copy(alpha = 0.35f))
-                                            .clickable { onPlayTrackList(plTracks) },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.PlayArrow,
-                                            contentDescription = "Play",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
+                            var menuExpanded by remember { mutableStateOf(false) }
+                            Box {
+                                IconButton(
+                                    onClick = { menuExpanded = true },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "Menu",
+                                        tint = TextSecondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
                                 }
 
-                                var menuExpanded by remember { mutableStateOf(false) }
-                                Box {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(34.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0x14FFFFFF))
-                                            .clickable { menuExpanded = true },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.MoreVert,
-                                            contentDescription = "Menu",
-                                            tint = Color.White.copy(alpha = 0.85f),
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-
-                                    val plMenuAlpha by animateFloatAsState(
-                                        targetValue = if (menuExpanded) 1f else 0f,
-                                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-                                        label = "pl_menu_alpha"
-                                    )
-                                    val plMenuScale by animateFloatAsState(
-                                        targetValue = if (menuExpanded) 1f else 0.92f,
-                                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-                                        label = "pl_menu_scale"
-                                    )
-
-                                    DropdownMenu(
-                                        expanded = menuExpanded,
-                                        onDismissRequest = { menuExpanded = false },
-                                        modifier = Modifier
-                                            .graphicsLayer {
-                                                alpha = plMenuAlpha
-                                                scaleX = plMenuScale
-                                                scaleY = plMenuScale
-                                                transformOrigin = TransformOrigin(0.9f, 0f)
-                                            }
-                                            .liquidGlass(
-                                                shape = RoundedCornerShape(16.dp),
-                                                thickness = GlassThickness.REGULAR,
-                                                tintColor = palette.deepAtmosphere,
-                                                tintAlpha = 0.92f,
-                                                borderWidth = 1.dp,
-                                                appTheme = settings.theme
+                                DropdownMenu(
+                                    expanded = menuExpanded,
+                                    onDismissRequest = { menuExpanded = false },
+                                    modifier = Modifier.background(AuraSurfaceElevated)
+                                ) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (isFa) "افزودن آهنگ" else "Add Songs",
+                                                color = Color.White
                                             )
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    if (lang == AppLanguage.PERSIAN) "افزودن آهنگ" else "Add Songs",
-                                                    color = Color.White
-                                                )
-                                            },
-                                            leadingIcon = {
-                                                Icon(
-                                                    imageVector = Icons.Default.PlaylistAdd,
-                                                    contentDescription = null,
-                                                    tint = palette.accent,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            },
-                                            onClick = {
-                                                menuExpanded = false
-                                                targetPlaylistForAdding = pl
-                                            }
-                                        )
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.PlaylistAdd,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        },
+                                        onClick = {
+                                            menuExpanded = false
+                                            targetPlaylistForAdding = pl
+                                        }
+                                    )
 
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    if (lang == AppLanguage.PERSIAN) "تغییر نام" else "Rename",
-                                                    color = Color.White
-                                                )
-                                            },
-                                            leadingIcon = {
-                                                Icon(
-                                                    imageVector = Icons.Default.Edit,
-                                                    contentDescription = null,
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            },
-                                            onClick = {
-                                                menuExpanded = false
-                                                renamePlaylistNewName = pl.name
-                                                playlistToRename = pl
-                                            }
-                                        )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (isFa) "تغییر نام" else "Rename",
+                                                color = Color.White
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        },
+                                        onClick = {
+                                            menuExpanded = false
+                                            renamePlaylistNewName = pl.name
+                                            playlistToRename = pl
+                                        }
+                                    )
 
-                                        HorizontalDivider(color = Color(0x20FFFFFF))
+                                    HorizontalDivider(color = Color(0x18FFFFFF))
 
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    if (lang == AppLanguage.PERSIAN) "حذف پلی‌لیست" else "Delete Playlist",
-                                                    color = Color(0xFFEF4444)
-                                                )
-                                            },
-                                            leadingIcon = {
-                                                Icon(
-                                                    imageVector = Icons.Default.DeleteOutline,
-                                                    contentDescription = null,
-                                                    tint = Color(0xFFEF4444),
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            },
-                                            onClick = {
-                                                menuExpanded = false
-                                                onDeletePlaylist(pl.id)
-                                            }
-                                        )
-                                    }
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (isFa) "حذف پلی‌لیست" else "Delete Playlist",
+                                                color = Color(0xFFEF4444)
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.DeleteOutline,
+                                                contentDescription = null,
+                                                tint = Color(0xFFEF4444),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onDeletePlaylist(pl.id)
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -486,7 +421,6 @@ fun PlaylistsScreen(
         }
     }
 
-    // Playlist Details Modal Sheet
     selectedPlaylist?.let { pl ->
         PlaylistDetailSheet(
             playlist = pl,
@@ -510,12 +444,11 @@ fun PlaylistsScreen(
         )
     }
 
-    // Step 1: Playlist Name Input Dialog
     if (showNameDialog) {
         AlertDialog(
             onDismissRequest = { showNameDialog = false },
-            containerColor = Color(0xFF161628),
-            shape = RoundedCornerShape(22.dp),
+            containerColor = AuraSurfaceElevated,
+            shape = RoundedCornerShape(16.dp),
             title = {
                 Text(
                     text = Localization.getString("create_playlist", lang),
@@ -526,11 +459,11 @@ fun PlaylistsScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = if (lang == AppLanguage.PERSIAN)
-                            "نامی برای پلی‌لیست جدید وارد کنید. سپس می‌توانید آهنگ‌های مورد نظر را انتخاب و اضافه کنید."
+                        text = if (isFa)
+                            "نام پلی‌لیست جدید را وارد کنید و سپس آهنگ‌های دلخواه را انتخاب نمایید."
                         else
-                            "Enter a name for your playlist, then select songs to include.",
-                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFB0B0C4))
+                            "Give your playlist a name, then select tracks to include.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
                     )
                     OutlinedTextField(
                         value = pendingPlaylistName,
@@ -540,7 +473,7 @@ fun PlaylistsScreen(
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
-                            focusedBorderColor = palette.primary
+                            focusedBorderColor = AuraSpotifyGreen
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -555,32 +488,34 @@ fun PlaylistsScreen(
                         }
                     },
                     enabled = pendingPlaylistName.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
-                    shape = RoundedCornerShape(12.dp)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AuraSpotifyGreen,
+                        contentColor = Color.Black
+                    ),
+                    shape = RoundedCornerShape(50)
                 ) {
                     Text(
-                        text = if (lang == AppLanguage.PERSIAN) "انتخاب آهنگ‌ها →" else "Select Songs →",
+                        text = if (isFa) "انتخاب آهنگ‌ها" else "Select Songs",
                         fontWeight = FontWeight.Bold
                     )
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showNameDialog = false }) {
-                    Text(Localization.getString("cancel", lang), color = Color(0xFFA0A0B8))
+                    Text(Localization.getString("cancel", lang), color = TextSecondary)
                 }
             }
         )
     }
 
-    // Step 2: Song Picker for New Playlist Creation
     if (showSongPickerForNewPlaylist) {
         TrackPickerSheet(
             allTracks = allTracks,
             favoriteTracks = favoriteTracks,
             initialSelectedTrackIds = emptySet(),
             playlistTitle = pendingPlaylistName,
-            titleText = if (lang == AppLanguage.PERSIAN) "افزودن آهنگ به «$pendingPlaylistName»" else "Add Songs to \"$pendingPlaylistName\"",
-            confirmButtonText = if (lang == AppLanguage.PERSIAN) "ایجاد پلی‌لیست و ذخیره" else "Create Playlist & Save",
+            titleText = if (isFa) "افزودن آهنگ به «$pendingPlaylistName»" else "Add Songs to \"$pendingPlaylistName\"",
+            confirmButtonText = if (isFa) "ایجاد پلی‌لیست" else "Create Playlist",
             settings = settings,
             palette = palette,
             onDismiss = { showSongPickerForNewPlaylist = false },
@@ -594,15 +529,14 @@ fun PlaylistsScreen(
         )
     }
 
-    // Quick Add Songs Modal for an Existing Playlist
     targetPlaylistForAdding?.let { pl ->
         TrackPickerSheet(
             allTracks = allTracks,
             favoriteTracks = favoriteTracks,
             initialSelectedTrackIds = pl.trackIds.toSet(),
             playlistTitle = pl.name,
-            titleText = if (lang == AppLanguage.PERSIAN) "افزودن آهنگ به «${pl.name}»" else "Add Songs to \"${pl.name}\"",
-            confirmButtonText = if (lang == AppLanguage.PERSIAN) "ذخیره تغییرات پلی‌لیست" else "Save Playlist Changes",
+            titleText = if (isFa) "افزودن آهنگ به «${pl.name}»" else "Add Songs to \"${pl.name}\"",
+            confirmButtonText = if (isFa) "ذخیره تغییرات" else "Save Changes",
             settings = settings,
             palette = palette,
             onDismiss = { targetPlaylistForAdding = null },
@@ -613,15 +547,14 @@ fun PlaylistsScreen(
         )
     }
 
-    // Rename Playlist Dialog
     playlistToRename?.let { pl ->
         AlertDialog(
             onDismissRequest = { playlistToRename = null },
-            containerColor = Color(0xFF161628),
-            shape = RoundedCornerShape(22.dp),
+            containerColor = AuraSurfaceElevated,
+            shape = RoundedCornerShape(16.dp),
             title = {
                 Text(
-                    text = if (lang == AppLanguage.PERSIAN) "تغییر نام پلی‌لیست" else "Rename Playlist",
+                    text = if (isFa) "تغییر نام پلی‌لیست" else "Rename Playlist",
                     color = Color.White,
                     fontWeight = FontWeight.Bold
                 )
@@ -635,7 +568,7 @@ fun PlaylistsScreen(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White,
-                        focusedBorderColor = palette.primary
+                        focusedBorderColor = AuraSpotifyGreen
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -650,17 +583,21 @@ fun PlaylistsScreen(
                         playlistToRename = null
                     },
                     enabled = renamePlaylistNewName.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
-                    shape = RoundedCornerShape(12.dp)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AuraSpotifyGreen,
+                        contentColor = Color.Black
+                    ),
+                    shape = RoundedCornerShape(50)
                 ) {
                     Text(Localization.getString("save", lang), fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { playlistToRename = null }) {
-                    Text(Localization.getString("cancel", lang), color = Color(0xFFA0A0B8))
+                    Text(Localization.getString("cancel", lang), color = TextSecondary)
                 }
             }
         )
     }
 }
+

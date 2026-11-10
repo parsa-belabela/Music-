@@ -8,8 +8,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -19,11 +21,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.AmbientPalette
@@ -32,12 +34,13 @@ import com.example.data.model.AppSettings
 import com.example.data.model.PlaybackState
 import com.example.data.model.Playlist
 import com.example.data.model.Track
-import com.example.ui.components.AuraBrandLogoBadge
 import com.example.ui.components.DisintegrationOverlay
 import com.example.ui.components.TrackActionSheet
 import com.example.ui.components.TrackArtworkThumbnail
-import com.example.ui.theme.GlassThickness
-import com.example.ui.theme.liquidGlass
+import com.example.ui.theme.AuraSpotifyGreen
+import com.example.ui.theme.AuraSurface
+import com.example.ui.theme.AuraSurfaceElevated
+import com.example.ui.theme.TextSecondary
 import com.example.util.Localization
 
 enum class SortOption(val labelEn: String, val labelFa: String) {
@@ -71,22 +74,22 @@ fun LibraryScreen(
     onRemoveTrackFromPlaylist: (String, String) -> Unit = { _, _ -> },
     onShareTrack: (Track) -> Unit = {},
     isScanningMedia: Boolean = false,
-    bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
+    bottomPadding: Dp = 120.dp,
     modifier: Modifier = Modifier
 ) {
     var selectedSort by remember { mutableStateOf(SortOption.DATE_ADDED) }
-    var showSortMenu by remember { mutableStateOf(false) }
     var filterQuery by remember { mutableStateOf("") }
     var selectedTrackMenu by remember { mutableStateOf<Track?>(null) }
     var disintegratingTrackId by remember { mutableStateOf<String?>(null) }
     val lang = settings.language
+    val isFa = lang == AppLanguage.PERSIAN
 
     val sortedTracks = remember(tracks, selectedSort, filterQuery) {
         val filtered = if (filterQuery.isBlank()) tracks else {
             tracks.filter {
                 it.title.contains(filterQuery, ignoreCase = true) ||
-                it.artist.contains(filterQuery, ignoreCase = true) ||
-                it.album.contains(filterQuery, ignoreCase = true)
+                    it.artist.contains(filterQuery, ignoreCase = true) ||
+                    it.album.contains(filterQuery, ignoreCase = true)
             }
         }
         when (selectedSort) {
@@ -105,128 +108,59 @@ fun LibraryScreen(
             .fillMaxSize()
             .padding(horizontal = 16.dp)
     ) {
-        // Header
+        // 1. Spotify Library Top Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 16.dp, bottom = 8.dp),
+                .padding(top = 14.dp, bottom = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                AuraBrandLogoBadge(size = 48.dp, cornerRadius = 16.dp)
-
-                Column {
-                    Text(
-                        text = Localization.getString("library", lang).uppercase(),
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            letterSpacing = 1.5.sp,
-                            color = palette.accent,
-                            fontWeight = FontWeight.Bold
-                        )
+            Column {
+                Text(
+                    text = Localization.getString("library", lang),
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        fontSize = 23.sp
                     )
-                    Text(
-                        text = "${Localization.getString("tracks", lang)} (${tracks.size})",
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                // Live Real-Time Auto-Sync Status Badge
+                )
+                Spacer(modifier = Modifier.height(2.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0x18FFFFFF))
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Box(
                         modifier = Modifier
                             .size(6.dp)
-                            .clip(androidx.compose.foundation.shape.CircleShape)
-                            .background(if (isScanningMedia) Color(0xFF38BDF8) else Color(0xFF10B981))
+                            .clip(CircleShape)
+                            .background(if (isScanningMedia) Color(0xFF38BDF8) else AuraSpotifyGreen)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = if (isScanningMedia) {
-                            if (lang == AppLanguage.PERSIAN) "در حال جستجو و پایش حافظه..." else "Scanning downloads..."
+                            if (isFa) "در حال بروزرسانی آرشیو..." else "Scanning media..."
                         } else {
-                            if (lang == AppLanguage.PERSIAN) "پایش زنده فعال است" else "Live auto-sync active"
+                            "${tracks.size} ${Localization.getString("tracks", lang)}"
                         },
-                        fontSize = 11.sp,
-                        color = Color(0xFFD0D8EA),
-                        fontWeight = FontWeight.Medium
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        )
                     )
-                }
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                // Sort Menu with GPU-accelerated micro-animation
-                Box {
-                    IconButton(onClick = { showSortMenu = true }) {
-                        Icon(imageVector = Icons.Default.Sort, contentDescription = "Sort", tint = Color.White)
-                    }
-
-                    val menuAlpha by animateFloatAsState(
-                        targetValue = if (showSortMenu) 1f else 0f,
-                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-                        label = "sort_menu_alpha"
-                    )
-                    val menuScale by animateFloatAsState(
-                        targetValue = if (showSortMenu) 1f else 0.92f,
-                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-                        label = "sort_menu_scale"
-                    )
-
-                    DropdownMenu(
-                        expanded = showSortMenu,
-                        onDismissRequest = { showSortMenu = false },
-                        modifier = Modifier
-                            .graphicsLayer {
-                                alpha = menuAlpha
-                                scaleX = menuScale
-                                scaleY = menuScale
-                                transformOrigin = TransformOrigin(0.9f, 0f)
-                            }
-                            .liquidGlass(
-                                shape = RoundedCornerShape(16.dp),
-                                thickness = GlassThickness.REGULAR,
-                                tintColor = palette.deepAtmosphere,
-                                tintAlpha = 0.92f,
-                                borderWidth = 1.dp,
-                                appTheme = settings.theme
-                            )
-                    ) {
-                        SortOption.values().forEach { option ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = option.getLabel(lang),
-                                        color = if (selectedSort == option) palette.primary else Color.White
-                                    )
-                                },
-                                onClick = {
-                                    selectedSort = option
-                                    showSortMenu = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                // Rescan device button with dynamic spin animation
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 val syncSpinTransition = rememberInfiniteTransition(label = "rescanSpin")
                 val spinAngle by syncSpinTransition.animateFloat(
                     initialValue = 0f,
                     targetValue = 360f,
                     animationSpec = infiniteRepeatable(
-                        animation = tween(durationMillis = 900, easing = androidx.compose.animation.core.LinearEasing),
-                        repeatMode = androidx.compose.animation.core.RepeatMode.Restart
+                        animation = tween(durationMillis = 900, easing = LinearEasing),
+                        repeatMode = RepeatMode.Restart
                     ),
                     label = "spinAngle"
                 )
@@ -238,47 +172,114 @@ fun LibraryScreen(
                     Icon(
                         imageVector = Icons.Default.Sync,
                         contentDescription = "Rescan Library",
-                        tint = if (isScanningMedia) Color(0xFF38BDF8) else palette.accent,
+                        tint = if (isScanningMedia) AuraSpotifyGreen else Color.White,
                         modifier = if (isScanningMedia) Modifier.graphicsLayer { rotationZ = spinAngle } else Modifier
+                    )
+                }
+
+                if (sortedTracks.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(AuraSpotifyGreen)
+                            .clickable {
+                                val randomTrack = sortedTracks.random()
+                                onPlayTrack(randomTrack, sortedTracks)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Play All",
+                            tint = Color.Black,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // 2. Clean Search Field
+        OutlinedTextField(
+            value = filterQuery,
+            onValueChange = { filterQuery = it },
+            placeholder = {
+                Text(
+                    Localization.getString("search_hint", lang),
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    Icons.Default.Search,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
+            },
+            trailingIcon = {
+                if (filterQuery.isNotEmpty()) {
+                    IconButton(onClick = { filterQuery = "" }) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = TextSecondary)
+                    }
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(8.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                focusedContainerColor = AuraSurfaceElevated,
+                unfocusedContainerColor = AuraSurface,
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp)
+        )
+
+        // 3. Spotify Sort Pills Row
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(SortOption.values()) { option ->
+                val isSelected = selectedSort == option
+                Box(
+                    modifier = Modifier
+                        .height(30.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(if (isSelected) AuraSpotifyGreen else AuraSurfaceElevated)
+                        .clickable { selectedSort = option }
+                        .padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = option.getLabel(lang),
+                        color = if (isSelected) Color.Black else Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                     )
                 }
             }
         }
 
-        // Search in Library text field
-        OutlinedTextField(
-            value = filterQuery,
-            onValueChange = { filterQuery = it },
-            placeholder = { Text(Localization.getString("search_hint", lang), color = Color(0xFF7E7E9A), fontSize = 14.sp) },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = palette.primary) },
-            trailingIcon = {
-                if (filterQuery.isNotEmpty()) {
-                    IconButton(onClick = { filterQuery = "" }) {
-                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color(0xFFA0A0B8))
-                    }
-                }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(14.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = Color(0xFF141426),
-                unfocusedContainerColor = Color(0xFF101020),
-                focusedBorderColor = palette.primary,
-                unfocusedBorderColor = Color(0x22FFFFFF)
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp)
-        )
-
-        // Tracks List
+        // 4. Flat Spotify Track Rows
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
-            contentPadding = PaddingValues(bottom = maxOf(bottomPadding + 20.dp, 120.dp)),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            contentPadding = PaddingValues(
+                top = 4.dp,
+                bottom = maxOf(bottomPadding + 24.dp, 128.dp)
+            ),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             items(sortedTracks, key = { it.id }) { track ->
                 val isCurrent = currentTrackId == track.id
@@ -287,38 +288,27 @@ fun LibraryScreen(
                 Column(modifier = Modifier.fillMaxWidth()) {
                     AnimatedVisibility(
                         visible = !isDisintegrating,
-                        exit = fadeOut(tween(550)) + shrinkVertically(tween(550))
+                        exit = fadeOut(tween(400)) + shrinkVertically(tween(400))
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .liquidGlass(
-                                    shape = RoundedCornerShape(16.dp),
-                                    thickness = if (isCurrent) GlassThickness.THICK else GlassThickness.THIN,
-                                    tintColor = if (isCurrent) palette.accent else palette.primary,
-                                    tintAlpha = if (isCurrent) 0.28f else 0.10f,
-                                    borderWidth = if (isCurrent) 1.2.dp else 0.8.dp,
-                                    appTheme = settings.theme
-                                )
-                                .clickable { onPlayTrack(track, sortedTracks) }
-                                .testTag("library_track_${track.id}")
-                        ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onPlayTrack(track, sortedTracks) }
+                                .padding(horizontal = 4.dp, vertical = 8.dp)
+                                .testTag("library_track_${track.id}"),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
-                                modifier = Modifier.size(46.dp),
+                                modifier = Modifier.size(48.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 TrackArtworkThumbnail(
                                     artworkUri = track.artworkUri,
-                                    accentColor = if (isCurrent) palette.accent else palette.primary,
-                                    size = 46.dp,
-                                    shape = RoundedCornerShape(10.dp),
-                                    iconSize = 24.dp,
+                                    accentColor = if (isCurrent) AuraSpotifyGreen else palette.primary,
+                                    size = 48.dp,
+                                    shape = RoundedCornerShape(6.dp),
+                                    iconSize = 22.dp,
                                     title = track.title,
                                     artist = track.artist,
                                     trackId = track.id
@@ -327,87 +317,88 @@ fun LibraryScreen(
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(Color.Black.copy(alpha = 0.45f)),
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color.Black.copy(alpha = 0.55f)),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Equalizer,
                                             contentDescription = "Playing",
-                                            tint = palette.accent,
-                                            modifier = Modifier.size(24.dp)
+                                            tint = AuraSpotifyGreen,
+                                            modifier = Modifier.size(22.dp)
                                         )
                                     }
                                 }
                             }
 
-                            Spacer(modifier = Modifier.width(14.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
 
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = track.title,
                                     style = MaterialTheme.typography.bodyLarge.copy(
                                         fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isCurrent) palette.accent else Color.White
+                                        color = if (isCurrent) AuraSpotifyGreen else Color.White,
+                                        fontSize = 15.sp
                                     ),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = "${track.artist} • ${track.album}",
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)),
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = TextSecondary,
+                                        fontSize = 12.5.sp
+                                    ),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
 
-                            // Duration & Format pill
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = track.durationFormatted,
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B0))
-                                )
-                                Text(
-                                    text = "${track.bitrate}k / ${track.sampleRate / 1000}kHz",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        color = palette.secondary.copy(alpha = 0.8f),
-                                        fontSize = 9.sp
-                                    )
-                                )
-                            }
+                            Spacer(modifier = Modifier.width(8.dp))
 
-                            // Track context menu button
-                            IconButton(onClick = { selectedTrackMenu = track }) {
+                            Text(
+                                text = track.durationFormatted,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = TextSecondary,
+                                    fontSize = 12.sp
+                                )
+                            )
+
+                            IconButton(
+                                onClick = { selectedTrackMenu = track },
+                                modifier = Modifier.size(36.dp)
+                            ) {
                                 Icon(
                                     imageVector = Icons.Default.MoreVert,
                                     contentDescription = "Options",
-                                    tint = Color(0xFF9090A8)
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
                     }
-                }
 
-                // Render Disintegration Shatter Overlay if active
-                if (isDisintegrating) {
-                    DisintegrationOverlay(
-                        isDisintegrating = true,
-                        primaryColor = palette.primary,
-                        accentColor = palette.accent,
-                        onAnimationEnd = {
-                            onDeleteTrack(track)
-                            disintegratingTrackId = null
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(64.dp)
-                    )
+                    if (isDisintegrating) {
+                        DisintegrationOverlay(
+                            isDisintegrating = true,
+                            primaryColor = palette.primary,
+                            accentColor = AuraSpotifyGreen,
+                            onAnimationEnd = {
+                                onDeleteTrack(track)
+                                disintegratingTrackId = null
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(60.dp)
+                        )
+                    }
                 }
             }
         }
     }
 
-    // High-Graphic Liquid Glass Track Action Sheet
     selectedTrackMenu?.let { trk ->
         TrackActionSheet(
             track = trk,
@@ -427,4 +418,4 @@ fun LibraryScreen(
         )
     }
 }
-}
+

@@ -3,32 +3,36 @@ package com.example.ui.screens
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.AppLanguage
-import com.example.data.model.Track
-import kotlinx.coroutines.launch
 import com.example.ui.components.*
-import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.LocalAppTheme
-import com.example.ui.theme.liquidGlass
+import com.example.ui.theme.TextSecondary
 import com.example.ui.viewmodel.MusicPlayerViewModel
 import com.example.util.Localization
+import kotlinx.coroutines.launch
 
 enum class MainTab {
     HOME,
@@ -60,7 +64,6 @@ fun MainScreen(
     val currentAudioProfile by viewModel.currentTrackAudioProfile.collectAsStateWithLifecycle()
     val livePositionMs by viewModel.currentPositionMs.collectAsStateWithLifecycle()
 
-    // 15 Features States
     val timeSlotTracks by viewModel.timeSlotTracks.collectAsStateWithLifecycle()
     val onlineTrendingTracks by viewModel.onlineTrendingTracks.collectAsStateWithLifecycle()
     val selectedTrendingMode by viewModel.selectedTrendingMode.collectAsStateWithLifecycle()
@@ -74,7 +77,6 @@ fun MainScreen(
     val didRestoreSession by viewModel.didRestoreSession.collectAsStateWithLifecycle()
     val isScanningMedia by viewModel.isScanningMedia.collectAsStateWithLifecycle()
 
-    // Wrapped States
     val wrappedPeriods by viewModel.wrappedPeriods.collectAsStateWithLifecycle()
     val selectedWrappedPeriod by viewModel.selectedWrappedPeriod.collectAsStateWithLifecycle()
     val wrappedStats by viewModel.wrappedStats.collectAsStateWithLifecycle()
@@ -113,8 +115,6 @@ fun MainScreen(
         }
     }
 
-    val sharedPrefs = remember { context.getSharedPreferences("aura_prefs", android.content.Context.MODE_PRIVATE) }
-
     BackHandler(
         enabled = showVipPaywallForFeature != null || showAchievementsDialog || isNowPlayingExpanded || showLyricsEditor || showEqualizer || showQueue || showSleepTimer || showHearingProfileTest || showDuplicatesReview || editingTrackMetadata != null || showShareCard != null || currentTab != MainTab.HOME
     ) {
@@ -152,10 +152,10 @@ fun MainScreen(
                                 .fillMaxWidth()
                                 .background(
                                     Brush.verticalGradient(
-                                        listOf(
-                                            Color.Transparent,
-                                            Color(0xB3060812),
-                                            Color(0xF5060812)
+                                        colorStops = arrayOf(
+                                            0.0f to Color.Transparent,
+                                            0.28f to Color(0xD9121212),
+                                            1.0f to Color(0xFF0A0A0A)
                                         )
                                     )
                                 )
@@ -176,145 +176,64 @@ fun MainScreen(
                                 )
                             }
 
-                            Box(
+                            // Spotify-Architecture Flat Bottom Navigation Bar
+                            Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                                    .shadow(8.dp, androidx.compose.foundation.shape.RoundedCornerShape(26.dp), spotColor = Color.Black)
-                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(26.dp))
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(
-                                                palette.primary.copy(alpha = 0.22f),
-                                                Color(0xF50B0E1B),
-                                                Color(0xFE070912)
-                                            )
-                                        )
-                                    )
-                                    .liquidGlass(
-                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp),
-                                        thickness = GlassThickness.REGULAR,
-                                        tintColor = palette.primary,
-                                        tintAlpha = 0.30f,
-                                        borderWidth = 1.dp
-                                    )
+                                    .height(58.dp)
+                                    .padding(horizontal = 4.dp)
+                                    .testTag("main_navigation_bar"),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                NavigationBar(
-                                    containerColor = Color.Transparent,
-                                    tonalElevation = 0.dp,
-                                    modifier = Modifier.testTag("main_navigation_bar")
-                                ) {
-                                    val navColors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = palette.accent,
-                                        selectedTextColor = palette.accent,
-                                        unselectedIconColor = Color(0xFF75758C),
-                                        unselectedTextColor = Color(0xFF75758C),
-                                        indicatorColor = Color.Transparent
-                                    )
-
-                                    NavigationBarItem(
-                                        selected = currentTab == MainTab.HOME,
-                                        onClick = { currentTab = MainTab.HOME },
-                                        icon = {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(width = 44.dp, height = 26.dp)
-                                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(13.dp))
-                                                    .background(if (currentTab == MainTab.HOME) palette.primary.copy(alpha = 0.28f) else Color.Transparent),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(Icons.Default.Home, contentDescription = "Home", modifier = Modifier.size(20.dp))
-                                            }
-                                        },
-                                        label = { Text(Localization.getString("home", lang), maxLines = 1) },
-                                        colors = navColors
-                                    )
-                                    NavigationBarItem(
-                                        selected = currentTab == MainTab.SEARCH,
-                                        onClick = { currentTab = MainTab.SEARCH },
-                                        icon = {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(width = 44.dp, height = 26.dp)
-                                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(13.dp))
-                                                    .background(if (currentTab == MainTab.SEARCH) palette.primary.copy(alpha = 0.28f) else Color.Transparent),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(20.dp))
-                                            }
-                                        },
-                                        label = { Text(Localization.getString("search", lang), maxLines = 1) },
-                                        colors = navColors
-                                    )
-                                    NavigationBarItem(
-                                        selected = currentTab == MainTab.LIBRARY,
-                                        onClick = { currentTab = MainTab.LIBRARY },
-                                        icon = {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(width = 44.dp, height = 26.dp)
-                                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(13.dp))
-                                                    .background(if (currentTab == MainTab.LIBRARY) palette.primary.copy(alpha = 0.28f) else Color.Transparent),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(Icons.Default.LibraryMusic, contentDescription = "Library", modifier = Modifier.size(20.dp))
-                                            }
-                                        },
-                                        label = { Text(Localization.getString("library", lang), maxLines = 1) },
-                                        colors = navColors
-                                    )
-                                    NavigationBarItem(
-                                        selected = currentTab == MainTab.PLAYLISTS,
-                                        onClick = { currentTab = MainTab.PLAYLISTS },
-                                        icon = {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(width = 44.dp, height = 26.dp)
-                                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(13.dp))
-                                                    .background(if (currentTab == MainTab.PLAYLISTS) palette.primary.copy(alpha = 0.28f) else Color.Transparent),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(Icons.Default.QueueMusic, contentDescription = "Playlists", modifier = Modifier.size(20.dp))
-                                            }
-                                        },
-                                        label = { Text(Localization.getString("playlists", lang), maxLines = 1) },
-                                        colors = navColors
-                                    )
-                                    NavigationBarItem(
-                                        selected = currentTab == MainTab.WRAPPED,
-                                        onClick = { currentTab = MainTab.WRAPPED },
-                                        icon = {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(width = 44.dp, height = 26.dp)
-                                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(13.dp))
-                                                    .background(if (currentTab == MainTab.WRAPPED) palette.primary.copy(alpha = 0.28f) else Color.Transparent),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(Icons.Default.AutoAwesome, contentDescription = "Stats", modifier = Modifier.size(20.dp))
-                                            }
-                                        },
-                                        label = { Text(Localization.getString("wrapped", lang), maxLines = 1) },
-                                        colors = navColors
-                                    )
-                                    NavigationBarItem(
-                                        selected = currentTab == MainTab.SETTINGS,
-                                        onClick = { currentTab = MainTab.SETTINGS },
-                                        icon = {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(width = 44.dp, height = 26.dp)
-                                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(13.dp))
-                                                    .background(if (currentTab == MainTab.SETTINGS) palette.primary.copy(alpha = 0.28f) else Color.Transparent),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(Icons.Default.Settings, contentDescription = "Settings", modifier = Modifier.size(20.dp))
-                                            }
-                                        },
-                                        label = { Text(Localization.getString("settings", lang), maxLines = 1) },
-                                        colors = navColors
-                                    )
-                                }
+                                SpotifyNavBarItem(
+                                    selected = currentTab == MainTab.HOME,
+                                    selectedIcon = Icons.Filled.Home,
+                                    unselectedIcon = Icons.Outlined.Home,
+                                    label = Localization.getString("home", lang),
+                                    onClick = { currentTab = MainTab.HOME },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                SpotifyNavBarItem(
+                                    selected = currentTab == MainTab.SEARCH,
+                                    selectedIcon = Icons.Filled.Search,
+                                    unselectedIcon = Icons.Outlined.Search,
+                                    label = Localization.getString("search", lang),
+                                    onClick = { currentTab = MainTab.SEARCH },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                SpotifyNavBarItem(
+                                    selected = currentTab == MainTab.LIBRARY,
+                                    selectedIcon = Icons.Filled.LibraryMusic,
+                                    unselectedIcon = Icons.Outlined.LibraryMusic,
+                                    label = Localization.getString("library", lang),
+                                    onClick = { currentTab = MainTab.LIBRARY },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                SpotifyNavBarItem(
+                                    selected = currentTab == MainTab.PLAYLISTS,
+                                    selectedIcon = Icons.Filled.QueueMusic,
+                                    unselectedIcon = Icons.Outlined.QueueMusic,
+                                    label = Localization.getString("playlists", lang),
+                                    onClick = { currentTab = MainTab.PLAYLISTS },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                SpotifyNavBarItem(
+                                    selected = currentTab == MainTab.WRAPPED,
+                                    selectedIcon = Icons.Filled.BarChart,
+                                    unselectedIcon = Icons.Outlined.BarChart,
+                                    label = Localization.getString("wrapped", lang),
+                                    onClick = { currentTab = MainTab.WRAPPED },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                SpotifyNavBarItem(
+                                    selected = currentTab == MainTab.SETTINGS,
+                                    selectedIcon = Icons.Filled.Settings,
+                                    unselectedIcon = Icons.Outlined.Settings,
+                                    label = Localization.getString("settings", lang),
+                                    onClick = { currentTab = MainTab.SETTINGS },
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
                         }
                     }
@@ -334,7 +253,6 @@ fun MainScreen(
                             appSettings = appSettings,
                             onPlayTrack = { track, list ->
                                 viewModel.playTrack(track, list)
-                                viewModel.isNowPlayingExpanded.value = true
                             },
                             onTogglePlay = { viewModel.togglePlayPause() },
                             onOpenLibrary = { currentTab = MainTab.LIBRARY },
@@ -346,7 +264,7 @@ fun MainScreen(
                             didRestoreSession = didRestoreSession,
                             duplicateCount = duplicateGroups.sumOf { it.losers.size },
                             onOpenDuplicatesReview = { viewModel.showDuplicatesReview.value = true },
-                             currentPositionProvider = { viewModel.currentPositionMs.value },
+                            currentPositionProvider = { viewModel.currentPositionMs.value },
                             onSeekTo = { viewModel.seekTo(it) },
                             onToggleGymMode = { viewModel.toggleGymMode() },
                             onlineTrendingTracks = onlineTrendingTracks,
@@ -370,7 +288,6 @@ fun MainScreen(
                             appSettings = appSettings,
                             onPlayTrack = { track, list ->
                                 viewModel.playTrack(track, list)
-                                viewModel.isNowPlayingExpanded.value = true
                             },
                             onPlayNext = { viewModel.playNextInQueue(it) },
                             onAddToQueue = { viewModel.addToQueue(it) },
@@ -390,7 +307,6 @@ fun MainScreen(
                             settings = appSettings,
                             onPlayTrack = { track, list ->
                                 viewModel.playTrack(track, list)
-                                viewModel.isNowPlayingExpanded.value = true
                             },
                             onPlayNext = { viewModel.playNextInQueue(it) },
                             onAddToQueue = { viewModel.addToQueue(it) },
@@ -496,11 +412,17 @@ fun MainScreen(
                     }
                 }
 
-                // Fullscreen Modal for Now Playing Screen
+                // Smooth Spotify-style slide-up transition for Full NowPlayingScreen
                 AnimatedVisibility(
                     visible = isNowPlayingExpanded && playbackState.currentTrack != null,
-                    enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                    exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+                    enter = slideInVertically(
+                        initialOffsetY = { it },
+                        animationSpec = tween(320, easing = FastOutSlowInEasing)
+                    ) + fadeIn(tween(220)),
+                    exit = slideOutVertically(
+                        targetOffsetY = { it },
+                        animationSpec = tween(280, easing = FastOutSlowInEasing)
+                    ) + fadeOut(tween(200))
                 ) {
                     NowPlayingScreen(
                         playbackState = playbackState,
@@ -508,7 +430,7 @@ fun MainScreen(
                         currentLyrics = currentLyrics,
                         appSettings = appSettings,
                         analysisDataProvider = { viewModel.analysisData.value },
-                        currentPositionProvider = { livePositionMs },
+                        currentPositionProvider = { viewModel.currentPositionMs.value },
                         audioProfile = currentAudioProfile,
                         onCollapse = { viewModel.isNowPlayingExpanded.value = false },
                         onTogglePlay = { viewModel.togglePlayPause() },
@@ -564,7 +486,11 @@ fun MainScreen(
                 onApplyCalibratedProfile = { calibratedBands ->
                     viewModel.applyHearingCalibration(calibratedBands)
                     viewModel.showHearingProfileTest.value = false
-                    Toast.makeText(context, if (lang == com.example.data.model.AppLanguage.PERSIAN) "پروفایل اختصاصی شنوایی شما ذخیره و اعمال شد." else "Hearing calibrated profile applied!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        if (lang == AppLanguage.PERSIAN) "پروفایل اختصاصی شنوایی شما ذخیره و اعمال شد." else "Hearing calibrated profile applied!",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 },
                 onDismiss = { viewModel.showHearingProfileTest.value = false }
             )
@@ -578,7 +504,11 @@ fun MainScreen(
                 onKeepAllHigherQuality = {
                     viewModel.applyDuplicateGroupWinners(duplicateGroups)
                     viewModel.showDuplicatesReview.value = false
-                    Toast.makeText(context, if (lang == com.example.data.model.AppLanguage.PERSIAN) "فایل‌های تکراری با موفقیت بهینه‌سازی شدند." else "Duplicate tracks optimized!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        if (lang == AppLanguage.PERSIAN) "فایل‌های تکراری با موفقیت بهینه‌سازی شدند." else "Duplicate tracks optimized!",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 },
                 onDismiss = { viewModel.showDuplicatesReview.value = false }
             )
@@ -645,7 +575,7 @@ fun MainScreen(
         }
 
         if (showVipPaywallForFeature != null) {
-            com.example.ui.components.VipPaywallSheet(
+            VipPaywallSheet(
                 onDismiss = { showVipPaywallForFeature = null },
                 onUnlockedSuccess = {
                     showVipPaywallForFeature = null
@@ -660,7 +590,7 @@ fun MainScreen(
                 palette = palette,
                 lang = lang,
                 onDismiss = { showAchievementsDialog = false },
-                onRewardClaimed = { bonusHours ->
+                onRewardClaimed = { _ ->
                     viewModel.refreshUnlockedStyles()
                     viewModel.updateSettings(appSettings.copy())
                     coroutineScope.launch {
@@ -677,3 +607,45 @@ fun MainScreen(
         }
     }
 }
+
+@Composable
+private fun SpotifyNavBarItem(
+    selected: Boolean,
+    selectedIcon: ImageVector,
+    unselectedIcon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val color = if (selected) Color.White else TextSecondary
+
+    Column(
+        modifier = modifier
+            .fillMaxHeight()
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = if (selected) selectedIcon else unselectedIcon,
+            contentDescription = label,
+            tint = color,
+            modifier = Modifier.size(23.dp)
+        )
+        Spacer(modifier = Modifier.height(3.dp))
+        Text(
+            text = label,
+            color = color,
+            fontSize = 10.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+

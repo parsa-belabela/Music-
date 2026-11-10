@@ -4,14 +4,12 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -21,14 +19,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,8 +35,10 @@ import com.example.data.model.*
 import com.example.data.repository.UserProfileData
 import com.example.data.repository.UserProfileManager
 import com.example.ui.components.*
-import com.example.ui.theme.GlassThickness
-import com.example.ui.theme.liquidGlass
+import com.example.ui.theme.AuraSpotifyGreen
+import com.example.ui.theme.AuraSurface
+import com.example.ui.theme.AuraSurfaceElevated
+import com.example.ui.theme.TextSecondary
 import com.example.util.Localization
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -61,7 +60,7 @@ fun SettingsScreen(
     onRescanLibrary: () -> Unit,
     onClearPlaybackHistory: () -> Unit,
     onOpenEqualizer: () -> Unit,
-    bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
+    bottomPadding: Dp = 120.dp,
     unlockedStyles: List<String> = listOf("default"),
     onOpenHearingProfileTest: () -> Unit = {},
     onOpenDuplicatesReview: () -> Unit = {},
@@ -99,7 +98,6 @@ fun SettingsScreen(
     }
     val userProfile by UserProfileManager.profileFlow.collectAsState()
 
-    // ۱. لانچر رسمی ذخیره فایل واقعی .JSON در حافظه گوشی (Export File)
     val exportJsonFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
@@ -131,7 +129,6 @@ fun SettingsScreen(
         }
     }
 
-    // ۲. لانچر رسمی انتخاب فایل واقعی .JSON از حافظه گوشی (Import File)
     val importJsonFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -184,78 +181,60 @@ fun SettingsScreen(
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = maxOf(bottomPadding + 24.dp, 128.dp)),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        contentPadding = PaddingValues(top = 14.dp, bottom = maxOf(bottomPadding + 24.dp, 128.dp)),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // =========================================================================
-        // هدر استودیویی تنظیمات
-        // =========================================================================
+        // 1. Clean Spotify Settings Top Header
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    AuraBrandLogoBadge(size = 46.dp, cornerRadius = 15.dp)
-
-                    Column {
-                        Text(
-                            text = if (isFa) "مرکز کنترل و شخصی‌سازی" else "CONTROL CENTER & STUDIO",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = palette.accent,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 1.6.sp
-                            )
-                        )
-                        Text(
-                            text = Localization.getString("settings", lang),
-                            style = MaterialTheme.typography.headlineMedium.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White
-                            )
-                        )
-                    }
-                }
+                Text(
+                    text = Localization.getString("settings", lang),
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        fontSize = 23.sp
+                    )
+                )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     IconButton(
                         onClick = onOpenAchievements,
                         modifier = Modifier
-                            .size(42.dp)
-                            .liquidGlass(
-                                shape = CircleShape,
-                                thickness = GlassThickness.THIN,
-                                tintColor = Color(0xFFFFD700),
-                                tintAlpha = 0.20f
-                            )
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(AuraSurfaceElevated)
                     ) {
-                        Icon(Icons.Default.EmojiEvents, contentDescription = "Achievements", tint = Color(0xFFFFD700))
+                        Icon(
+                            imageVector = Icons.Default.EmojiEvents,
+                            contentDescription = "Achievements",
+                            tint = Color(0xFFFBBF24),
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
 
                     IconButton(
                         onClick = { showFeaturesGuideDialog = true },
                         modifier = Modifier
-                            .size(42.dp)
-                            .liquidGlass(
-                                shape = CircleShape,
-                                thickness = GlassThickness.THIN,
-                                tintColor = palette.accent,
-                                tintAlpha = 0.18f
-                            )
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(AuraSurfaceElevated)
                     ) {
-                        Icon(Icons.Default.HelpOutline, contentDescription = "Guide", tint = palette.accent)
+                        Icon(
+                            imageVector = Icons.Default.HelpOutline,
+                            contentDescription = "Guide",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
         }
 
-        // =========================================================================
-        // ۱. کارت پروفایل شنیداری زنده کاربر (با آمار واقعی کتابخانه)
-        // =========================================================================
+        // 2. Spotify User Profile Card
         item {
             AudiophileProfileDashboardCard(
                 profile = userProfile,
@@ -267,9 +246,7 @@ fun SettingsScreen(
             )
         }
 
-        // =========================================================================
-        // ۲. کپسول واقعی و تعاملی خاطرات موسیقی (با قابلیت پخش مستقیم آهنگ!)
-        // =========================================================================
+        // 3. Music Flashback Card
         item {
             MusicFlashbackCard(
                 currentTrack = currentPlayingTrack,
@@ -282,18 +259,21 @@ fun SettingsScreen(
                         putExtra(Intent.EXTRA_TEXT, text)
                         type = "text/plain"
                     }
-                    context.startActivity(Intent.createChooser(sendIntent, if (isFa) "اشتراک خاطره موسیقی" else "Share Memory"))
+                    context.startActivity(
+                        Intent.createChooser(
+                            sendIntent,
+                            if (isFa) "اشتراک خاطره موسیقی" else "Share Memory"
+                        )
+                    )
                 }
             )
         }
 
-        // =========================================================================
-        // ۳. مهندسی صدا، اکولایزر ۱۰ بانده و کالیبراسیون شنوایی (Audio DSP Studio)
-        // =========================================================================
+        // 4. Playback & Audio Quality Section
         item {
             SettingsGlassSection(
-                title = if (isFa) "مهندسی صدا و پردازشگر استودیویی (DSP)" else "Studio Audio & DSP Engine",
-                subtitle = if (isFa) "اکولایزر ۱۰ بانده، تست شنوایی، کراس‌فید و سرعت پخش" else "10-band EQ, hearing calibration, crossfade & speed",
+                title = if (isFa) "کیفیت صدا و پخش" else "Playback & Audio Quality",
+                subtitle = if (isFa) "اکولایزر، کالیبراسیون شنوایی و کراس‌فید" else "Equalizer, hearing profile & crossfade",
                 icon = Icons.Default.GraphicEq,
                 palette = palette
             ) {
@@ -303,41 +283,41 @@ fun SettingsScreen(
                 ) {
                     SettingsActionTile(
                         icon = Icons.Default.Tune,
-                        title = if (isFa) "اکولایزر ۱۰ بانده" else "10-Band Equalizer",
+                        title = if (isFa) "اکولایزر" else "Equalizer",
                         subtitle = settings.eqPreset,
-                        accentColor = palette.primary,
+                        accentColor = AuraSpotifyGreen,
                         onClick = onOpenEqualizer,
                         modifier = Modifier.weight(1f)
                     )
 
                     SettingsActionTile(
                         icon = Icons.Default.Hearing,
-                        title = if (isFa) "تست شنوایی" else "Hearing Profile",
-                        subtitle = if (isFa) "کالیبراسیون شخصی" else "Personal EQ Test",
-                        accentColor = palette.accent,
+                        title = if (isFa) "پروفایل شنوایی" else "Hearing Profile",
+                        subtitle = if (isFa) "تست شخصی‌سازی" else "Personal EQ Test",
+                        accentColor = Color.White,
                         onClick = onOpenHearingProfileTest,
                         modifier = Modifier.weight(1f)
                     )
                 }
 
-                // اسلایدر Crossfade
                 Column {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = Localization.getString("crossfade_duration", lang),
                             color = Color.White,
-                            fontSize = 13.sp,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
                             text = if (settings.crossfadeDurationSeconds == 0) {
                                 if (isFa) "خاموش" else "Off"
-                            } else "${settings.crossfadeDurationSeconds}s",
-                            color = palette.accent,
-                            fontSize = 12.sp,
+                            } else "${settings.crossfadeDurationSeconds} s",
+                            color = AuraSpotifyGreen,
+                            fontSize = 12.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -347,88 +327,93 @@ fun SettingsScreen(
                         valueRange = 0f..12f,
                         steps = 11,
                         colors = SliderDefaults.colors(
-                            thumbColor = palette.accent,
-                            activeTrackColor = palette.primary
+                            thumbColor = Color.White,
+                            activeTrackColor = AuraSpotifyGreen,
+                            inactiveTrackColor = Color.White.copy(alpha = 0.2f)
                         )
                     )
                 }
 
                 SettingsToggleRow(
                     title = Localization.getString("gapless_playback", lang),
-                    subtitle = if (isFa) "پخش پیوسته بدون مکث بین قطعات" else "Seamless transition between tracks",
+                    subtitle = if (isFa) "پخش پیوسته بدون مکث بین قطعات" else "Allows gapless playback between songs",
                     checked = settings.gaplessEnabled,
-                    accentColor = palette.accent,
+                    accentColor = AuraSpotifyGreen,
                     onCheckedChange = { onUpdateSettings(settings.copy(gaplessEnabled = it)) }
                 )
 
                 SettingsToggleRow(
-                    title = if (isFa) "توقف خودکار هنگام جداسازی ایرپاد/هدفون" else "Pause on Headphone Disconnect",
-                    subtitle = if (isFa) "جلوگیری از پخش ناگهانی روی اسپیکر گوشی" else "Prevent accidental speaker playback",
+                    title = if (isFa) "توقف هنگام جداسازی هدفون" else "Pause on Headphone Disconnect",
+                    subtitle = if (isFa) "جلوگیری از پخش ناگهانی روی اسپیکر" else "Automatically pause when unplugged",
                     checked = settings.pauseOnHeadphoneDisconnect,
-                    accentColor = palette.accent,
+                    accentColor = AuraSpotifyGreen,
                     onCheckedChange = { onUpdateSettings(settings.copy(pauseOnHeadphoneDisconnect = it)) }
                 )
 
                 SettingsToggleRow(
-                    title = if (isFa) "بازخورد لرزشی ظریف (Haptic Feedback)" else "Tactile Haptic Feedback",
-                    subtitle = if (isFa) "حس لمس فیزیکی دکمه‌ها و اسلایدرها" else "Subtle vibration on controls & scrubbers",
+                    title = if (isFa) "بازخورد لمسی (Haptic)" else "Haptic Feedback",
+                    subtitle = if (isFa) "لرزش ظریف هنگام لمس کنترل‌ها" else "Subtle tactile response on controls",
                     checked = settings.hapticFeedbackEnabled,
-                    accentColor = palette.accent,
+                    accentColor = AuraSpotifyGreen,
                     onCheckedChange = { onUpdateSettings(settings.copy(hapticFeedbackEnabled = it)) }
                 )
             }
         }
 
-        // =========================================================================
-        // ۵. پشتیبان‌گیری با فایل واقعی (.JSON) و مدیریت کتابخانه
-        // =========================================================================
+        // 5. Storage, Backup & Library Management
         item {
             SettingsGlassSection(
-                title = if (isFa) "پشتیبان‌گیری فایل (.JSON) و مدیریت آرشیو" else "File Backup (.JSON) & Library Manager",
-                subtitle = if (isFa) "ذخیره و بازیابی مستقیم فایل پشتیبان و بهینه‌سازی آهنگ‌ها" else "Export/import real .json backup files & manage storage",
-                icon = Icons.Default.CloudSync,
+                title = if (isFa) "حافظه و فایل پشتیبان" else "Storage & Backup",
+                subtitle = if (isFa) "ذخیره و بازیابی اطلاعات (.JSON) و مدیریت آرشیو" else "Export/import .json backup & manage local files",
+                icon = Icons.Default.FolderOpen,
                 palette = palette
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // دکمه ذخیره مستقیم فایل .json در حافظه گوشی
                     Button(
                         onClick = {
                             val dateTag = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
                             exportJsonFileLauncher.launch("AuraMusic_Backup_$dateTag.json")
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
-                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AuraSpotifyGreen,
+                            contentColor = Color.Black
+                        ),
+                        shape = RoundedCornerShape(50),
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp)
+                            .height(42.dp)
                     ) {
-                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (isFa) "ذخیره فایل JSON" else "Export .JSON File",
+                            text = if (isFa) "ذخیره پشتیبان" else "Export JSON",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
-                    // دکمه انتخاب و وارد کردن فایل .json از حافظه گوشی
                     OutlinedButton(
                         onClick = {
                             importJsonFileLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
                         },
-                        shape = RoundedCornerShape(14.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.2.dp, palette.accent),
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp)
+                            .height(42.dp)
                     ) {
-                        Icon(Icons.Default.UploadFile, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                        Icon(
+                            Icons.Default.UploadFile,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (isFa) "دریافت فایل JSON" else "Import .JSON File",
+                            text = if (isFa) "بازیابی فایل" else "Import JSON",
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
@@ -441,19 +426,19 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     SettingsActionTile(
-                        icon = Icons.Default.Refresh,
-                        title = if (isFa) "اسکن مجدد حافظه" else "Rescan Storage",
-                        subtitle = if (isFa) "${allTracks.size} آهنگ شناسایی شده" else "${allTracks.size} tracks indexed",
-                        accentColor = Color(0xFF10B981),
+                        icon = Icons.Default.Sync,
+                        title = if (isFa) "اسکن مجدد حافظه" else "Rescan Library",
+                        subtitle = if (isFa) "${allTracks.size} آهنگ" else "${allTracks.size} tracks",
+                        accentColor = AuraSpotifyGreen,
                         onClick = onRescanLibrary,
                         modifier = Modifier.weight(1f)
                     )
 
                     SettingsActionTile(
                         icon = Icons.Default.CleaningServices,
-                        title = if (isFa) "حذف تکراری‌ها" else "Deduplicate",
-                        subtitle = if (isFa) "بهینه‌سازی کیفیت" else "Keep highest bitrate",
-                        accentColor = Color(0xFFF59E0B),
+                        title = if (isFa) "حذف تکراری‌ها" else "Duplicates",
+                        subtitle = if (isFa) "بهینه‌سازی آرشیو" else "Clean up files",
+                        accentColor = Color(0xFFFBBF24),
                         onClick = onOpenDuplicatesReview,
                         modifier = Modifier.weight(1f)
                     )
@@ -461,29 +446,32 @@ fun SettingsScreen(
 
                 OutlinedButton(
                     onClick = { showClearHistoryConfirm = true },
-                    shape = RoundedCornerShape(12.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF43F5E).copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = Color(0xFFF43F5E), modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Default.DeleteSweep,
+                        contentDescription = null,
+                        tint = Color(0xFFEF4444),
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = Localization.getString("clear_history", lang),
-                        color = Color(0xFFF43F5E),
-                        fontSize = 12.5.sp,
+                        color = Color(0xFFEF4444),
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
             }
         }
 
-        // =========================================================================
-        // ۶. زبان برنامه و ارتباط با سازنده
-        // =========================================================================
+        // 6. Language & Support
         item {
             SettingsGlassSection(
-                title = if (isFa) "زبان برنامه و پشتیبانی" else "Language & Support",
-                subtitle = if (isFa) "تغییر آنی زبان رابط کاربری و ارسال پیشنهادات" else "Switch interface language & send feedback",
+                title = if (isFa) "زبان و پشتیبانی" else "Languages & Support",
+                subtitle = if (isFa) "انتخاب زبان برنامه و ارسال بازخورد" else "App language & user feedback",
                 icon = Icons.Default.Language,
                 palette = palette
             ) {
@@ -496,68 +484,64 @@ fun SettingsScreen(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(
-                                    if (selected) palette.primary.copy(alpha = 0.38f)
-                                    else Color.White.copy(alpha = 0.06f)
-                                )
-                                .border(
-                                    width = if (selected) 1.5.dp else 0.8.dp,
-                                    color = if (selected) palette.accent else Color.White.copy(alpha = 0.15f),
-                                    shape = RoundedCornerShape(14.dp)
-                                )
-                                .clickable { onUpdateSettings(settings.copy(language = l)) }
-                                .padding(vertical = 12.dp),
+                                .height(40.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selected) AuraSpotifyGreen else AuraSurfaceElevated)
+                                .clickable { onUpdateSettings(settings.copy(language = l)) },
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = if (l == AppLanguage.ENGLISH) "English (Default)" else "فارسی (Persian)",
-                                color = Color.White,
-                                fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium,
+                                text = if (l == AppLanguage.ENGLISH) "English" else "فارسی",
+                                color = if (selected) Color.Black else Color.White,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                 fontSize = 13.sp
                             )
                         }
                     }
                 }
 
-                Button(
+                OutlinedButton(
                     onClick = { showFeedbackDialog = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = palette.primary.copy(alpha = 0.35f)),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("open_feedback_dialog_button")
                 ) {
-                    Icon(Icons.Default.Mail, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Default.MailOutline,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = Localization.getString("feedback_dialog_title", lang),
                         color = Color.White,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp
                     )
                 }
             }
         }
 
-        // فوتر و فعال‌سازی حالت توسعه‌دهنده
+        // 7. About & Developer Mode Trigger
         item {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp, bottom = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                AuraBrandLogoBadge(size = 54.dp, cornerRadius = 18.dp)
-
                 Text(
-                    text = "Aura Music Studio • v2.0 Premium",
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        color = if (settings.developerModeEnabled) palette.accent else Color(0xFFD5DAE8),
+                    text = "Aura Music • v2.0",
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        color = if (settings.developerModeEnabled) AuraSpotifyGreen else Color.White,
                         fontWeight = FontWeight.Bold
                     ),
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(6.dp))
                         .clickable {
                             devTapCount++
                             if (devTapCount >= 7) {
@@ -571,24 +555,29 @@ fun SettingsScreen(
                                 devTapCount = 0
                             }
                         }
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
                 )
                 Text(
-                    text = if (isFa) "موتور صوتی Hi-Fi • رندر ۱۲۰ فریم بر ثانیه • شیشه مایع" else "120 FPS Liquid Glass Engine • Real-Time Audio DSP",
-                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF8A90A6))
+                    text = if (isFa) "طراحی مینیمال و مهندسی صوتی پیشرفته" else "Minimalist Design & High-Fidelity Audio Engine",
+                    style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
                 )
             }
         }
     }
 
-
-    // دیالوگ انتخاب آواتار
     if (showAvatarPickerDialog) {
         val emojis = listOf("🎧", "🎵", "✨", "👑", "🎸", "🌌", "🔥", "⚡", "💎", "🌙", "🦁", "🦋")
         AlertDialog(
             onDismissRequest = { showAvatarPickerDialog = false },
-            containerColor = Color(0xFF141726),
-            title = { Text(if (isFa) "انتخاب آواتار" else "Choose Avatar", color = Color.White, fontWeight = FontWeight.Bold) },
+            containerColor = AuraSurfaceElevated,
+            shape = RoundedCornerShape(16.dp),
+            title = {
+                Text(
+                    if (isFa) "انتخاب آواتار" else "Choose Avatar",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     emojis.chunked(4).forEach { rowEmojis ->
@@ -601,7 +590,7 @@ fun SettingsScreen(
                                     modifier = Modifier
                                         .size(48.dp)
                                         .clip(CircleShape)
-                                        .background(Color.White.copy(alpha = 0.08f))
+                                        .background(AuraSurface)
                                         .clickable {
                                             UserProfileManager.setAvatarEmoji(context, emoji)
                                             showAvatarPickerDialog = false
@@ -618,23 +607,31 @@ fun SettingsScreen(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { showAvatarPickerDialog = false }) {
-                    Text(if (isFa) "بستن" else "Close", color = Color.White)
+                    Text(if (isFa) "بستن" else "Close", color = TextSecondary)
                 }
             }
         )
     }
 
-    // دیالوگ تایید پاک‌سازی تاریخچه
     if (showClearHistoryConfirm) {
         AlertDialog(
             onDismissRequest = { showClearHistoryConfirm = false },
-            containerColor = Color(0xFF141726),
-            title = { Text(if (isFa) "پاک‌سازی تاریخچه پخش" else "Clear Listening History", color = Color.White, fontWeight = FontWeight.Bold) },
+            containerColor = AuraSurfaceElevated,
+            shape = RoundedCornerShape(16.dp),
+            title = {
+                Text(
+                    if (isFa) "پاک‌سازی تاریخچه پخش" else "Clear Listening History",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            },
             text = {
                 Text(
-                    text = if (isFa) "آیا مطمئن هستید که می‌خواهید تاریخچه شنیداری و آمار Wrapped را پاک کنید؟ (آهنگ‌ها و پلی‌لیست‌های شما حذف نمی‌شوند)"
-                    else "Are you sure you want to clear your playback history? (Your songs and playlists will not be deleted)",
-                    color = Color(0xFFD0D5E8)
+                    text = if (isFa)
+                        "آیا مطمئن هستید که می‌خواهید تاریخچه شنیداری و آمار Wrapped را پاک کنید؟ (آهنگ‌ها و پلی‌لیست‌های شما حذف نمی‌شوند)"
+                    else
+                        "Are you sure you want to clear your playback history? (Your songs and playlists will not be deleted)",
+                    color = TextSecondary
                 )
             },
             confirmButton = {
@@ -642,16 +639,21 @@ fun SettingsScreen(
                     onClick = {
                         onClearPlaybackHistory()
                         showClearHistoryConfirm = false
-                        Toast.makeText(context, if (isFa) "تاریخچه پاک شد" else "History cleared", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            if (isFa) "تاریخچه پاک شد" else "History cleared",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF43F5E))
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                    shape = RoundedCornerShape(50)
                 ) {
                     Text(if (isFa) "پاک کردن" else "Clear", color = Color.White, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearHistoryConfirm = false }) {
-                    Text(if (isFa) "انصراف" else "Cancel", color = Color.White)
+                    Text(if (isFa) "انصراف" else "Cancel", color = TextSecondary)
                 }
             }
         )
@@ -672,93 +674,74 @@ private fun AudiophileProfileDashboardCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .liquidGlass(
-                shape = RoundedCornerShape(26.dp),
-                thickness = GlassThickness.THICK,
-                tintColor = palette.primary,
-                tintAlpha = 0.22f,
-                borderWidth = 1.4.dp,
-                secondaryAccent = palette.accent
-            )
-            .padding(18.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(AuraSurface)
+            .border(0.5.dp, Color(0x14FFFFFF), RoundedCornerShape(12.dp))
+            .padding(16.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(CircleShape)
+                        .background(AuraSurfaceElevated)
+                        .clickable { onEditAvatar() },
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(58.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.radialGradient(
-                                    listOf(palette.primary.copy(alpha = 0.45f), Color(0xFF101322))
-                                )
-                            )
-                            .border(2.dp, palette.accent, CircleShape)
-                            .clickable { onEditAvatar() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(text = p.avatarEmoji, fontSize = 28.sp)
-                    }
+                    Text(text = p.avatarEmoji, fontSize = 26.sp)
+                }
 
-                    Spacer(modifier = Modifier.width(14.dp))
+                Spacer(modifier = Modifier.width(14.dp))
 
-                    Column {
-                        Text(
-                            text = if (isFa) "پروفایل آئورا موزیک" else "Aura Music Profile",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White,
-                                fontSize = 16.sp
-                            )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (isFa) "پروفایل کاربری" else "Aura Listener",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontSize = 17.sp
                         )
-
-                        Spacer(modifier = Modifier.height(3.dp))
-
-                        Text(
-                            text = if (isFa) "شنونده حرفه‌ای • همراه از ${p.joinDays} روز پیش" else "Audiophile Member • ${p.joinDays} days with Aura",
-                            color = Color(0xFFB0B6CA),
-                            fontSize = 11.5.sp
-                        )
-                    }
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = if (isFa) "همراه از ${p.joinDays} روز پیش" else "${p.joinDays} days with Aura",
+                        color = TextSecondary,
+                        fontSize = 12.sp
+                    )
                 }
             }
 
-            // نوار آمار زنده و واقعی
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0x28000000))
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(AuraSurfaceElevated)
                     .padding(vertical = 12.dp, horizontal = 8.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 ProfileStatColumn(
                     value = "$totalLibraryTracks",
-                    label = if (isFa) "کل آهنگ‌ها" else "Library",
+                    label = if (isFa) "آهنگ‌ها" else "Songs",
                     color = Color.White
                 )
                 ProfileStatColumn(
                     value = "$totalFavorites",
-                    label = if (isFa) "علاقه‌مندی‌ها" else "Favorites",
-                    color = Color(0xFFFF4081)
+                    label = if (isFa) "پسندها" else "Liked",
+                    color = AuraSpotifyGreen
                 )
                 ProfileStatColumn(
                     value = "${p.totalTracksPlayed}",
-                    label = if (isFa) "دفعات پخش" else "Plays",
-                    color = palette.accent
+                    label = if (isFa) "پخش‌ها" else "Streams",
+                    color = Color.White
                 )
                 ProfileStatColumn(
                     value = String.format(Locale.US, "%.1fh", p.totalListeningHours),
-                    label = if (isFa) "ساعت پخش" else "Hours",
-                    color = Color(0xFF38BDF8)
+                    label = if (isFa) "ساعت" else "Hours",
+                    color = AuraSpotifyGreen
                 )
             }
         }
@@ -768,9 +751,9 @@ private fun AudiophileProfileDashboardCard(
 @Composable
 private fun ProfileStatColumn(value: String, label: String, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = value, color = color, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+        Text(text = value, color = color, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         Spacer(modifier = Modifier.height(2.dp))
-        Text(text = label, color = Color(0xFFA0A5BA), fontSize = 10.5.sp)
+        Text(text = label, color = TextSecondary, fontSize = 11.sp)
     }
 }
 
@@ -785,34 +768,25 @@ private fun SettingsGlassSection(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .liquidGlass(
-                shape = RoundedCornerShape(24.dp),
-                thickness = GlassThickness.REGULAR,
-                tintColor = palette.primary,
-                tintAlpha = 0.14f,
-                borderWidth = 1.dp,
-                secondaryAccent = palette.accent
-            )
-            .padding(18.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(AuraSurface)
+            .border(0.5.dp, Color(0x14FFFFFF), RoundedCornerShape(12.dp))
+            .padding(16.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(palette.primary.copy(alpha = 0.25f))
-                        .border(1.dp, palette.accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(imageVector = icon, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
-                }
-                Spacer(modifier = Modifier.width(12.dp))
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
                 Column {
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.ExtraBold,
+                            fontWeight = FontWeight.Bold,
                             color = Color.White,
                             fontSize = 15.5.sp
                         )
@@ -820,14 +794,14 @@ private fun SettingsGlassSection(
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall.copy(
-                            color = Color(0xFFA0A6BC),
-                            fontSize = 11.5.sp
+                            color = TextSecondary,
+                            fontSize = 12.sp
                         )
                     )
                 }
             }
 
-            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+            HorizontalDivider(color = Color(0x14FFFFFF))
 
             content()
         }
@@ -846,21 +820,36 @@ private fun SettingsToggleRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onCheckedChange(!checked) }
-            .padding(vertical = 2.dp),
+            .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(text = title, color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp)
+        ) {
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
             Spacer(modifier = Modifier.height(2.dp))
-            Text(text = subtitle, color = Color(0xFFA0A6BC), fontSize = 11.5.sp)
+            Text(
+                text = subtitle,
+                color = TextSecondary,
+                fontSize = 12.sp
+            )
         }
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
-                checkedTrackColor = accentColor
+                checkedTrackColor = accentColor,
+                uncheckedThumbColor = TextSecondary,
+                uncheckedTrackColor = AuraSurfaceElevated
             )
         )
     }
@@ -877,36 +866,32 @@ private fun SettingsActionTile(
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color(0x26000000))
-            .border(1.dp, accentColor.copy(alpha = 0.40f), RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(8.dp))
+            .background(AuraSurfaceElevated)
             .clickable(onClick = onClick)
             .padding(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(accentColor.copy(alpha = 0.22f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(imageVector = icon, contentDescription = null, tint = accentColor, modifier = Modifier.size(18.dp))
-            }
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = accentColor,
+                modifier = Modifier.size(20.dp)
+            )
             Spacer(modifier = Modifier.width(10.dp))
             Column {
                 Text(
                     text = title,
                     color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = subtitle,
-                    color = Color(0xFFA5ABC0),
-                    fontSize = 10.5.sp,
+                    color = TextSecondary,
+                    fontSize = 11.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -914,3 +899,4 @@ private fun SettingsActionTile(
         }
     }
 }
+

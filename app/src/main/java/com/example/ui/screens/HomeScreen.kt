@@ -1,9 +1,5 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,48 +15,26 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.rememberAsyncImagePainter
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.example.OnlineCacheHolder
 import com.example.OnlineMusicRepository
-import com.example.OnlineTasteEngine
 import com.example.audio.AmbientPalette
 import com.example.data.model.*
-import com.example.ui.components.MusicArtworkPlaceholder
-import com.example.ui.components.SpotifyArtistAvatar
 import com.example.ui.components.TrackArtworkThumbnail
-import com.example.ui.theme.GlassThickness
-import com.example.ui.theme.liquidGlass
-import com.example.util.Localization
+import com.example.ui.theme.AuraSpotifyGreen
+import com.example.ui.theme.AuraSurface
+import com.example.ui.theme.AuraSurfaceElevated
+import com.example.ui.theme.TextSecondary
 import java.util.Calendar
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import androidx.compose.runtime.withFrameNanos
 
 @Composable
 fun HomeScreen(
@@ -75,7 +49,7 @@ fun HomeScreen(
     onOpenLibrary: () -> Unit,
     onOpenWrapped: () -> Unit,
     onExpandNowPlaying: () -> Unit = {},
-    bottomPadding: androidx.compose.ui.unit.Dp = 120.dp,
+    bottomPadding: Dp = 120.dp,
     timeSlotTracks: List<Track> = emptyList(),
     onThisDayHighlight: TopSongItem? = null,
     weeklyRecapStats: WrappedStats? = null,
@@ -99,26 +73,36 @@ fun HomeScreen(
     val lang = appSettings.language
     val isFa = lang == AppLanguage.PERSIAN
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val downloadingIds by OnlineCacheHolder.downloadingTrackIds.collectAsState()
     val downloadedIds by OnlineCacheHolder.downloadedTrackIds.collectAsState()
 
     val mergedRecentlyPlayed = remember(onlineRecentTracks, recentlyPlayed) {
-        (onlineRecentTracks + recentlyPlayed).distinctBy { "${it.title.lowercase().trim()}|${it.artist.lowercase().trim()}" }.take(16)
+        (onlineRecentTracks + recentlyPlayed)
+            .distinctBy { "${it.title.lowercase().trim()}|${it.artist.lowercase().trim()}" }
+            .take(16)
     }
 
-    val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-    val timeSlotGreeting = when (currentHour) {
-        in 5..11 -> if (isFa) "وایب صبح ☀️" else "Morning Vibe ☀️"
-        in 12..16 -> if (isFa) "انرژی روز ⚡" else "Daytime Energy ⚡"
-        in 17..21 -> if (isFa) "وایب عصر 🌆" else "Evening Vibe 🌆"
-        else -> if (isFa) "وایب شب 🌙" else "Late Night 🌙"
+    // 6-item or 8-item Quick-Access Spotify Grid at the top of Home
+    val quickGridTracks = remember(mergedRecentlyPlayed, favoriteTracks, allTracks) {
+        (mergedRecentlyPlayed + favoriteTracks + allTracks)
+            .distinctBy { it.id }
+            .take(6)
+    }
+
+    val currentHour = remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
+    val greetingText = remember(currentHour, isFa) {
+        when (currentHour) {
+            in 5..11 -> if (isFa) "صبح بخیر" else "Good morning"
+            in 12..16 -> if (isFa) "ظهر بخیر" else "Good afternoon"
+            in 17..21 -> if (isFa) "عصر بخیر" else "Good evening"
+            else -> if (isFa) "شب بخیر" else "Good night"
+        }
     }
 
     var userShuffledHeroTrack by remember { mutableStateOf<Track?>(null) }
-    val sessionRandomTrack = remember(allTracks.size, onlineRecentTracks.size) {
+    val halfHourBucket = remember { System.currentTimeMillis() / SPOTLIGHT_REFRESH_INTERVAL_MS }
+    val sessionRandomTrack = remember(allTracks.isNotEmpty(), onlineRecentTracks.isNotEmpty(), halfHourBucket) {
         val pool = (allTracks + onlineRecentTracks).ifEmpty { favoriteTracks }
-        pool.shuffled().firstOrNull()
+        pool.shuffled(java.util.Random(halfHourBucket)).firstOrNull()
     }
     val heroTrack = userShuffledHeroTrack
         ?: playbackState.currentTrack
@@ -128,111 +112,152 @@ fun HomeScreen(
         ?: allTracks.firstOrNull()
 
     LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = maxOf(bottomPadding + 20.dp, 120.dp)),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            top = 14.dp,
+            bottom = maxOf(bottomPadding + 24.dp, 128.dp)
+        ),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
-        // App Header & Greeting + Gym / High-Energy Pump Mode Toggle
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        // 1. Spotify Top Header & Filter Pills (All, Gym Mode, Stats, Library)
+        item(key = "home_header") {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = Localization.getString("aura_music", lang),
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 2.sp,
-                            color = palette.accent
-                        )
-                    )
-                    Text(
-                        text = Localization.getString("audio_environment", lang),
+                        text = greetingText,
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = Color.White,
+                            fontSize = 23.sp
                         )
                     )
-                }
 
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // دکمه اختصاصی حالت باشگاه و انرژی بالا (Gym / High-Energy Pump Mode)
-                    val isGymActive = appSettings.gymModeEnabled
-                    Surface(
-                        onClick = onToggleGymMode,
-                        shape = RoundedCornerShape(50),
-                        color = if (isGymActive) Color(0xFFFF1E56).copy(alpha = 0.28f) else Color(0x22FFFFFF),
-                        border = androidx.compose.foundation.BorderStroke(
-                            width = if (isGymActive) 1.5.dp else 1.dp,
-                            color = if (isGymActive) Color(0xFFFF1E56) else palette.primary.copy(alpha = 0.55f)
-                        ),
-                        modifier = Modifier.testTag("gym_mode_toggle_btn")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        IconButton(
+                            onClick = onOpenWrapped,
+                            modifier = Modifier.size(38.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.FitnessCenter,
-                                contentDescription = "Gym Pump Mode",
-                                tint = if (isGymActive) Color(0xFFFF1E56) else palette.accent,
-                                modifier = Modifier.size(17.dp)
+                                imageVector = Icons.Default.BarChart,
+                                contentDescription = "Listening Stats",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
                             )
-                            Text(
-                                text = if (lang == AppLanguage.PERSIAN) {
-                                    if (isGymActive) "🔥 باشگاه فعال" else "حالت باشگاه"
-                                } else {
-                                    if (isGymActive) "🔥 PUMP ON" else "Gym Mode"
-                                },
-                                color = Color.White,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 11.5.sp
+                        }
+                        IconButton(
+                            onClick = onOpenLibrary,
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.History,
+                                contentDescription = "History & Library",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
+                }
 
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(palette.primary.copy(alpha = 0.2f))
-                            .border(1.dp, palette.primary.copy(alpha = 0.5f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.GraphicEq,
-                            contentDescription = "Aura Engine",
-                            tint = palette.accent,
-                            modifier = Modifier.size(20.dp)
+                // Filter Pills Row (Spotify Architecture)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SpotifyFilterChip(
+                        label = if (isFa) "همه" else "All",
+                        selected = !appSettings.gymModeEnabled,
+                        onClick = {
+                            if (appSettings.gymModeEnabled) onToggleGymMode()
+                        }
+                    )
+
+                    SpotifyFilterChip(
+                        label = if (isFa) {
+                            if (appSettings.gymModeEnabled) "حالت باشگاه • فعال" else "حالت باشگاه"
+                        } else {
+                            if (appSettings.gymModeEnabled) "Gym Mode • ON" else "Gym Mode"
+                        },
+                        selected = appSettings.gymModeEnabled,
+                        leadingIcon = Icons.Default.FitnessCenter,
+                        onClick = onToggleGymMode,
+                        modifier = Modifier.testTag("gym_mode_toggle_btn")
+                    )
+
+                    if (duplicateCount > 0) {
+                        SpotifyFilterChip(
+                            label = if (isFa) "$duplicateCount تکراری" else "$duplicateCount Duplicates",
+                            selected = false,
+                            leadingIcon = Icons.Default.CleaningServices,
+                            onClick = onOpenDuplicatesReview
                         )
                     }
                 }
             }
         }
 
-        // Section 1.1: Elevated Ambient Top Now Playing Card (Shows dynamic playing/featured track)
+        // 2. Spotify 2-Column Compact Quick-Access Grid
+        if (quickGridTracks.isNotEmpty()) {
+            item(key = "home_quick_grid") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val rows = quickGridTracks.chunked(2)
+                    rows.forEach { rowTracks ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowTracks.forEach { track ->
+                                val isPlayingThis = playbackState.currentTrack?.id == track.id &&
+                                    playbackState.status == PlayerStatus.PLAYING
+                                SpotifyQuickGridItem(
+                                    track = track,
+                                    isPlayingThis = isPlayingThis,
+                                    palette = palette,
+                                    onClick = { onPlayTrack(track, quickGridTracks) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            if (rowTracks.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Featured Now Playing / Spotlight Card (Clean Editorial Layout)
         if (heroTrack != null) {
-            item {
-                HeroQuickPlayCard(
+            item(key = "home_featured_card") {
+                SpotifyFeaturedCard(
                     heroTrack = heroTrack,
                     playbackState = playbackState,
                     palette = palette,
-                    allTracks = if (allTracks.isNotEmpty()) allTracks else mergedRecentlyPlayed.ifEmpty { listOf(heroTrack) },
+                    isFa = isFa,
                     hasActiveTrack = playbackState.currentTrack != null,
-                    appSettings = appSettings,
-                    currentPositionProvider = currentPositionProvider,
-                    onSeekTo = onSeekTo,
-                    onPlayTrack = onPlayTrack,
-                    onTogglePlay = {
-                        if (playbackState.currentTrack != null) {
+                    onPlayOrToggle = {
+                        if (playbackState.currentTrack?.id == heroTrack.id) {
                             onTogglePlay()
                         } else {
-                            onPlayTrack(heroTrack, mergedRecentlyPlayed.ifEmpty { allTracks.ifEmpty { listOf(heroTrack) } })
+                            val pool = mergedRecentlyPlayed.ifEmpty { allTracks.ifEmpty { listOf(heroTrack) } }
+                            onPlayTrack(heroTrack, pool)
                         }
                     },
                     onShuffleNextHero = {
@@ -241,13 +266,14 @@ fun HomeScreen(
                             userShuffledHeroTrack = pool.filter { it.id != heroTrack.id }.shuffled().firstOrNull()
                         }
                     },
-                    onExpandNowPlaying = onExpandNowPlaying
+                    onExpandNowPlaying = onExpandNowPlaying,
+                    modifier = Modifier.padding(horizontal = 16.dp)
                 )
             }
         }
 
-        // بخش آهنگ‌های پیشنهادی برای امروز (بالای صفحه اصلی با بارگذاری فوری)
-        item {
+        // 4. Suggested Songs for Today (Horizontal Spotify Shelf)
+        item(key = "home_suggested_tracks") {
             HomeCloudflareSpotlightSection(
                 cloudflareTracks = onlineTrendingTracks,
                 isFa = isFa,
@@ -255,267 +281,150 @@ fun HomeScreen(
             )
         }
 
-        // Duplicate audio files prompt badge
-        if (duplicateCount > 0) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .liquidGlass(
-                            shape = RoundedCornerShape(16.dp),
-                            thickness = GlassThickness.REGULAR,
-                            tintColor = Color(0xFFF59E0B),
-                            tintAlpha = 0.20f,
-                            borderWidth = 1.dp
-                        )
-                        .clickable { onOpenDuplicatesReview() }
-                        .padding(horizontal = 14.dp, vertical = 12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+        // 5. Recently Played Shelf
+        if (mergedRecentlyPlayed.isNotEmpty()) {
+            item(key = "home_recently_played") {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    SpotifySectionHeader(
+                        title = if (isFa) "اخیراً گوش داده شده" else "Recently played",
+                        actionText = if (isFa) "نمایش همه" else "Show all",
+                        onActionClick = onOpenLibrary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Icon(
-                                imageVector = Icons.Default.CleaningServices,
-                                contentDescription = null,
-                                tint = Color(0xFFFBBF24),
-                                modifier = Modifier.size(20.dp)
+                        items(mergedRecentlyPlayed, key = { "recent_${it.id}" }) { track ->
+                            val isOnline = track.id.startsWith("online_") || track.uri.startsWith("http")
+                            val isSaved = downloadedIds.contains(track.id) ||
+                                downloadedIds.contains(track.id.removePrefix("online_")) ||
+                                OnlineCacheHolder.isTrackCached(context, track.id) ||
+                                !isOnline
+
+                            SpotifyAlbumCard(
+                                track = track,
+                                accentColor = palette.primary,
+                                showDownloadBadge = isOnline && !isSaved,
+                                onClick = { onPlayTrack(track, mergedRecentlyPlayed) },
+                                onDownloadClick = { onDownloadTrack(track) }
                             )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = if (lang == AppLanguage.PERSIAN) "$duplicateCount فایل تکراری شناسایی شد" else "$duplicateCount Duplicate tracks detected",
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                )
-                                Text(
-                                    text = if (lang == AppLanguage.PERSIAN) "برای بهینه‌سازی و مخفی کردن نسخه‌های کیفیت پایین لمس کنید" else "Tap to review & keep highest quality version",
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFD1D5DB))
-                                )
-                            }
                         }
-                        Icon(
-                            imageVector = Icons.Default.ChevronRight,
-                            contentDescription = null,
-                            tint = Color.White
-                        )
                     }
                 }
             }
         }
 
-        // Recently Played (شامل هم آهنگ‌های آنلاین گوش‌داده‌شده و هم آرشیو گوشی)
-        if (mergedRecentlyPlayed.isNotEmpty()) {
-            item {
+        // 6. Favorites List / Shelf
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (isFa) "اخیراً گوش داده شده" else "Recently Played",
-                        style = MaterialTheme.typography.titleMedium.copy(
+                        text = if (isFa) "آهنگ‌های مورد علاقه" else "Liked Songs",
+                        style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                     )
-                    TextButton(onClick = onOpenLibrary) {
-                        Text(if (isFa) "آرشیو من" else "My Library", color = palette.accent, fontSize = 12.sp)
+                    if (favoriteTracks.isNotEmpty()) {
+                        Text(
+                            text = if (isFa) "${favoriteTracks.size} آهنگ" else "${favoriteTracks.size} songs",
+                            style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
+                        )
                     }
                 }
-                Spacer(modifier = Modifier.height(6.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    items(mergedRecentlyPlayed, key = { "recent_${it.id}" }) { track ->
-                        val isOnline = track.id.startsWith("online_") || track.uri.startsWith("http")
-                        val isSaved = downloadedIds.contains(track.id) ||
-                            downloadedIds.contains(track.id.removePrefix("online_")) ||
-                            OnlineCacheHolder.isTrackCached(context, track.id) ||
-                            !isOnline
 
-                        Box(
-                            modifier = Modifier
-                                .width(148.dp)
-                                .liquidGlass(
-                                    shape = RoundedCornerShape(20.dp),
-                                    thickness = GlassThickness.REGULAR,
-                                    tintColor = Color(0xFF161A2E),
-                                    tintAlpha = 0.65f,
-                                    borderWidth = 1.dp
-                                )
-                                .clickable { onPlayTrack(track, mergedRecentlyPlayed) }
-                                .padding(12.dp)
-                        ) {
-                            Column {
-                                Box(modifier = Modifier.size(124.dp)) {
-                                    TrackArtworkThumbnail(
-                                        artworkUri = track.artworkUri,
-                                        accentColor = palette.primary,
-                                        size = 124.dp,
-                                        shape = RoundedCornerShape(14.dp),
-                                        iconSize = 38.dp,
-                                        title = track.title,
-                                        artist = track.artist,
-                                        trackId = track.id
-                                    )
-                                    if (isOnline && !isSaved) {
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .padding(6.dp)
-                                                .size(28.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xCC070912))
-                                                .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape)
-                                                .clickable { onDownloadTrack(track) },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Download,
-                                                contentDescription = "Download to Phone",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(15.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Text(
-                                    text = track.title,
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = track.artist,
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA6A8BA), fontSize = 12.sp),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+                Spacer(modifier = Modifier.height(12.dp))
 
-        // Favorites
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = if (lang == AppLanguage.PERSIAN) "علاقه‌مندی‌ها" else "Favorites",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                )
                 if (favoriteTracks.isNotEmpty()) {
-                    Text(
-                        text = if (lang == AppLanguage.PERSIAN) "${favoriteTracks.size} قطعه" else "${favoriteTracks.size} tracks",
-                        style = MaterialTheme.typography.bodySmall.copy(color = palette.accent)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-
-            if (favoriteTracks.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    favoriteTracks.forEach { track ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .liquidGlass(
-                                    shape = RoundedCornerShape(16.dp),
-                                    thickness = GlassThickness.THIN,
-                                    tintColor = palette.accent,
-                                    tintAlpha = 0.14f,
-                                    borderWidth = 1.dp
-                                )
-                                .clickable { onPlayTrack(track, allTracks) }
-                                .padding(12.dp)
-                        ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        favoriteTracks.take(10).forEach { track ->
+                            val isCurrent = playbackState.currentTrack?.id == track.id
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { onPlayTrack(track, favoriteTracks) }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 TrackArtworkThumbnail(
                                     artworkUri = track.artworkUri,
-                                    accentColor = palette.accent,
+                                    accentColor = palette.primary,
                                     size = 48.dp,
-                                    shape = RoundedCornerShape(12.dp),
-                                    iconSize = 24.dp,
+                                    shape = RoundedCornerShape(6.dp),
+                                    iconSize = 22.dp,
                                     title = track.title,
                                     artist = track.artist,
                                     trackId = track.id
                                 )
-                                Spacer(modifier = Modifier.width(14.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = track.title,
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = Color.White
+                                        style = MaterialTheme.typography.bodyLarge.copy(
+                                            fontWeight = FontWeight.Medium,
+                                            color = if (isCurrent) AuraSpotifyGreen else Color.White
                                         ),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "${track.artist} • ${track.genre}",
-                                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFA0A0B8)),
+                                        text = track.artist,
+                                        style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
+                                Icon(
+                                    imageVector = Icons.Default.Favorite,
+                                    contentDescription = null,
+                                    tint = AuraSpotifyGreen,
+                                    modifier = Modifier
+                                        .padding(horizontal = 8.dp)
+                                        .size(18.dp)
+                                )
                                 Text(
                                     text = track.durationFormatted,
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF88889C))
+                                    style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
                                 )
                             }
                         }
                     }
-                }
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .liquidGlass(
-                            shape = RoundedCornerShape(18.dp),
-                            thickness = GlassThickness.REGULAR,
-                            tintColor = palette.secondary,
-                            tintAlpha = 0.12f,
-                            borderWidth = 1.dp
-                        )
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(AuraSurface)
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.FavoriteBorder,
-                            contentDescription = null,
-                            tint = Color(0xFF6C6C82),
-                            modifier = Modifier.size(32.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = if (lang == AppLanguage.PERSIAN) "هنوز آهنگی به علاقه‌مندی‌ها افزوده نشده" else "No favorites yet",
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                color = Color.White,
-                                fontWeight = FontWeight.SemiBold
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.FavoriteBorder,
+                                contentDescription = null,
+                                tint = TextSecondary,
+                                modifier = Modifier.size(28.dp)
                             )
-                        )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = if (isFa) "هنوز آهنگی به علاقه‌مندی‌ها اضافه نشده است" else "Songs you like will appear here",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    color = TextSecondary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            )
+                        }
                     }
                 }
             }
@@ -524,352 +433,325 @@ fun HomeScreen(
 }
 
 @Composable
-private fun HeroQuickPlayCard(
-    heroTrack: Track?,
-    playbackState: PlaybackState,
+private fun SpotifyFilterChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null
+) {
+    val bgColor = if (selected) AuraSpotifyGreen else AuraSurfaceElevated
+    val contentColor = if (selected) Color.Black else Color.White
+
+    Row(
+        modifier = modifier
+            .height(32.dp)
+            .clip(RoundedCornerShape(50))
+            .background(bgColor)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        if (leadingIcon != null) {
+            Icon(
+                imageVector = leadingIcon,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(15.dp)
+            )
+        }
+        Text(
+            text = label,
+            color = contentColor,
+            fontSize = 12.5.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun SpotifyQuickGridItem(
+    track: Track,
+    isPlayingThis: Boolean,
     palette: AmbientPalette,
-    allTracks: List<Track>,
-    hasActiveTrack: Boolean,
-    appSettings: AppSettings,
-    currentPositionProvider: () -> Long,
-    onSeekTo: (Long) -> Unit,
-    onPlayTrack: (Track, List<Track>) -> Unit,
-    onTogglePlay: () -> Unit,
-    onShuffleNextHero: () -> Unit = {},
-    onExpandNowPlaying: () -> Unit = {},
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isPlaying = playbackState.status == PlayerStatus.PLAYING
-    val isFa = appSettings.language == AppLanguage.PERSIAN
-    val cardShape = RoundedCornerShape(26.dp)
-
-    // The single primary dominant alive color extracted directly from the album cover artwork
-    val dominantCoverColor = if (palette.isMonochrome) {
-        Color(0xFFE2E8F0) // Pure luminous silver-white for black & white covers (NO spurious blue/cyan)
-    } else {
-        palette.primary
-    }
-
-    // Smooth color animation when artwork/palette changes
-    val animDominantColor by androidx.compose.animation.animateColorAsState(
-        targetValue = dominantCoverColor,
-        animationSpec = tween(400, easing = FastOutSlowInEasing),
-        label = "heroDominantColor"
-    )
-
-    val heroTransition = rememberInfiniteTransition(label = "heroVinylRotation")
-    val rotationAngle by if (isPlaying) {
-        heroTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 4000, easing = LinearEasing),
-                repeatMode = androidx.compose.animation.core.RepeatMode.Restart
-            ),
-            label = "heroRotation"
+    Row(
+        modifier = modifier
+            .height(56.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(AuraSurfaceElevated)
+            .clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TrackArtworkThumbnail(
+            artworkUri = track.artworkUri,
+            accentColor = palette.primary,
+            size = 56.dp,
+            shape = RoundedCornerShape(topStart = 6.dp, bottomStart = 6.dp),
+            iconSize = 24.dp,
+            title = track.title,
+            artist = track.artist,
+            trackId = track.id
         )
-    } else {
-        remember { mutableFloatStateOf(0f) }
-    }
-
-    val beatTransition = rememberInfiniteTransition(label = "heroCoverBeat")
-    val beatScale by if (isPlaying) {
-        beatTransition.animateFloat(
-            initialValue = 0.96f,
-            targetValue = 1.10f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 420, easing = FastOutSlowInEasing),
-                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = track.title,
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontWeight = FontWeight.Bold,
+                color = if (isPlayingThis) AuraSpotifyGreen else Color.White,
+                fontSize = 12.5.sp,
+                lineHeight = 15.sp
             ),
-            label = "beatScale"
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 6.dp)
         )
-    } else {
-        remember { mutableFloatStateOf(1f) }
+        if (isPlayingThis) {
+            Icon(
+                imageVector = Icons.Default.GraphicEq,
+                contentDescription = "Playing",
+                tint = AuraSpotifyGreen,
+                modifier = Modifier
+                    .padding(end = 8.dp)
+                    .size(16.dp)
+            )
+        }
     }
+}
+
+@Composable
+private fun SpotifyFeaturedCard(
+    heroTrack: Track,
+    playbackState: PlaybackState,
+    palette: AmbientPalette,
+    isFa: Boolean,
+    hasActiveTrack: Boolean,
+    onPlayOrToggle: () -> Unit,
+    onShuffleNextHero: () -> Unit,
+    onExpandNowPlaying: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isPlaying = playbackState.status == PlayerStatus.PLAYING &&
+        playbackState.currentTrack?.id == heroTrack.id
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(
-                elevation = 28.dp,
-                shape = cardShape,
-                spotColor = animDominantColor.copy(alpha = 0.85f),
-                ambientColor = animDominantColor.copy(alpha = 0.40f)
-            )
-            .clip(cardShape)
+            .clip(RoundedCornerShape(10.dp))
+            .background(AuraSurface)
+            .border(0.5.dp, Color(0x14FFFFFF), RoundedCornerShape(10.dp))
             .clickable {
-                if (hasActiveTrack) {
+                if (hasActiveTrack && playbackState.currentTrack?.id == heroTrack.id) {
                     onExpandNowPlaying()
-                } else if (heroTrack != null) {
-                    onPlayTrack(heroTrack, if (allTracks.isNotEmpty()) allTracks else listOf(heroTrack))
+                } else {
+                    onPlayOrToggle()
                 }
             }
+            .padding(14.dp)
             .testTag("hero_quick_play_card")
     ) {
-        // Layer 1: Deep atmospheric ambient background base
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(Color(0xFF090B14))
-        )
-
-        // Layer 2: Rotating Single-Color Dynamic Sweep Gradient Beam
-        // Beautiful contrast: intense glowing head (پررنگ) transitioning to faint/transparent tail (کمرنگ)
-        val sweepColors = remember(animDominantColor) {
-            listOf(
-                animDominantColor.copy(alpha = 0.98f), // Apex / head: bright, punchy, alive
-                animDominantColor.copy(alpha = 0.70f), // Leading wing
-                animDominantColor.copy(alpha = 0.28f), // Soft falloff
-                animDominantColor.copy(alpha = 0.04f), // Distant tail (کمرنگ)
-                Color.Transparent,                    // Clear void
-                animDominantColor.copy(alpha = 0.06f), // Ambient return
-                animDominantColor.copy(alpha = 0.45f), // Ramping back up
-                animDominantColor.copy(alpha = 0.98f)  // Seamless closing loop
-            )
-        }
-        Canvas(modifier = Modifier.matchParentSize()) {
-            val centerOffset = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
-            rotate(rotationAngle, pivot = centerOffset) {
-                drawCircle(
-                    brush = Brush.sweepGradient(
-                        colors = sweepColors,
-                        center = centerOffset
-                    ),
-                    radius = size.maxDimension * 1.25f,
-                    center = centerOffset
-                )
-            }
-        }
-
-        // Layer 3: Soft blurred radial dispersion glow in the center for smooth silky luminescence
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.15f),
-                            Color.Black.copy(alpha = 0.55f)
-                        ),
-                        radius = 450f
-                    )
-                )
-        )
-
-        // Layer 4: Glassmorphic frost overlay with elegant single-cover-color border glow
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.White.copy(alpha = 0.08f),
-                            Color.Black.copy(alpha = 0.18f),
-                            Color.Black.copy(alpha = 0.40f)
-                        )
-                    )
-                )
-                .border(
-                    width = 1.4.dp,
-                    brush = Brush.sweepGradient(
-                        listOf(
-                            animDominantColor.copy(alpha = 0.85f),
-                            Color.White.copy(alpha = 0.40f),
-                            animDominantColor.copy(alpha = 0.18f),
-                            Color.White.copy(alpha = 0.10f),
-                            animDominantColor.copy(alpha = 0.85f)
-                        )
-                    ),
-                    shape = cardShape
-                )
-        )
-
-        // Card Content (Moderate medium height and balanced layout)
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = 150.dp)
-                .padding(horizontal = 22.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Top Status Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val dotScale by if (isPlaying) {
-                        val dotTransition = rememberInfiniteTransition(label = "heroDotPulse")
-                        dotTransition.animateFloat(
-                            initialValue = 0.8f,
-                            targetValue = 1.3f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(durationMillis = 500, easing = FastOutSlowInEasing),
-                                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
-                            ),
-                            label = "dotScale"
-                        )
-                    } else {
-                        remember { mutableFloatStateOf(1f) }
-                    }
+            TrackArtworkThumbnail(
+                artworkUri = heroTrack.artworkUri,
+                accentColor = palette.primary,
+                size = 76.dp,
+                shape = RoundedCornerShape(8.dp),
+                iconSize = 32.dp,
+                title = heroTrack.title,
+                artist = heroTrack.artist,
+                trackId = heroTrack.id
+            )
 
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .scale(dotScale)
-                            .clip(CircleShape)
-                            .background(Color.White)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isFa) "در حال پخش" else "CURRENTLY PLAYING",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = Color.White.copy(alpha = 0.95f),
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 1.2.sp,
-                            fontSize = 10.5.sp
-                        )
-                    )
-                }
+            Spacer(modifier = Modifier.width(14.dp))
 
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = heroTrack?.genre?.ifEmpty { null } ?: (if (isFa) "الکترونیک" else "Electronic"),
+                    text = if (isPlaying) {
+                        if (isFa) "در حال پخش" else "NOW PLAYING"
+                    } else {
+                        if (isFa) "پیشنهاد ویژه" else "FEATURED TRACK"
+                    },
                     style = MaterialTheme.typography.labelSmall.copy(
-                        color = Color.White.copy(alpha = 0.9f),
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 10.5.sp
+                        color = if (isPlaying) AuraSpotifyGreen else TextSecondary,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        fontSize = 10.sp
                     )
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = heroTrack.title,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        fontSize = 16.sp
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = heroTrack.artist,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = TextSecondary,
+                        fontSize = 13.sp
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Main Track Info Row (Compact artwork, small title & artist, compact play button)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+            IconButton(
+                onClick = onShuffleNextHero,
+                modifier = Modifier.size(36.dp)
             ) {
-                // Static compact album artwork thumbnail
-                Box(contentAlignment = Alignment.Center) {
-                    Box(
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0x33000000))
-                            .border(1.2.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(12.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (!heroTrack?.artworkUri.isNullOrEmpty()) {
-                            coil.compose.AsyncImage(
-                                model = heroTrack?.artworkUri,
-                                contentDescription = heroTrack?.title,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            MusicArtworkPlaceholder(
-                                title = heroTrack?.title,
-                                artist = heroTrack?.artist,
-                                trackId = heroTrack?.id,
-                                palette = palette,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    }
-                }
+                Icon(
+                    imageVector = Icons.Default.Shuffle,
+                    contentDescription = "Shuffle Featured",
+                    tint = TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
 
-                Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(4.dp))
 
-                // Title and Artist typography
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = heroTrack?.title ?: "",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            fontSize = 17.sp
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = heroTrack?.artist ?: "",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontWeight = FontWeight.Normal,
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontSize = 12.5.sp
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                IconButton(
-                    onClick = onShuffleNextHero,
-                    modifier = Modifier.size(38.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Shuffle,
-                        contentDescription = "Shuffle another track",
-                        tint = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Compact refined play button
-                Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        .shadow(14.dp, CircleShape, spotColor = animDominantColor)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(
-                                    Color.White.copy(alpha = 0.95f),
-                                    Color.White.copy(alpha = 0.85f)
-                                )
-                            )
-                        )
-                        .clickable {
-                            if (hasActiveTrack) {
-                                onTogglePlay()
-                            } else if (heroTrack != null) {
-                                onPlayTrack(heroTrack, if (allTracks.isNotEmpty()) allTracks else listOf(heroTrack))
-                            }
-                        }
-                        .testTag("hero_play_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = animDominantColor,
-                        modifier = Modifier.size(30.dp)
-                    )
-                }
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(AuraSpotifyGreen)
+                    .clickable(onClick = onPlayOrToggle)
+                    .testTag("hero_play_button"),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    tint = Color.Black,
+                    modifier = Modifier.size(26.dp)
+                )
             }
         }
     }
 }
 
-private fun formatHeroDuration(ms: Long): String {
-    val totalSec = (ms / 1000).coerceAtLeast(0)
-    val min = totalSec / 60
-    val sec = totalSec % 60
-    return "%d:%02d".format(min, sec)
+@Composable
+private fun SpotifySectionHeader(
+    title: String,
+    actionText: String? = null,
+    onActionClick: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                fontSize = 20.sp
+            )
+        )
+        if (actionText != null && onActionClick != null) {
+            Text(
+                text = actionText,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    color = TextSecondary,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable(onClick = onActionClick)
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            )
+        }
+    }
 }
 
-/**
- * ویجت آهنگ‌های پیشنهادی برای امروز در بالای صفحه اصلی با بارگذاری فوری از کش حافظه/دیسک
- */
+@Composable
+private fun SpotifyAlbumCard(
+    track: Track,
+    accentColor: Color,
+    showDownloadBadge: Boolean,
+    onClick: () -> Unit,
+    onDownloadClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(142.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Box(modifier = Modifier.size(142.dp)) {
+            TrackArtworkThumbnail(
+                artworkUri = track.artworkUri,
+                accentColor = accentColor,
+                size = 142.dp,
+                shape = RoundedCornerShape(8.dp),
+                iconSize = 40.dp,
+                title = track.title,
+                artist = track.artist,
+                trackId = track.id
+            )
+            if (showDownloadBadge) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xD9121212))
+                        .clickable(onClick = onDownloadClick),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = "Save to device",
+                        tint = Color.White,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = track.title,
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                fontSize = 13.5.sp
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = track.artist,
+            style = MaterialTheme.typography.bodySmall.copy(
+                color = TextSecondary,
+                fontSize = 12.sp
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+private const val SPOTLIGHT_REFRESH_INTERVAL_MS = 30 * 60 * 1000L
+private var cachedSpotlightTracks: List<Track> = emptyList()
+private var cachedSpotlightSlot: Long = -1L
+
 @Composable
 fun HomeCloudflareSpotlightSection(
     cloudflareTracks: List<Track> = emptyList(),
@@ -880,7 +762,9 @@ fun HomeCloudflareSpotlightSection(
     var loadedOnlineTracks by remember {
         mutableStateOf(OnlineMusicRepository.getMemoryCachedAppTracks())
     }
-    var shuffleSeed by remember { mutableIntStateOf(0) }
+    var currentHalfHourSlot by remember {
+        mutableLongStateOf(System.currentTimeMillis() / SPOTLIGHT_REFRESH_INTERVAL_MS)
+    }
 
     LaunchedEffect(Unit) {
         if (loadedOnlineTracks.isEmpty() && repoTracks.isEmpty() && cloudflareTracks.isEmpty()) {
@@ -896,6 +780,13 @@ fun HomeCloudflareSpotlightSection(
                 } catch (_: Exception) {}
             }
         }
+        while (true) {
+            kotlinx.coroutines.delay(30_000L)
+            val newSlot = System.currentTimeMillis() / SPOTLIGHT_REFRESH_INTERVAL_MS
+            if (newSlot != currentHalfHourSlot) {
+                currentHalfHourSlot = newSlot
+            }
+        }
     }
 
     val displayPool = when {
@@ -904,12 +795,19 @@ fun HomeCloudflareSpotlightSection(
         else -> cloudflareTracks
     }
 
-    val spotlightTracks = remember(displayPool.size, shuffleSeed) {
-        if (displayPool.isEmpty()) emptyList()
-        else displayPool.shuffled().take(14)
+    val spotlightTracks = remember(displayPool.isNotEmpty(), currentHalfHourSlot) {
+        if (cachedSpotlightTracks.isNotEmpty() && cachedSpotlightSlot == currentHalfHourSlot) {
+            cachedSpotlightTracks
+        } else if (displayPool.isEmpty()) {
+            cachedSpotlightTracks
+        } else {
+            val next = displayPool.shuffled(java.util.Random(currentHalfHourSlot)).take(14)
+            cachedSpotlightTracks = next
+            cachedSpotlightSlot = currentHalfHourSlot
+            next
+        }
     }
 
-    // پیش‌بارگذاری فوری کاورهای آهنگ‌های پیشنهادی امروز در پس‌زمینه
     LaunchedEffect(spotlightTracks) {
         spotlightTracks.take(8).forEach { track ->
             val url = track.artworkUri
@@ -921,113 +819,29 @@ fun HomeCloudflareSpotlightSection(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 2.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = null,
-                    tint = Color(0xFF1DB954),
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text(
-                        text = if (isFa) "آهنگ‌های پیشنهادی برای امروز" else "Suggested Songs for Today",
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Text(
-                        text = if (isFa) "منتخب روزانه متناسب با سلیقه شما" else "Daily picks tailored for you",
-                        color = Color.White.copy(alpha = 0.6f),
-                        fontSize = 11.sp
-                    )
-                }
-            }
+    if (spotlightTracks.isNotEmpty()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            SpotifySectionHeader(
+                title = if (isFa) "پیشنهاد امروز برای شما" else "Made For You Today"
+            )
 
-            if (spotlightTracks.isNotEmpty()) {
-                TextButton(onClick = { shuffleSeed++ }) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = null,
-                        tint = Color(0xFF1DB954),
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = if (isFa) "پیشنهاد جدید" else "Refresh",
-                        color = Color(0xFF1DB954),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
+            Spacer(modifier = Modifier.height(12.dp))
 
-        Spacer(modifier = Modifier.height(10.dp))
-
-        if (spotlightTracks.isNotEmpty()) {
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 2.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 items(spotlightTracks, key = { "home_cf_${it.id}" }) { track ->
-                    Box(
-                        modifier = Modifier
-                            .width(148.dp)
-                            .liquidGlass(
-                                shape = RoundedCornerShape(20.dp),
-                                thickness = GlassThickness.REGULAR,
-                                tintColor = Color(0xFF1DB954),
-                                tintAlpha = 0.16f,
-                                borderWidth = 1.dp
-                            )
-                            .clickable { onPlayTrack(track, spotlightTracks) }
-                            .padding(12.dp)
-                    ) {
-                        Column {
-                            TrackArtworkThumbnail(
-                                artworkUri = track.artworkUri,
-                                accentColor = Color(0xFF1DB954),
-                                size = 124.dp,
-                                shape = RoundedCornerShape(14.dp),
-                                iconSize = 38.dp,
-                                title = track.title,
-                                artist = track.artist,
-                                trackId = track.id
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Text(
-                                text = track.title,
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = track.artist,
-                                style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF1DB954), fontSize = 12.sp),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
+                    SpotifyAlbumCard(
+                        track = track,
+                        accentColor = AuraSpotifyGreen,
+                        showDownloadBadge = false,
+                        onClick = { onPlayTrack(track, spotlightTracks) },
+                        onDownloadClick = {}
+                    )
                 }
             }
         }
     }
 }
+

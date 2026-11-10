@@ -1104,10 +1104,14 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
                         durationSec = durationSec
                     )
                     if (_playbackState.value.currentTrack?.id == trackId) {
-                        val playerLines = LyricsRepository.toPlayerLyricsLines(fetchedLines, track.durationMs)
+                        val effectiveDurMs = audioEngine.duration.value.takeIf { it > 1000L }
+                            ?: _playbackState.value.durationMs.takeIf { it > 1000L }
+                            ?: track.durationMs
+                        val playerLines = LyricsRepository.toPlayerLyricsLines(fetchedLines, effectiveDurMs)
                         _currentLyrics.value = playerLines
                         if (fetchedLines.isNotEmpty() && fetchedLines.first().text != "متنی برای این آهنگ یافت نشد.") {
-                            val rawLrc = LyricsRepository.toRawLrcString(fetchedLines)
+                            val syncedToSave = playerLines.map { com.example.LyricLine(it.timestampMs, it.text) }
+                            val rawLrc = LyricsRepository.toRawLrcString(syncedToSave)
                             repository.saveLyrics(trackId, rawLrc, 0L)
                         }
                     }
