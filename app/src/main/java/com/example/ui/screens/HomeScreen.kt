@@ -86,9 +86,9 @@ fun HomeScreen(
             .take(16)
     }
 
-    // 6-item or 8-item Quick-Access Spotify Grid at the top of Home
-    val quickGridTracks = remember(mergedRecentlyPlayed, favoriteTracks, allTracks) {
-        (mergedRecentlyPlayed + favoriteTracks + allTracks)
+    // Quick-Access Grid at the top of Home: strictly user's own Favorite tracks
+    val quickGridTracks = remember(favoriteTracks) {
+        favoriteTracks
             .distinctBy { it.id }
             .take(6)
     }
@@ -124,7 +124,7 @@ fun HomeScreen(
         ),
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
-        // 1. Spotify Top Header & Filter Pills (All, Gym Mode, Stats, Library)
+        // 1. Spotify Top Header (Stats, Library)
         item(key = "home_header") {
             Column(
                 modifier = Modifier
@@ -175,33 +175,12 @@ fun HomeScreen(
                     }
                 }
 
-                // Filter Pills Row (Spotify Architecture)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    SpotifyFilterChip(
-                        label = if (isFa) "همه" else "All",
-                        selected = !appSettings.gymModeEnabled,
-                        onClick = {
-                            if (appSettings.gymModeEnabled) onToggleGymMode()
-                        }
-                    )
-
-                    SpotifyFilterChip(
-                        label = if (isFa) {
-                            if (appSettings.gymModeEnabled) "حالت باشگاه • فعال" else "حالت باشگاه"
-                        } else {
-                            if (appSettings.gymModeEnabled) "Gym Mode • ON" else "Gym Mode"
-                        },
-                        selected = appSettings.gymModeEnabled,
-                        leadingIcon = Icons.Default.FitnessCenter,
-                        onClick = onToggleGymMode,
-                        modifier = Modifier.testTag("gym_mode_toggle_btn")
-                    )
-
-                    if (duplicateCount > 0) {
+                if (duplicateCount > 0) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         SpotifyFilterChip(
                             label = if (isFa) "$duplicateCount تکراری" else "$duplicateCount Duplicates",
                             selected = false,

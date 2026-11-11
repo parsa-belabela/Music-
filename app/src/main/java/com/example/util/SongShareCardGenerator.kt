@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.*
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
+import android.text.Layout
+import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
 import android.util.Log
@@ -115,7 +117,6 @@ object SongShareCardGenerator {
             if (!storiesDir.exists()) {
                 storiesDir.mkdirs()
             }
-            // Clean up old story files older than 1 hour to keep cache tidy
             storiesDir.listFiles()?.forEach { old ->
                 if (System.currentTimeMillis() - old.lastModified() > 3600_000L) {
                     try { old.delete() } catch (_: Exception) {}
@@ -157,6 +158,8 @@ object SongShareCardGenerator {
                 if (it.config == Bitmap.Config.HARDWARE) it.copy(Bitmap.Config.ARGB_8888, false) else it
             } ?: loadSoftwareCoverBitmap(context, track)
 
+            val cleanLyrics = rememberCleanLyrics(selectedLyricLines, lyricSnippet)
+
             val style = StoryBackgroundStyle.fromIndex(styleIndex)
             drawStoryBackground(
                 canvas = canvas,
@@ -173,7 +176,8 @@ object SongShareCardGenerator {
                 height = height,
                 track = track,
                 coverBitmap = loadedArtBmp,
-                palette = palette
+                palette = palette,
+                lyricLines = cleanLyrics
             )
 
             drawLuxuryAuraBrandingPill(
@@ -187,6 +191,15 @@ object SongShareCardGenerator {
             Log.e("SongShareCard", "Error generating 9:16 story card: ${e.message}", e)
             null
         }
+    }
+
+    private fun rememberCleanLyrics(selectedLyricLines: List<String>, lyricSnippet: String?): List<String> {
+        val fromList = selectedLyricLines.map { it.trim() }.filter { it.isNotEmpty() }
+        if (fromList.isNotEmpty()) return fromList.take(4)
+        if (!lyricSnippet.isNullOrBlank()) {
+            return lyricSnippet.lines().map { it.trim() }.filter { it.isNotEmpty() }.take(4)
+        }
+        return emptyList()
     }
 
     private fun drawStoryBackground(
@@ -234,7 +247,6 @@ object SongShareCardGenerator {
                     canvas.drawRect(0f, 0f, w, h, glowPaint)
                 }
 
-                // Dark radial vignette overlay Color(0xFF090C15).copy(alpha = 0.62f) -> deeper at edges
                 val vignetteCenter = Color.argb((0.52f * 255).toInt(), 9, 12, 21)
                 val vignetteMid = Color.argb((0.64f * 255).toInt(), 9, 12, 21)
                 val vignetteEdge = Color.argb((0.84f * 255).toInt(), 9, 12, 21)
@@ -252,10 +264,8 @@ object SongShareCardGenerator {
             }
 
             StoryBackgroundStyle.MIDNIGHT_NEON_AURA -> {
-                // Deep obsidian #090C15 background
                 canvas.drawColor(Color.parseColor("#090C15"))
 
-                // Top-left #7C3AED purple at 35% alpha
                 val purpleGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     shader = RadialGradient(
                         w * 0.18f,
@@ -272,7 +282,6 @@ object SongShareCardGenerator {
                 }
                 canvas.drawRect(0f, 0f, w, h, purpleGlow)
 
-                // Bottom-right #2563EB blue at 30% alpha
                 val blueGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     shader = RadialGradient(
                         w * 0.85f,
@@ -291,10 +300,8 @@ object SongShareCardGenerator {
             }
 
             StoryBackgroundStyle.CRIMSON_AFTER_HOURS -> {
-                // Deep #090508 background
                 canvas.drawColor(Color.parseColor("#090508"))
 
-                // Moody crimson/ruby radial glow (#991B1B at 40% alpha)
                 val crimsonGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     shader = RadialGradient(
                         w * 0.5f,
@@ -320,37 +327,60 @@ object SongShareCardGenerator {
         height: Int,
         track: Track,
         coverBitmap: Bitmap?,
-        palette: AmbientPalette
+        palette: AmbientPalette,
+        lyricLines: List<String>
     ) {
         val w = width.toFloat()
         val h = height.toFloat()
 
-        // 82% of canvas width
-        val cardWidth = w * 0.82f
-        val innerPad = 66f // 22.dp at 3x density (1080px width = 360dp * 3)
-        val coverSize = cardWidth - innerPad * 2f
+        val cardWidth = w * 0.84f
+        val innerPad = 64f
+        val contentWidth = cardWidth - innerPad * 2f
+        val hasLyrics = lyricLines.isNotEmpty()
 
-        // Vertical spacing inside card:
-        // top padding (66) + coverSize + 54 (18.dp) + title (66) + 14 + artist (46) + 48 (16.dp) + waveform+timestamps (112) + bottom padding (66)
-        val cardHeight = innerPad + coverSize + 54f + 66f + 14f + 46f + 48f + 112f + innerPad
+        val lyricPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 50f
+            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD_ITALIC)
+            setShadowLayer(16f, 0f, 6f, Color.argb(190, 0, 0, 0))
+        }
+
+        val formattedQuote = if (hasLyrics) {
+            "“" + lyricLines.joinToString("\n") + "”"
+        } else ""
+
+        val lyricLayout = if (hasLyrics) {
+            StaticLayout.Builder
+                .obtain(formattedQuote, 0, formattedQuote.length, lyricPaint, contentWidth.toInt())
+                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                .setLineSpacing(14f, 1.12f)
+                .setIncludePad(false)
+                .build()
+        } else null
+
+        val lyricsBlockHeight = lyricLayout?.height?.toFloat() ?: 0f
+
+        val coverSize = if (hasLyrics) 210f else contentWidth
+        val headerBlockHeight = if (hasLyrics) coverSize else (coverSize + 54f + 66f + 14f + 46f)
+        val dividerAndLyricsHeight = if (hasLyrics) (44f + 2f + 48f + lyricsBlockHeight) else 0f
+
+        val cardHeight = innerPad + headerBlockHeight + dividerAndLyricsHeight + innerPad
         val cardLeft = (w - cardWidth) / 2f
-        val cardTop = (h - cardHeight) / 2f - 28f
+        val cardTop = (h - cardHeight) / 2f - 24f
         val cardRect = RectF(cardLeft, cardTop, cardLeft + cardWidth, cardTop + cardHeight)
-        val cardCorner = 84f // 28.dp * 3
+        val cardCorner = 84f
 
-        // 24.dp soft drop shadow
         val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(165, 0, 0, 0)
-            maskFilter = BlurMaskFilter(72f, BlurMaskFilter.Blur.NORMAL)
+            color = Color.argb(175, 0, 0, 0)
+            maskFilter = BlurMaskFilter(74f, BlurMaskFilter.Blur.NORMAL)
         }
         canvas.drawRoundRect(
-            RectF(cardRect.left + 6f, cardRect.top + 28f, cardRect.right - 6f, cardRect.bottom + 32f),
+            RectF(cardRect.left + 6f, cardRect.top + 28f, cardRect.right - 6f, cardRect.bottom + 34f),
             cardCorner,
             cardCorner,
             shadowPaint
         )
 
-        // Glass Card Background: verticalGradient(#1A2035 at 0.78f -> #0D111D at 0.88f)
         val glassBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             shader = LinearGradient(
                 cardRect.left,
@@ -358,8 +388,8 @@ object SongShareCardGenerator {
                 cardRect.left,
                 cardRect.bottom,
                 intArrayOf(
-                    Color.argb((0.78f * 255).toInt(), 0x1A, 0x20, 0x35),
-                    Color.argb((0.88f * 255).toInt(), 0x0D, 0x11, 0x1D)
+                    Color.argb((0.80f * 255).toInt(), 0x1A, 0x20, 0x35),
+                    Color.argb((0.90f * 255).toInt(), 0x0D, 0x11, 0x1D)
                 ),
                 null,
                 Shader.TileMode.CLAMP
@@ -367,7 +397,6 @@ object SongShareCardGenerator {
         }
         canvas.drawRoundRect(cardRect, cardCorner, cardCorner, glassBgPaint)
 
-        // 1.2.dp Specular Gradient Border (White 0.28f -> White 0.04f)
         val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = 3.6f
@@ -377,8 +406,8 @@ object SongShareCardGenerator {
                 cardRect.right,
                 cardRect.bottom,
                 intArrayOf(
-                    Color.argb((0.28f * 255).toInt(), 255, 255, 255),
-                    Color.argb((0.04f * 255).toInt(), 255, 255, 255)
+                    Color.argb((0.30f * 255).toInt(), 255, 255, 255),
+                    Color.argb((0.05f * 255).toInt(), 255, 255, 255)
                 ),
                 null,
                 Shader.TileMode.CLAMP
@@ -386,143 +415,140 @@ object SongShareCardGenerator {
         }
         canvas.drawRoundRect(cardRect, cardCorner, cardCorner, borderPaint)
 
-        // High-Res Cover Art (1:1 aspect ratio, RoundedCornerShape(20.dp) -> 60f, 16.dp drop shadow)
-        val coverRect = RectF(
-            cardRect.left + innerPad,
-            cardRect.top + innerPad,
-            cardRect.left + innerPad + coverSize,
-            cardRect.top + innerPad + coverSize
-        )
-        val coverCorner = 60f // 20.dp * 3
+        var currentY = cardRect.top + innerPad
 
-        val coverShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(145, 0, 0, 0)
-            maskFilter = BlurMaskFilter(48f, BlurMaskFilter.Blur.NORMAL)
-        }
-        canvas.drawRoundRect(
-            RectF(coverRect.left + 6f, coverRect.top + 20f, coverRect.right - 6f, coverRect.bottom + 22f),
-            coverCorner,
-            coverCorner,
-            coverShadowPaint
-        )
-
-        drawRoundedBitmapOrPlaceholder(
-            canvas = canvas,
-            bmp = coverBitmap,
-            rect = coverRect,
-            cornerRadius = coverCorner,
-            fallbackColor = toAndroidColor(palette.primary, 1f)
-        )
-
-        // Subtle inner highlight on Cover Art
-        val coverHighlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 2.5f
-            shader = LinearGradient(
-                coverRect.left,
-                coverRect.top,
-                coverRect.right,
-                coverRect.bottom,
-                intArrayOf(
-                    Color.argb(56, 255, 255, 255),
-                    Color.argb(8, 255, 255, 255)
-                ),
-                null,
-                Shader.TileMode.CLAMP
+        if (hasLyrics) {
+            val coverRect = RectF(
+                cardRect.left + innerPad,
+                currentY,
+                cardRect.left + innerPad + coverSize,
+                currentY + coverSize
             )
-        }
-        canvas.drawRoundRect(coverRect, coverCorner, coverCorner, coverHighlightPaint)
+            val coverCorner = 44f
 
-        // Track Metadata (18.dp = 54px below cover)
-        val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            textSize = 60f // 20.sp * 3
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
-        val artistPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb((0.72f * 255).toInt(), 255, 255, 255)
-            textSize = 42f // 14.sp * 3
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-        }
-
-        val cleanTitle = TextUtils.ellipsize(
-            track.title,
-            titlePaint,
-            coverSize,
-            TextUtils.TruncateAt.END
-        ).toString()
-
-        val cleanArtist = TextUtils.ellipsize(
-            track.artist,
-            artistPaint,
-            coverSize,
-            TextUtils.TruncateAt.END
-        ).toString()
-
-        val titleBaselineY = coverRect.bottom + 54f + 50f
-        canvas.drawText(cleanTitle, coverRect.left, titleBaselineY, titlePaint)
-
-        val artistBaselineY = titleBaselineY + 56f
-        canvas.drawText(cleanArtist, coverRect.left, artistBaselineY, artistPaint)
-
-        // Aesthetic Audio Waveform / Scrubber (16.dp = 48px below artist)
-        val waveTop = artistBaselineY + 48f
-        val waveHeight = 56f
-        val waveCenterY = waveTop + waveHeight / 2f
-        val totalBars = 28
-        val progressRatio = 0.35f
-        val activeBars = (totalBars * progressRatio).toInt()
-        val gap = 10f
-        val barWidth = ((coverSize - gap * (totalBars - 1)) / totalBars).coerceAtLeast(6f)
-        val seed = track.title.hashCode()
-
-        val activeWavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb((0.85f * 255).toInt(), 255, 255, 255)
-        }
-        val inactiveWavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb((0.25f * 255).toInt(), 255, 255, 255)
-        }
-
-        var dotCenterX = coverRect.left + coverSize * progressRatio
-        for (i in 0 until totalBars) {
-            val waveNorm = (sin(i * 0.62f + seed) * 0.36f + 0.56f).coerceIn(0.22f, 1f)
-            val bh = (waveHeight * waveNorm).coerceAtLeast(12f)
-            val bx = coverRect.left + i * (barWidth + gap)
-            val by = waveCenterY - bh / 2f
-            if (i == activeBars) {
-                dotCenterX = bx + barWidth / 2f
+            val coverShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb(140, 0, 0, 0)
+                maskFilter = BlurMaskFilter(32f, BlurMaskFilter.Blur.NORMAL)
             }
             canvas.drawRoundRect(
-                RectF(bx, by, bx + barWidth, by + bh),
-                barWidth / 2f,
-                barWidth / 2f,
-                if (i <= activeBars) activeWavePaint else inactiveWavePaint
+                RectF(coverRect.left + 4f, coverRect.top + 12f, coverRect.right - 4f, coverRect.bottom + 14f),
+                coverCorner,
+                coverCorner,
+                coverShadowPaint
             )
-        }
 
-        // Tiny glowing dot at 35% progress
-        val dotGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(130, 255, 255, 255)
-            maskFilter = BlurMaskFilter(14f, BlurMaskFilter.Blur.NORMAL)
-        }
-        canvas.drawCircle(dotCenterX, waveCenterY, 13f, dotGlowPaint)
-        val dotCorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-        }
-        canvas.drawCircle(dotCenterX, waveCenterY, 7.5f, dotCorePaint)
+            drawRoundedBitmapOrPlaceholder(
+                canvas = canvas,
+                bmp = coverBitmap,
+                rect = coverRect,
+                cornerRadius = coverCorner,
+                fallbackColor = toAndroidColor(palette.primary, 1f)
+            )
 
-        // Timestamps 1:14 / 3:28 below waveform
-        val timePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb((0.56f * 255).toInt(), 255, 255, 255)
-            textSize = 31f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            val textLeft = coverRect.right + 38f
+            val availableTextW = (cardRect.right - innerPad - textLeft).coerceAtLeast(100f)
+
+            val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = 52f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            val artistPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb((0.72f * 255).toInt(), 255, 255, 255)
+                textSize = 38f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            }
+
+            val cleanTitle = TextUtils.ellipsize(track.title, titlePaint, availableTextW, TextUtils.TruncateAt.END).toString()
+            val cleanArtist = TextUtils.ellipsize(track.artist, artistPaint, availableTextW, TextUtils.TruncateAt.END).toString()
+
+            val titleY = coverRect.centerY() - 12f
+            val artistY = coverRect.centerY() + 44f
+            canvas.drawText(cleanTitle, textLeft, titleY, titlePaint)
+            canvas.drawText(cleanArtist, textLeft, artistY, artistPaint)
+
+            currentY = coverRect.bottom + 44f
+
+            val divPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb(30, 255, 255, 255)
+                strokeWidth = 2f
+            }
+            canvas.drawLine(cardRect.left + innerPad, currentY, cardRect.right - innerPad, currentY, divPaint)
+
+            currentY += 48f
+
+            if (lyricLayout != null) {
+                canvas.save()
+                canvas.translate(cardRect.left + innerPad, currentY)
+                lyricLayout.draw(canvas)
+                canvas.restore()
+            }
+        } else {
+            val coverRect = RectF(
+                cardRect.left + innerPad,
+                currentY,
+                cardRect.left + innerPad + coverSize,
+                currentY + coverSize
+            )
+            val coverCorner = 60f
+
+            val coverShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb(145, 0, 0, 0)
+                maskFilter = BlurMaskFilter(48f, BlurMaskFilter.Blur.NORMAL)
+            }
+            canvas.drawRoundRect(
+                RectF(coverRect.left + 6f, coverRect.top + 20f, coverRect.right - 6f, coverRect.bottom + 22f),
+                coverCorner,
+                coverCorner,
+                coverShadowPaint
+            )
+
+            drawRoundedBitmapOrPlaceholder(
+                canvas = canvas,
+                bmp = coverBitmap,
+                rect = coverRect,
+                cornerRadius = coverCorner,
+                fallbackColor = toAndroidColor(palette.primary, 1f)
+            )
+
+            val coverHighlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 2.5f
+                shader = LinearGradient(
+                    coverRect.left,
+                    coverRect.top,
+                    coverRect.right,
+                    coverRect.bottom,
+                    intArrayOf(
+                        Color.argb(56, 255, 255, 255),
+                        Color.argb(8, 255, 255, 255)
+                    ),
+                    null,
+                    Shader.TileMode.CLAMP
+                )
+            }
+            canvas.drawRoundRect(coverRect, coverCorner, coverCorner, coverHighlightPaint)
+
+            val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = 60f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            val artistPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb((0.72f * 255).toInt(), 255, 255, 255)
+                textSize = 42f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            }
+
+            val cleanTitle = TextUtils.ellipsize(track.title, titlePaint, coverSize, TextUtils.TruncateAt.END).toString()
+            val cleanArtist = TextUtils.ellipsize(track.artist, artistPaint, coverSize, TextUtils.TruncateAt.END).toString()
+
+            val titleBaselineY = coverRect.bottom + 54f + 50f
+            canvas.drawText(cleanTitle, coverRect.left, titleBaselineY, titlePaint)
+
+            val artistBaselineY = titleBaselineY + 56f
+            canvas.drawText(cleanArtist, coverRect.left, artistBaselineY, artistPaint)
         }
-        val timeY = waveTop + waveHeight + 40f
-        val leftTimestamp = "1:14"
-        val rightTimestamp = formatStoryDuration(track.durationMs)
-        canvas.drawText(leftTimestamp, coverRect.left, timeY, timePaint)
-        val rightW = timePaint.measureText(rightTimestamp)
-        canvas.drawText(rightTimestamp, coverRect.right - rightW, timeY, timePaint)
     }
 
     private fun drawLuxuryAuraBrandingPill(
@@ -535,7 +561,7 @@ object SongShareCardGenerator {
 
         val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
-            textSize = 33f // 11.sp * 3
+            textSize = 33f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             letterSpacing = 0.22f
         }
@@ -543,24 +569,22 @@ object SongShareCardGenerator {
         val textWidth = textPaint.measureText(label)
         val iconWidth = 36f
         val iconGap = 20f
-        val padH = 48f // 16.dp * 3
-        val padV = 24f // 8.dp * 3
+        val padH = 48f
+        val padV = 24f
 
         val pillWidth = padH * 2f + iconWidth + iconGap + textWidth
         val pillHeight = 42f + padV * 2f
         val pillLeft = (w - pillWidth) / 2f
-        val pillBottom = h - 120f
+        val pillBottom = h - 110f
         val pillTop = pillBottom - pillHeight
         val pillRect = RectF(pillLeft, pillTop, pillLeft + pillWidth, pillBottom)
         val pillRadius = pillHeight / 2f
 
-        // Background: Color.White.copy(alpha = 0.08f)
         val pillBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.argb((0.08f * 255).toInt(), 255, 255, 255)
         }
         canvas.drawRoundRect(pillRect, pillRadius, pillRadius, pillBgPaint)
 
-        // Border: 0.5.dp Color.White.copy(alpha = 0.18f)
         val pillBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = 1.5f
@@ -568,7 +592,6 @@ object SongShareCardGenerator {
         }
         canvas.drawRoundRect(pillRect, pillRadius, pillRadius, pillBorderPaint)
 
-        // Tiny glowing musical equalizer bars icon
         val eqStartX = pillRect.left + padH
         val eqCenterY = pillRect.centerY()
         val barHeights = floatArrayOf(16f, 30f, 22f, 34f, 18f)
@@ -649,10 +672,6 @@ object SongShareCardGenerator {
         }
     }
 
-    /**
-     * Produces a heavily blurred software Bitmap for Style 1 (Dynamic Ambient Blur)
-     * that works across all Android versions and software Canvas renders without RenderScript/Hardware issues.
-     */
     fun createHeavyBlurredBitmap(source: Bitmap, targetW: Int = 180, targetH: Int = 320, radius: Int = 26): Bitmap {
         val safeSrc = if (source.config == Bitmap.Config.HARDWARE) {
             source.copy(Bitmap.Config.ARGB_8888, false)

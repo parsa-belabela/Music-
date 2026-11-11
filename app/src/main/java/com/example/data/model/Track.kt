@@ -25,6 +25,24 @@ data class Track(
     val isHiddenDuplicate: Boolean = false,
     val isInstrumental: Boolean = false
 ) {
+    constructor(
+        id: String,
+        title: String,
+        artist: String,
+        album: String,
+        durationMs: Long,
+        streamUrl: String,
+        artworkUri: String? = null
+    ) : this(
+        id = id,
+        title = title,
+        artist = artist,
+        album = album,
+        durationMs = durationMs,
+        uri = streamUrl,
+        artworkUri = artworkUri
+    )
+
     val durationFormatted: String
         get() {
             val totalSec = durationMs / 1000

@@ -1323,6 +1323,14 @@ object OnlineMusicRepository {
 
     fun getMemoryCachedAppTracks(): List<Track> = memoryCachedAppTracks
 
+    fun findTrackById(trackId: String): Track? {
+        if (trackId.isBlank()) return null
+        val clean = trackId.removePrefix("online_")
+        return memoryCachedAppTracks.firstOrNull {
+            it.id == trackId || it.id == clean || it.id == "online_$clean"
+        }
+    }
+
     fun setMemoryCachedAppTracks(tracks: List<Track>) {
         if (tracks.isNotEmpty()) {
             memoryCachedAppTracks = tracks

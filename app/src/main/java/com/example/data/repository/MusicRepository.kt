@@ -606,7 +606,7 @@ class MusicRepository(
                 year = 2024,
                 bitrate = 320,
                 sampleRate = 48000,
-                isFavorite = true,
+                isFavorite = false,
                 playCount = 12,
                 isDemo = true
             ),
@@ -621,7 +621,7 @@ class MusicRepository(
                 year = 2024,
                 bitrate = 320,
                 sampleRate = 44100,
-                isFavorite = true,
+                isFavorite = false,
                 playCount = 8,
                 isDemo = true
             ),

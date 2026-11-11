@@ -1,0 +1,2414 @@
+com/example/ui/components/LyricsView.kt
+package com.example.ui.components
+
+import android.content.Context
+import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloseFullscreen
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import coil.compose.AsyncImage
+import com.example.OnlineMusicRepository
+import com.example.audio.AmbientPalette
+import com.example.buildAuraCoverImageRequest
+import com.example.data.model.LyricsDisplayMode
+import com.example.data.model.LyricsLine
+import com.example.data.model.Track
+import com.example.ui.theme.AuraSpotifyGreen
+import com.example.ui.theme.AuraSurface
+import com.example.ui.theme.AuraSurfaceElevated
+import com.example.ui.theme.TextSecondary
+import com.example.util.SongShareCardGenerator
+import com.example.util.StoryBackgroundStyle
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlin.math.sin
+
+@Composable
+fun LyricsView(
+    lyrics: List<LyricsLine>,
+    currentPositionMs: Long,
+    displayMode: LyricsDisplayMode,
+    palette: AmbientPalette,
+    onSeekTo: (Long) -> Unit,
+    onOpenEditor: () -> Unit,
+    modifier: Modifier = Modifier,
+    enableWordHighlight: Boolean = true,
+    baseFontSize: Float = 22f,
+    activeTrackId: String = "",
+    activeTrack: Track? = null,
+    onShareLyricsToStory: ((List<String>) -> Unit)? = null
+) {
+    LyricsView(
+        lyrics = lyrics,
+        currentPositionProvider = { currentPositionMs },
+        displayMode = displayMode,
+        palette = palette,
+        onSeekTo = onSeekTo,
+        onOpenEditor = onOpenEditor,
+        modifier = modifier,
+        enableWordHighlight = enableWordHighlight,
+        baseFontSize = baseFontSize,
+        activeTrackId = activeTrackId,
+        activeTrack = activeTrack,
+        onShareLyricsToStory = onShareLyricsToStory
+    )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun LyricsView(
+    lyrics: List<LyricsLine>,
+    currentPositionProvider: () -> Long,
+    displayMode: LyricsDisplayMode,
+    palette: AmbientPalette,
+    onSeekTo: (Long) -> Unit,
+    onOpenEditor: () -> Unit,
+    modifier: Modifier = Modifier,
+    enableWordHighlight: Boolean = true,
+    baseFontSize: Float = 22f,
+    activeTrackId: String = "",
+    activeTrack: Track? = null,
+    onShareLyricsToStory: ((List<String>) -> Unit)? = null
+) {
+    val context = LocalContext.current
+    val listState = rememberLazyListState()
+    val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
+
+    var isCinematicFullscreen by remember { mutableStateOf(false) }
+    var isFreestylePadOpen by remember { mutableStateOf(false) }
+
+    var isSelectionMode by remember(activeTrackId) { mutableStateOf(false) }
+    val selectedIndices = remember(activeTrackId) { mutableStateListOf<Int>() }
+    var showStoryShareDialog by remember { mutableStateOf(false) }
+
+    val freestylePrefs = remember {
+        context.getSharedPreferences("aura_freestyle_pad", Context.MODE_PRIVATE)
+    }
+    var freestyleText by remember(activeTrackId) {
+        mutableStateOf(freestylePrefs.getString("note_$activeTrackId", "") ?: "")
+    }
+
+    val latestPositionProvider by rememberUpdatedState(currentPositionProvider)
+    var liveClockMs by remember { mutableLongStateOf(latestPositionProvider()) }
+    LaunchedEffect(activeTrackId, lyrics.size, isFreestylePadOpen) {
+        while (isActive) {
+            liveClockMs = latestPositionProvider()
+            delay(32L)
+        }
+    }
+
+    val effectiveLyrics = remember(lyrics) {
+        if (lyrics.size > 1 && lyrics.all { it.timestampMs == 0L }) {
+            lyrics.mapIndexed { idx, item ->
+                item.copy(timestampMs = idx * 3500L)
+            }
+        } else {
+            lyrics
+        }
+    }
+
+    LaunchedEffect(activeTrackId) {
+        selectedIndices.clear()
+        isSelectionMode = false
+        if (effectiveLyrics.isNotEmpty()) {
+            try {
+                listState.scrollToItem(0)
+            } catch (_: Exception) {}
+        }
+    }
+
+    val activeIndex = remember(effectiveLyrics, liveClockMs) {
+        if (effectiveLyrics.isEmpty()) -1
+        else effectiveLyrics.indexOfLast { it.timestampMs <= liveClockMs }.coerceAtLeast(0)
+    }
+
+    var isUserInteracting by remember { mutableStateOf(false) }
+    var lastUserInteractionTime by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) {
+            isUserInteracting = true
+            lastUserInteractionTime = System.currentTimeMillis()
+        }
+    }
+
+    LaunchedEffect(activeIndex, isSelectionMode) {
+        if (isSelectionMode) return@LaunchedEffect
+        if (activeIndex in effectiveLyrics.indices) {
+            val now = System.currentTimeMillis()
+            if (isUserInteracting && (now - lastUserInteractionTime < 3000L)) {
+                return@LaunchedEffect
+            }
+            isUserInteracting = false
+            try {
+                listState.animateScrollToItem(
+                    index = (activeIndex - 1).coerceAtLeast(0),
+                    scrollOffset = 0
+                )
+            } catch (_: Exception) {}
+        }
+    }
+
+    val primaryTint = remember(palette.primary, palette.isMonochrome) {
+        if (palette.isMonochrome) AuraSpotifyGreen else palette.primary
+    }
+    val accentTint = remember(palette.accent, palette.isMonochrome) {
+        if (palette.isMonochrome) Color(0xFF14833B) else palette.accent
+    }
+
+    val liquidGlassBackground = remember(primaryTint, accentTint) {
+        Brush.verticalGradient(
+            colors = listOf(
+                primaryTint.copy(alpha = 0.26f),
+                accentTint.copy(alpha = 0.14f),
+                Color(0xF2090C15)
+            )
+        )
+    }
+
+    fun toggleLineSelection(index: Int) {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        if (selectedIndices.contains(index)) {
+            selectedIndices.remove(index)
+            if (selectedIndices.isEmpty()) {
+                isSelectionMode = false
+            }
+        } else {
+            if (selectedIndices.size < 4) {
+                selectedIndices.add(index)
+                selectedIndices.sort()
+            } else {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color(0xFF090C15))
+            .background(liquidGlassBackground)
+            .border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.22f),
+                        primaryTint.copy(alpha = 0.28f),
+                        Color.White.copy(alpha = 0.05f)
+                    )
+                ),
+                shape = RoundedCornerShape(20.dp)
+            )
+    ) {
+        if (isFreestylePadOpen) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(AuraSurface)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.EditNote,
+                            contentDescription = null,
+                            tint = AuraSpotifyGreen,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "Freestyle & Beat Pad",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
+                            Text(
+                                text = "دفترچه تکست‌نویسی و ثبت تایم‌کد روی بیت",
+                                color = TextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                val min = (liveClockMs / 1000) / 60
+                                val sec = (liveClockMs / 1000) % 60
+                                val cs = (liveClockMs % 1000) / 10
+                                val stamp = "[%02d:%02d.%02d] ".format(min, sec, cs)
+                                val prefix = if (freestyleText.isEmpty() || freestyleText.endsWith("\n")) "" else "\n"
+                                val updated = freestyleText + prefix + stamp
+                                freestyleText = updated
+                                freestylePrefs.edit().putString("note_$activeTrackId", updated).apply()
+                            },
+                            shape = RoundedCornerShape(50),
+                            color = AuraSpotifyGreen
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Timer,
+                                    contentDescription = null,
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "+ تایم‌کد",
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.5.sp
+                                )
+                            }
+                        }
+
+                        TextButton(onClick = { isFreestylePadOpen = false }) {
+                            Text(
+                                "بستن",
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.5.sp
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = freestyleText,
+                    onValueChange = { newText ->
+                        freestyleText = newText
+                        freestylePrefs.edit().putString("note_$activeTrackId", newText).apply()
+                    },
+                    placeholder = {
+                        Text(
+                            text = "ورس، قافیه یا ایده خود را اینجا بنویسید...",
+                            color = TextSecondary,
+                            fontSize = 13.sp
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    textStyle = TextStyle(
+                        color = Color.White,
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        lineHeight = 22.sp
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AuraSpotifyGreen,
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedContainerColor = AuraSurfaceElevated,
+                        unfocusedContainerColor = AuraSurfaceElevated
+                    )
+                )
+            }
+            return@Box
+        }
+
+        if (lyrics.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "Couldn't load the lyrics for this song",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "You can add synced LRC lyrics manually or open the Freestyle Pad.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = Color.White.copy(alpha = 0.7f)),
+                        textAlign = TextAlign.Center,
+                        lineHeight = 18.sp
+                    )
+                    Spacer(modifier = Modifier.height(18.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            onClick = onOpenEditor,
+                            shape = RoundedCornerShape(50),
+                            color = Color.White,
+                            modifier = Modifier
+                                .height(34.dp)
+                                .testTag("open_lyrics_editor_btn")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = null,
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "افزودن لیریک",
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.5.sp
+                                )
+                            }
+                        }
+
+                        Surface(
+                            onClick = { isFreestylePadOpen = true },
+                            shape = RoundedCornerShape(50),
+                            color = AuraSurfaceElevated.copy(alpha = 0.8f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.EditNote,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = "تکست‌پد",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 11.5.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            return@Box
+        }
+
+        val effectiveFontSize = if (isCinematicFullscreen) baseFontSize + 3f else baseFontSize + 1f
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                top = 58.dp,
+                bottom = 130.dp,
+                start = 18.dp,
+                end = 18.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            itemsIndexed(effectiveLyrics, key = { idx, line -> "${line.timestampMs}_$idx" }) { index, line ->
+                val isActive = index == activeIndex && !isSelectionMode
+                val isPassed = index < activeIndex && !isSelectionMode
+                val isSelected = selectedIndices.contains(index)
+
+                val textAlignment = when (displayMode) {
+                    LyricsDisplayMode.CENTER -> TextAlign.Center
+                    else -> TextAlign.Start
+                }
+
+                val targetColor = when {
+                    isSelected -> Color.White
+                    isSelectionMode -> Color.White.copy(alpha = 0.42f)
+                    isActive -> Color.White
+                    isPassed -> Color.White.copy(alpha = 0.55f)
+                    else -> Color.White.copy(alpha = 0.32f)
+                }
+
+                val animatedColor by animateColorAsState(
+                    targetValue = targetColor,
+                    animationSpec = tween(240, easing = FastOutSlowInEasing),
+                    label = "appleMusicLyricColor"
+                )
+
+                val lineScale by animateFloatAsState(
+                    targetValue = when {
+                        isSelected -> 1.02f
+                        isActive -> 1.04f
+                        else -> 0.98f
+                    },
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessLow
+                    ),
+                    label = "appleMusicLyricScale"
+                )
+
+                val rowBgBrush = when {
+                    isSelected -> Brush.horizontalGradient(
+                        listOf(
+                            primaryTint.copy(alpha = 0.34f),
+                            accentTint.copy(alpha = 0.18f),
+                            Color.White.copy(alpha = 0.06f)
+                        )
+                    )
+                    isActive -> Brush.horizontalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.10f),
+                            Color.White.copy(alpha = 0.03f)
+                        )
+                    )
+                    else -> Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            scaleX = lineScale
+                            scaleY = lineScale
+                        }
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(rowBgBrush)
+                        .then(
+                            if (isSelected) {
+                                Modifier.border(
+                                    width = 1.dp,
+                                    brush = Brush.horizontalGradient(
+                                        listOf(primaryTint.copy(alpha = 0.85f), Color.White.copy(alpha = 0.25f))
+                                    ),
+                                    shape = RoundedCornerShape(14.dp)
+                                )
+                            } else if (isActive) {
+                                Modifier.border(
+                                    width = 0.8.dp,
+                                    color = Color.White.copy(alpha = 0.14f),
+                                    shape = RoundedCornerShape(14.dp)
+                                )
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .combinedClickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {
+                                if (isSelectionMode) {
+                                    toggleLineSelection(index)
+                                } else {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onSeekTo(line.timestampMs)
+                                }
+                            },
+                            onLongClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                if (!isSelectionMode) {
+                                    isSelectionMode = true
+                                }
+                                toggleLineSelection(index)
+                            }
+                        )
+                        .padding(
+                            horizontal = if (isSelected || isActive) 14.dp else 8.dp,
+                            vertical = if (isSelected || isActive) 10.dp else 6.dp
+                        ),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = if (textAlignment == TextAlign.Center && !isSelectionMode) Arrangement.Center else Arrangement.Start
+                ) {
+                    if (isSelectionMode) {
+                        Box(
+                            modifier = Modifier
+                                .padding(end = 12.dp)
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isSelected) primaryTint else Color.White.copy(alpha = 0.10f)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.35f),
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    } else if (isActive) {
+                        Box(
+                            modifier = Modifier
+                                .padding(end = 10.dp)
+                                .width(3.5.dp)
+                                .height(24.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(primaryTint)
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier.weight(1f, fill = (textAlignment != TextAlign.Center || isSelectionMode)),
+                        contentAlignment = if (textAlignment == TextAlign.Center && !isSelectionMode) Alignment.Center else Alignment.CenterStart
+                    ) {
+                        if (isActive && enableWordHighlight && line.words.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = if (textAlignment == TextAlign.Center) Arrangement.Center else Arrangement.Start,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                for (w in line.words) {
+                                    val isWordActive = liveClockMs in w.startMs..w.endMs
+                                    val isWordPassed = liveClockMs > w.endMs
+
+                                    val sweepFraction = if (isWordActive) {
+                                        val duration = (w.endMs - w.startMs).coerceAtLeast(1L)
+                                        ((liveClockMs - w.startMs).toFloat() / duration).coerceIn(0f, 1f)
+                                    } else if (isWordPassed) 1f else 0f
+
+                                    val wordBrush = if (isWordActive) {
+                                        Brush.horizontalGradient(
+                                            0.0f to Color.White,
+                                            sweepFraction.coerceIn(0f, 1f) to Color.White,
+                                            (sweepFraction + 0.1f).coerceIn(0f, 1f) to Color.White.copy(alpha = 0.4f),
+                                            1.0f to Color.White.copy(alpha = 0.4f)
+                                        )
+                                    } else if (isWordPassed) {
+                                        Brush.linearGradient(listOf(Color.White, Color.White))
+                                    } else {
+                                        Brush.linearGradient(
+                                            listOf(
+                                                Color.White.copy(alpha = 0.4f),
+                                                Color.White.copy(alpha = 0.4f)
+                                            )
+                                        )
+                                    }
+
+                                    Text(
+                                        text = "${w.word} ",
+                                        fontSize = (effectiveFontSize + 2f).sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        style = TextStyle(
+                                            brush = wordBrush,
+                                            shadow = Shadow(
+                                                color = primaryTint.copy(alpha = 0.55f),
+                                                offset = Offset(0f, 2f),
+                                                blurRadius = 14f
+                                            )
+                                        ),
+                                        lineHeight = ((effectiveFontSize + 2f) * 1.38f).sp
+                                    )
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = line.text,
+                                fontSize = if (isActive || isSelected) (effectiveFontSize + 1.5f).sp else effectiveFontSize.sp,
+                                fontWeight = if (isActive || isSelected) FontWeight.ExtraBold else FontWeight.Bold,
+                                color = animatedColor,
+                                textAlign = if (isSelectionMode) TextAlign.Start else textAlignment,
+                                style = TextStyle(
+                                    shadow = if (isActive || isSelected) {
+                                        Shadow(
+                                            color = Color.Black.copy(alpha = 0.65f),
+                                            offset = Offset(0f, 3f),
+                                            blurRadius = 12f
+                                        )
+                                    } else null
+                                ),
+                                lineHeight = (effectiveFontSize * 1.38f).sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Top-Right Action Pill (Select Lyrics for Story, Edit, Freestyle Pad, Fullscreen)
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 10.dp, end = 12.dp)
+                .clip(RoundedCornerShape(50))
+                .background(Color(0xD8141722))
+                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(50))
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    isSelectionMode = !isSelectionMode
+                    if (!isSelectionMode) {
+                        selectedIndices.clear()
+                    } else if (selectedIndices.isEmpty() && activeIndex in effectiveLyrics.indices) {
+                        selectedIndices.add(activeIndex)
+                    }
+                },
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = if (isSelectionMode) Icons.Default.Close else Icons.Default.IosShare,
+                    contentDescription = "Share Lyrics to Story",
+                    tint = if (isSelectionMode) primaryTint else Color.White.copy(alpha = 0.9f),
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+
+            IconButton(
+                onClick = onOpenEditor,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Edit Lyrics",
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+
+            IconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    isFreestylePadOpen = true
+                },
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.EditNote,
+                    contentDescription = "Freestyle Pad",
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(15.dp)
+                )
+            }
+
+            IconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    isCinematicFullscreen = !isCinematicFullscreen
+                },
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = if (isCinematicFullscreen) Icons.Default.CloseFullscreen else Icons.Default.Fullscreen,
+                    contentDescription = "Fullscreen Lyrics",
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+        }
+
+        // Floating Bottom Action Bar when lines are selected for Story
+        AnimatedVisibility(
+            visible = isSelectionMode,
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = Color(0xF0151926),
+                border = BorderStroke(
+                    1.dp,
+                    Brush.horizontalGradient(
+                        listOf(primaryTint.copy(alpha = 0.7f), Color.White.copy(alpha = 0.2f))
+                    )
+                ),
+                shadowElevation = 16.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(
+                            text = if (selectedIndices.isEmpty()) "خطوط دلخواه را لمس کنید" else "${selectedIndices.size} از ۴ خط انتخاب شد",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.5.sp
+                        )
+                        Text(
+                            text = "آماده ساخت کارت استوری ۹:۱۶",
+                            color = Color.White.copy(alpha = 0.65f),
+                            fontSize = 10.5.sp
+                        )
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(
+                            onClick = {
+                                selectedIndices.clear()
+                                isSelectionMode = false
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "لغو",
+                                color = Color.White.copy(alpha = 0.75f),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        Button(
+                            onClick = {
+                                val chosenLines = selectedIndices
+                                    .sorted()
+                                    .mapNotNull { effectiveLyrics.getOrNull(it)?.text?.trim() }
+                                    .filter { it.isNotEmpty() }
+
+                                if (onShareLyricsToStory != null) {
+                                    onShareLyricsToStory(chosenLines)
+                                    isSelectionMode = false
+                                    selectedIndices.clear()
+                                } else {
+                                    showStoryShareDialog = true
+                                }
+                            },
+                            enabled = selectedIndices.isNotEmpty(),
+                            shape = RoundedCornerShape(50),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = primaryTint,
+                                contentColor = Color.Black,
+                                disabledContainerColor = Color.White.copy(alpha = 0.12f),
+                                disabledContentColor = Color.White.copy(alpha = 0.4f)
+                            ),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "ساخت استوری",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showStoryShareDialog) {
+        val chosenLines = selectedIndices
+            .sorted()
+            .mapNotNull { effectiveLyrics.getOrNull(it)?.text?.trim() }
+            .filter { it.isNotEmpty() }
+
+        val fallbackTrack = remember(activeTrack, activeTrackId) {
+            activeTrack ?: OnlineMusicRepository.findTrackById(activeTrackId) ?: Track(
+                id = activeTrackId.ifBlank { "aura_track" },
+                title = "Aura Music",
+                artist = "Aura Artist",
+                album = "Single",
+                durationMs = 208000L,
+                streamUrl = "",
+                artworkUri = ""
+            )
+        }
+
+        InteractiveStoryPreviewDialog(
+            track = fallbackTrack,
+            palette = palette,
+            selectedLyricLines = chosenLines,
+            onDismiss = {
+                showStoryShareDialog = false
+                isSelectionMode = false
+                selectedIndices.clear()
+            }
+        )
+    }
+}
+
+@Composable
+fun InteractiveStoryPreviewDialog(
+    track: Track,
+    palette: AmbientPalette,
+    selectedLyricLines: List<String> = emptyList(),
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+
+    var styleIndex by remember { mutableIntStateOf(0) }
+    var isSharing by remember { mutableStateOf(false) }
+    val currentStyle = remember(styleIndex) { StoryBackgroundStyle.fromIndex(styleIndex) }
+
+    val coverUrl = remember(track) {
+        track.coverBig?.takeIf { it.isNotBlank() }
+            ?: OnlineMusicRepository.getBigCoverUrlForTrack(
+                trackId = track.id,
+                fallbackUrl = track.artworkUri,
+                artistName = track.artist
+            )
+    }
+
+    val coverRequest = remember(track.id, coverUrl) {
+        buildAuraCoverImageRequest(
+            context = context,
+            trackId = track.id,
+            coverUrl = coverUrl,
+            isLarge = true,
+            allowHardware = false
+        )
+    }
+
+    Dialog(
+        onDismissRequest = { if (!isSharing) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.88f))
+                .padding(horizontal = 18.dp, vertical = 20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Top Header Controls
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            styleIndex = (styleIndex + 1) % StoryBackgroundStyle.entries.size
+                        },
+                        shape = RoundedCornerShape(50),
+                        color = Color(0xFF1A2035),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Palette,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = currentStyle.labelFa,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.12f))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                // 9:16 Interactive Story Card Preview
+                Box(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .aspectRatio(9f / 16f)
+                        .clip(RoundedCornerShape(26.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(26.dp))
+                        .combinedClickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                styleIndex = (styleIndex + 1) % StoryBackgroundStyle.entries.size
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    // Background Layer
+                    when (currentStyle) {
+                        StoryBackgroundStyle.DYNAMIC_AMBIENT_BLUR -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xFF090C15))
+                            ) {
+                                AsyncImage(
+                                    model = coverRequest,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .blur(65.dp)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0xFF090C15).copy(alpha = 0.62f))
+                                )
+                            }
+                        }
+                        StoryBackgroundStyle.MIDNIGHT_NEON_AURA -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xFF090C15))
+                                    .background(
+                                        Brush.radialGradient(
+                                            colors = listOf(
+                                                Color(0xFF7C3AED).copy(alpha = 0.35f),
+                                                Color.Transparent
+                                            ),
+                                            center = Offset(120f, 180f),
+                                            radius = 700f
+                                        )
+                                    )
+                                    .background(
+                                        Brush.radialGradient(
+                                            colors = listOf(
+                                                Color(0xFF2563EB).copy(alpha = 0.30f),
+                                                Color.Transparent
+                                            ),
+                                            center = Offset(650f, 1100f),
+                                            radius = 750f
+                                        )
+                                    )
+                            )
+                        }
+                        StoryBackgroundStyle.CRIMSON_AFTER_HOURS -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xFF090508))
+                                    .background(
+                                        Brush.radialGradient(
+                                            colors = listOf(
+                                                Color(0xFF991B1B).copy(alpha = 0.40f),
+                                                Color.Transparent
+                                            ),
+                                            radius = 800f
+                                        )
+                                    )
+                            )
+                        }
+                    }
+
+                    // Centerpiece Floating Liquid Glass Card
+                    val hasLyrics = selectedLyricLines.isNotEmpty()
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth(0.84f)
+                            .shadow(24.dp, RoundedCornerShape(28.dp))
+                            .clip(RoundedCornerShape(28.dp))
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color(0xFF1A2035).copy(alpha = 0.80f),
+                                        Color(0xFF0D111D).copy(alpha = 0.90f)
+                                    )
+                                )
+                            )
+                            .border(
+                                width = 1.2.dp,
+                                brush = Brush.linearGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.28f),
+                                        Color.White.copy(alpha = 0.04f)
+                                    )
+                                ),
+                                shape = RoundedCornerShape(28.dp)
+                            )
+                            .padding(if (hasLyrics) 18.dp else 20.dp),
+                        horizontalAlignment = Alignment.Start
+                    ) {
+                        if (hasLyrics) {
+                            // Compact Header + Featured Lyrics Quote Layout
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                AsyncImage(
+                                    model = coverRequest,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .shadow(10.dp, RoundedCornerShape(14.dp))
+                                        .clip(RoundedCornerShape(14.dp))
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = track.title,
+                                        color = Color.White,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = track.artist,
+                                        color = Color.White.copy(alpha = 0.72f),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(Color.White.copy(alpha = 0.10f))
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                selectedLyricLines.take(4).forEachIndexed { idx, lineText ->
+                                    val prefix = if (idx == 0) "“" else ""
+                                    val suffix = if (idx == selectedLyricLines.take(4).lastIndex) "”" else ""
+                                    Text(
+                                        text = "$prefix$lineText$suffix",
+                                        color = Color.White,
+                                        fontSize = 15.5.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontStyle = FontStyle.Italic,
+                                        lineHeight = 22.sp,
+                                        style = TextStyle(
+                                            shadow = Shadow(
+                                                color = Color.Black.copy(alpha = 0.8f),
+                                                offset = Offset(0f, 3f),
+                                                blurRadius = 8f
+                                            )
+                                        )
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+                        } else {
+                            // Full Square Cover Art Layout
+                            AsyncImage(
+                                model = coverRequest,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .shadow(16.dp, RoundedCornerShape(20.dp))
+                                    .clip(RoundedCornerShape(20.dp))
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = track.title,
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = track.artist,
+                                color = Color.White.copy(alpha = 0.72f),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+                        }
+
+                        // Apple-Music-Style Waveform Scrubber
+                        val seed = remember(track.title) { track.title.hashCode() }
+                        Canvas(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(22.dp)
+                        ) {
+                            val totalBars = 28
+                            val activeBars = (totalBars * 0.35f).toInt()
+                            val gapPx = 3.dp.toPx()
+                            val barW = ((size.width - gapPx * (totalBars - 1)) / totalBars).coerceAtLeast(2f)
+                            val centerY = size.height / 2f
+
+                            for (i in 0 until totalBars) {
+                                val norm = (sin(i * 0.62f + seed) * 0.36f + 0.56f).coerceIn(0.22f, 1f)
+                                val bh = size.height * norm
+                                val bx = i * (barW + gapPx)
+                                drawRoundRect(
+                                    color = if (i <= activeBars) Color.White.copy(alpha = 0.88f) else Color.White.copy(alpha = 0.25f),
+                                    topLeft = Offset(bx, centerY - bh / 2f),
+                                    size = Size(barW, bh),
+                                    cornerRadius = CornerRadius(barW / 2f, barW / 2f)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "1:14",
+                                color = Color.White.copy(alpha = 0.55f),
+                                fontSize = 10.sp
+                            )
+                            val totalSec = (track.durationMs / 1000L).toInt()
+                            val durStr = if (totalSec <= 80) "3:28" else "%d:%02d".format(totalSec / 60, totalSec % 60)
+                            Text(
+                                text = durStr,
+                                color = Color.White.copy(alpha = 0.55f),
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+
+                    // Bottom Aura Branding Pill
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 18.dp),
+                        shape = RoundedCornerShape(50),
+                        color = Color.White.copy(alpha = 0.08f),
+                        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.18f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MusicNote,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                text = "AURA MUSIC",
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 2.2.sp
+                            )
+                        }
+                    }
+                }
+
+                // Bottom Share Action Button
+                Button(
+                    onClick = {
+                        if (isSharing) return@Button
+                        isSharing = true
+                        scope.launch {
+                            val uri = SongShareCardGenerator.generateSongCardBitmap(
+                                context = context,
+                                track = track,
+                                palette = palette,
+                                selectedLyricLines = selectedLyricLines,
+                                styleIndex = styleIndex
+                            )
+                            isSharing = false
+                            if (uri != null) {
+                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "image/jpeg"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(
+                                    Intent.createChooser(sendIntent, "اشتراک‌گذاری استوری Aura Music")
+                                )
+                                onDismiss()
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(50),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White,
+                        contentColor = Color.Black
+                    )
+                ) {
+                    if (isSharing) {
+                        CircularProgressIndicator(
+                            color = Color.Black,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "اشتراک‌گذاری در استوری (کیفیت HD)",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+com/example/util/SongShareCardGenerator.kt
+package com.example.util
+
+import android.content.Context
+import android.graphics.*
+import android.graphics.drawable.BitmapDrawable
+import android.net.Uri
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
+import android.text.TextUtils
+import android.util.Log
+import androidx.core.content.FileProvider
+import com.example.AuraApplication
+import com.example.OnlineMusicRepository
+import com.example.audio.AmbientPalette
+import com.example.buildAuraCoverImageRequest
+import com.example.data.model.AppLanguage
+import com.example.data.model.Track
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sin
+
+enum class StoryBackgroundStyle(val index: Int, val labelEn: String, val labelFa: String) {
+    DYNAMIC_AMBIENT_BLUR(0, "Dynamic Ambient Blur", "بلور پویا از کاور"),
+    MIDNIGHT_NEON_AURA(1, "Midnight Neon Aura", "نئون نیمه‌شب"),
+    CRIMSON_AFTER_HOURS(2, "Crimson After-Hours", "سرخ نیمه‌شب");
+
+    companion object {
+        fun fromIndex(index: Int): StoryBackgroundStyle {
+            val mod = ((index % entries.size) + entries.size) % entries.size
+            return entries.firstOrNull { it.index == mod } ?: DYNAMIC_AMBIENT_BLUR
+        }
+    }
+}
+
+object SongShareCardGenerator {
+
+    suspend fun loadSoftwareCoverBitmap(context: Context, track: Track): Bitmap? = withContext(Dispatchers.IO) {
+        val bigCoverUrl = track.coverBig?.takeIf { it.isNotBlank() }
+            ?: OnlineMusicRepository.getBigCoverUrlForTrack(
+                trackId = track.id,
+                fallbackUrl = track.artworkUri,
+                artistName = track.artist
+            )
+
+        if (bigCoverUrl.isBlank()) return@withContext null
+
+        try {
+            val request = buildAuraCoverImageRequest(
+                context = context,
+                trackId = track.id,
+                coverUrl = bigCoverUrl,
+                isLarge = true,
+                allowHardware = false
+            )
+            val result = AuraApplication.instance.globalImageLoader.execute(request)
+            val drawable = result.drawable
+            if (drawable is BitmapDrawable && drawable.bitmap != null) {
+                val bmp = drawable.bitmap
+                if (bmp.config == Bitmap.Config.HARDWARE) {
+                    return@withContext bmp.copy(Bitmap.Config.ARGB_8888, false)
+                }
+                return@withContext bmp
+            }
+        } catch (e: Exception) {
+            Log.w("SongShareCard", "Coil software bitmap load fallback: ${e.message}")
+        }
+
+        try {
+            val fallback = OnlineMusicRepository.getCachedCoverBitmap(bigCoverUrl)
+                ?: OnlineMusicRepository.loadCoverBitmap(bigCoverUrl, maxDim = 1000)
+            if (fallback != null) {
+                return@withContext if (fallback.config == Bitmap.Config.HARDWARE) {
+                    fallback.copy(Bitmap.Config.ARGB_8888, false)
+                } else {
+                    fallback
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            val uri = Uri.parse(bigCoverUrl)
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                val opts = BitmapFactory.Options().apply {
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                }
+                return@withContext BitmapFactory.decodeStream(input, null, opts)
+            }
+        } catch (_: Exception) {}
+
+        null
+    }
+
+    fun saveStoryBitmapToCacheUri(
+        context: Context,
+        bitmap: Bitmap,
+        trackId: String
+    ): Uri? {
+        return try {
+            val softBitmap = if (bitmap.config == Bitmap.Config.HARDWARE) {
+                bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            } else {
+                bitmap
+            }
+            val finalBitmap = if (softBitmap.width != 1080 || softBitmap.height != 1920) {
+                Bitmap.createScaledBitmap(softBitmap, 1080, 1920, true)
+            } else {
+                softBitmap
+            }
+
+            val storiesDir = File(context.cacheDir, "shared_stories")
+            if (!storiesDir.exists()) {
+                storiesDir.mkdirs()
+            }
+            storiesDir.listFiles()?.forEach { old ->
+                if (System.currentTimeMillis() - old.lastModified() > 3600_000L) {
+                    try { old.delete() } catch (_: Exception) {}
+                }
+            }
+
+            val safeId = trackId.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(40)
+            val file = File(storiesDir, "aura_story_${safeId}_${System.currentTimeMillis()}.jpg")
+            FileOutputStream(file).use { fos ->
+                finalBitmap.compress(Bitmap.CompressFormat.JPEG, 92, fos)
+                fos.flush()
+            }
+
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        } catch (e: Exception) {
+            Log.e("SongShareCard", "Failed saving story JPEG: ${e.message}", e)
+            null
+        }
+    }
+
+    suspend fun generateSongCardBitmap(
+        context: Context,
+        track: Track,
+        palette: AmbientPalette,
+        waveformEnvelope: FloatArray? = null,
+        lyricSnippet: String? = null,
+        selectedLyricLines: List<String> = emptyList(),
+        lang: AppLanguage = AppLanguage.ENGLISH,
+        styleIndex: Int = 0,
+        preloadedCover: Bitmap? = null
+    ): Uri? = withContext(Dispatchers.IO) {
+        try {
+            val width = 1080
+            val height = 1920
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+
+            val loadedArtBmp = preloadedCover?.let {
+                if (it.config == Bitmap.Config.HARDWARE) it.copy(Bitmap.Config.ARGB_8888, false) else it
+            } ?: loadSoftwareCoverBitmap(context, track)
+
+            val cleanLyrics = rememberCleanLyrics(selectedLyricLines, lyricSnippet)
+
+            val style = StoryBackgroundStyle.fromIndex(styleIndex)
+            drawStoryBackground(
+                canvas = canvas,
+                width = width,
+                height = height,
+                style = style,
+                coverBitmap = loadedArtBmp,
+                palette = palette
+            )
+
+            drawCenterpieceLiquidGlassCard(
+                canvas = canvas,
+                width = width,
+                height = height,
+                track = track,
+                coverBitmap = loadedArtBmp,
+                palette = palette,
+                lyricLines = cleanLyrics
+            )
+
+            drawLuxuryAuraBrandingPill(
+                canvas = canvas,
+                width = width,
+                height = height
+            )
+
+            saveStoryBitmapToCacheUri(context, bitmap, track.id)
+        } catch (e: Exception) {
+            Log.e("SongShareCard", "Error generating 9:16 story card: ${e.message}", e)
+            null
+        }
+    }
+
+    private fun rememberCleanLyrics(selectedLyricLines: List<String>, lyricSnippet: String?): List<String> {
+        val fromList = selectedLyricLines.map { it.trim() }.filter { it.isNotEmpty() }
+        if (fromList.isNotEmpty()) return fromList.take(4)
+        if (!lyricSnippet.isNullOrBlank()) {
+            return lyricSnippet.lines().map { it.trim() }.filter { it.isNotEmpty() }.take(4)
+        }
+        return emptyList()
+    }
+
+    private fun drawStoryBackground(
+        canvas: Canvas,
+        width: Int,
+        height: Int,
+        style: StoryBackgroundStyle,
+        coverBitmap: Bitmap?,
+        palette: AmbientPalette
+    ) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+
+        when (style) {
+            StoryBackgroundStyle.DYNAMIC_AMBIENT_BLUR -> {
+                canvas.drawColor(Color.parseColor("#090C15"))
+                if (coverBitmap != null) {
+                    val blurred = createHeavyBlurredBitmap(coverBitmap, targetW = 180, targetH = 320, radius = 28)
+                    val dstRect = RectF(0f, 0f, w, h)
+                    val srcRatio = blurred.width.toFloat() / blurred.height.toFloat().coerceAtLeast(1f)
+                    val dstRatio = w / h
+                    val srcRect = if (srcRatio > dstRatio) {
+                        val cropW = (blurred.height * dstRatio).toInt()
+                        val xOff = (blurred.width - cropW) / 2
+                        Rect(xOff, 0, xOff + cropW, blurred.height)
+                    } else {
+                        val cropH = (blurred.width / dstRatio).toInt()
+                        val yOff = (blurred.height - cropH) / 2
+                        Rect(0, yOff, blurred.width, yOff + cropH)
+                    }
+                    val bmpPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+                    canvas.drawBitmap(blurred, srcRect, dstRect, bmpPaint)
+                } else {
+                    val pColor = toAndroidColor(palette.primary, 0.55f)
+                    val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        shader = RadialGradient(
+                            w * 0.5f,
+                            h * 0.42f,
+                            w * 0.95f,
+                            intArrayOf(pColor, Color.parseColor("#090C15")),
+                            floatArrayOf(0f, 1f),
+                            Shader.TileMode.CLAMP
+                        )
+                    }
+                    canvas.drawRect(0f, 0f, w, h, glowPaint)
+                }
+
+                val vignetteCenter = Color.argb((0.52f * 255).toInt(), 9, 12, 21)
+                val vignetteMid = Color.argb((0.64f * 255).toInt(), 9, 12, 21)
+                val vignetteEdge = Color.argb((0.84f * 255).toInt(), 9, 12, 21)
+                val vignettePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    shader = RadialGradient(
+                        w * 0.5f,
+                        h * 0.48f,
+                        h * 0.68f,
+                        intArrayOf(vignetteCenter, vignetteMid, vignetteEdge),
+                        floatArrayOf(0f, 0.62f, 1f),
+                        Shader.TileMode.CLAMP
+                    )
+                }
+                canvas.drawRect(0f, 0f, w, h, vignettePaint)
+            }
+
+            StoryBackgroundStyle.MIDNIGHT_NEON_AURA -> {
+                canvas.drawColor(Color.parseColor("#090C15"))
+
+                val purpleGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    shader = RadialGradient(
+                        w * 0.18f,
+                        h * 0.20f,
+                        w * 0.92f,
+                        intArrayOf(
+                            Color.argb((0.35f * 255).toInt(), 0x7C, 0x3A, 0xED),
+                            Color.argb((0.12f * 255).toInt(), 0x7C, 0x3A, 0xED),
+                            Color.TRANSPARENT
+                        ),
+                        floatArrayOf(0f, 0.55f, 1f),
+                        Shader.TileMode.CLAMP
+                    )
+                }
+                canvas.drawRect(0f, 0f, w, h, purpleGlow)
+
+                val blueGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    shader = RadialGradient(
+                        w * 0.85f,
+                        h * 0.80f,
+                        w * 0.92f,
+                        intArrayOf(
+                            Color.argb((0.30f * 255).toInt(), 0x25, 0x63, 0xEB),
+                            Color.argb((0.10f * 255).toInt(), 0x25, 0x63, 0xEB),
+                            Color.TRANSPARENT
+                        ),
+                        floatArrayOf(0f, 0.55f, 1f),
+                        Shader.TileMode.CLAMP
+                    )
+                }
+                canvas.drawRect(0f, 0f, w, h, blueGlow)
+            }
+
+            StoryBackgroundStyle.CRIMSON_AFTER_HOURS -> {
+                canvas.drawColor(Color.parseColor("#090508"))
+
+                val crimsonGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    shader = RadialGradient(
+                        w * 0.5f,
+                        h * 0.44f,
+                        w * 0.98f,
+                        intArrayOf(
+                            Color.argb((0.40f * 255).toInt(), 0x99, 0x1B, 0x1B),
+                            Color.argb((0.16f * 255).toInt(), 0x99, 0x1B, 0x1B),
+                            Color.TRANSPARENT
+                        ),
+                        floatArrayOf(0f, 0.58f, 1f),
+                        Shader.TileMode.CLAMP
+                    )
+                }
+                canvas.drawRect(0f, 0f, w, h, crimsonGlow)
+            }
+        }
+    }
+
+    private fun drawCenterpieceLiquidGlassCard(
+        canvas: Canvas,
+        width: Int,
+        height: Int,
+        track: Track,
+        coverBitmap: Bitmap?,
+        palette: AmbientPalette,
+        lyricLines: List<String>
+    ) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+
+        val cardWidth = w * 0.84f
+        val innerPad = 64f
+        val contentWidth = cardWidth - innerPad * 2f
+        val hasLyrics = lyricLines.isNotEmpty()
+
+        val lyricPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 50f
+            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD_ITALIC)
+            setShadowLayer(16f, 0f, 6f, Color.argb(190, 0, 0, 0))
+        }
+
+        val formattedQuote = if (hasLyrics) {
+            "“" + lyricLines.joinToString("\n") + "”"
+        } else ""
+
+        val lyricLayout = if (hasLyrics) {
+            StaticLayout.Builder
+                .obtain(formattedQuote, 0, formattedQuote.length, lyricPaint, contentWidth.toInt())
+                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                .setLineSpacing(14f, 1.12f)
+                .setIncludePad(false)
+                .build()
+        } else null
+
+        val lyricsBlockHeight = lyricLayout?.height?.toFloat() ?: 0f
+
+        val coverSize = if (hasLyrics) 210f else contentWidth
+        val headerBlockHeight = if (hasLyrics) coverSize else (coverSize + 54f + 66f + 14f + 46f)
+        val dividerAndLyricsHeight = if (hasLyrics) (44f + 2f + 48f + lyricsBlockHeight + 52f) else 48f
+        val waveformBlockHeight = 112f
+
+        val cardHeight = innerPad + headerBlockHeight + dividerAndLyricsHeight + waveformBlockHeight + innerPad
+        val cardLeft = (w - cardWidth) / 2f
+        val cardTop = (h - cardHeight) / 2f - 24f
+        val cardRect = RectF(cardLeft, cardTop, cardLeft + cardWidth, cardTop + cardHeight)
+        val cardCorner = 84f
+
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(175, 0, 0, 0)
+            maskFilter = BlurMaskFilter(74f, BlurMaskFilter.Blur.NORMAL)
+        }
+        canvas.drawRoundRect(
+            RectF(cardRect.left + 6f, cardRect.top + 28f, cardRect.right - 6f, cardRect.bottom + 34f),
+            cardCorner,
+            cardCorner,
+            shadowPaint
+        )
+
+        val glassBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                cardRect.left,
+                cardRect.top,
+                cardRect.left,
+                cardRect.bottom,
+                intArrayOf(
+                    Color.argb((0.80f * 255).toInt(), 0x1A, 0x20, 0x35),
+                    Color.argb((0.90f * 255).toInt(), 0x0D, 0x11, 0x1D)
+                ),
+                null,
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawRoundRect(cardRect, cardCorner, cardCorner, glassBgPaint)
+
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 3.6f
+            shader = LinearGradient(
+                cardRect.left,
+                cardRect.top,
+                cardRect.right,
+                cardRect.bottom,
+                intArrayOf(
+                    Color.argb((0.30f * 255).toInt(), 255, 255, 255),
+                    Color.argb((0.05f * 255).toInt(), 255, 255, 255)
+                ),
+                null,
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawRoundRect(cardRect, cardCorner, cardCorner, borderPaint)
+
+        var currentY = cardRect.top + innerPad
+
+        if (hasLyrics) {
+            val coverRect = RectF(
+                cardRect.left + innerPad,
+                currentY,
+                cardRect.left + innerPad + coverSize,
+                currentY + coverSize
+            )
+            val coverCorner = 44f
+
+            val coverShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb(140, 0, 0, 0)
+                maskFilter = BlurMaskFilter(32f, BlurMaskFilter.Blur.NORMAL)
+            }
+            canvas.drawRoundRect(
+                RectF(coverRect.left + 4f, coverRect.top + 12f, coverRect.right - 4f, coverRect.bottom + 14f),
+                coverCorner,
+                coverCorner,
+                coverShadowPaint
+            )
+
+            drawRoundedBitmapOrPlaceholder(
+                canvas = canvas,
+                bmp = coverBitmap,
+                rect = coverRect,
+                cornerRadius = coverCorner,
+                fallbackColor = toAndroidColor(palette.primary, 1f)
+            )
+
+            val textLeft = coverRect.right + 38f
+            val availableTextW = (cardRect.right - innerPad - textLeft).coerceAtLeast(100f)
+
+            val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = 52f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            val artistPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb((0.72f * 255).toInt(), 255, 255, 255)
+                textSize = 38f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            }
+
+            val cleanTitle = TextUtils.ellipsize(track.title, titlePaint, availableTextW, TextUtils.TruncateAt.END).toString()
+            val cleanArtist = TextUtils.ellipsize(track.artist, artistPaint, availableTextW, TextUtils.TruncateAt.END).toString()
+
+            val titleY = coverRect.centerY() - 12f
+            val artistY = coverRect.centerY() + 44f
+            canvas.drawText(cleanTitle, textLeft, titleY, titlePaint)
+            canvas.drawText(cleanArtist, textLeft, artistY, artistPaint)
+
+            currentY = coverRect.bottom + 44f
+
+            val divPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb(30, 255, 255, 255)
+                strokeWidth = 2f
+            }
+            canvas.drawLine(cardRect.left + innerPad, currentY, cardRect.right - innerPad, currentY, divPaint)
+
+            currentY += 48f
+
+            if (lyricLayout != null) {
+                canvas.save()
+                canvas.translate(cardRect.left + innerPad, currentY)
+                lyricLayout.draw(canvas)
+                canvas.restore()
+                currentY += lyricsBlockHeight + 52f
+            }
+        } else {
+            val coverRect = RectF(
+                cardRect.left + innerPad,
+                currentY,
+                cardRect.left + innerPad + coverSize,
+                currentY + coverSize
+            )
+            val coverCorner = 60f
+
+            val coverShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb(145, 0, 0, 0)
+                maskFilter = BlurMaskFilter(48f, BlurMaskFilter.Blur.NORMAL)
+            }
+            canvas.drawRoundRect(
+                RectF(coverRect.left + 6f, coverRect.top + 20f, coverRect.right - 6f, coverRect.bottom + 22f),
+                coverCorner,
+                coverCorner,
+                coverShadowPaint
+            )
+
+            drawRoundedBitmapOrPlaceholder(
+                canvas = canvas,
+                bmp = coverBitmap,
+                rect = coverRect,
+                cornerRadius = coverCorner,
+                fallbackColor = toAndroidColor(palette.primary, 1f)
+            )
+
+            val coverHighlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 2.5f
+                shader = LinearGradient(
+                    coverRect.left,
+                    coverRect.top,
+                    coverRect.right,
+                    coverRect.bottom,
+                    intArrayOf(
+                        Color.argb(56, 255, 255, 255),
+                        Color.argb(8, 255, 255, 255)
+                    ),
+                    null,
+                    Shader.TileMode.CLAMP
+                )
+            }
+            canvas.drawRoundRect(coverRect, coverCorner, coverCorner, coverHighlightPaint)
+
+            val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = 60f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            val artistPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb((0.72f * 255).toInt(), 255, 255, 255)
+                textSize = 42f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            }
+
+            val cleanTitle = TextUtils.ellipsize(track.title, titlePaint, coverSize, TextUtils.TruncateAt.END).toString()
+            val cleanArtist = TextUtils.ellipsize(track.artist, artistPaint, coverSize, TextUtils.TruncateAt.END).toString()
+
+            val titleBaselineY = coverRect.bottom + 54f + 50f
+            canvas.drawText(cleanTitle, coverRect.left, titleBaselineY, titlePaint)
+
+            val artistBaselineY = titleBaselineY + 56f
+            canvas.drawText(cleanArtist, coverRect.left, artistBaselineY, artistPaint)
+
+            currentY = artistBaselineY + 48f
+        }
+
+        // Aesthetic Audio Waveform / Scrubber
+        val waveLeft = cardRect.left + innerPad
+        val waveRight = cardRect.right - innerPad
+        val waveTop = currentY
+        val waveHeight = 56f
+        val waveCenterY = waveTop + waveHeight / 2f
+        val totalBars = 28
+        val progressRatio = 0.35f
+        val activeBars = (totalBars * progressRatio).toInt()
+        val gap = 10f
+        val barWidth = ((contentWidth - gap * (totalBars - 1)) / totalBars).coerceAtLeast(6f)
+        val seed = track.title.hashCode()
+
+        val activeWavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb((0.88f * 255).toInt(), 255, 255, 255)
+        }
+        val inactiveWavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb((0.25f * 255).toInt(), 255, 255, 255)
+        }
+
+        var dotCenterX = waveLeft + contentWidth * progressRatio
+        for (i in 0 until totalBars) {
+            val waveNorm = (sin(i * 0.62f + seed) * 0.36f + 0.56f).coerceIn(0.22f, 1f)
+            val bh = (waveHeight * waveNorm).coerceAtLeast(12f)
+            val bx = waveLeft + i * (barWidth + gap)
+            val by = waveCenterY - bh / 2f
+            if (i == activeBars) {
+                dotCenterX = bx + barWidth / 2f
+            }
+            canvas.drawRoundRect(
+                RectF(bx, by, bx + barWidth, by + bh),
+                barWidth / 2f,
+                barWidth / 2f,
+                if (i <= activeBars) activeWavePaint else inactiveWavePaint
+            )
+        }
+
+        val dotGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(130, 255, 255, 255)
+            maskFilter = BlurMaskFilter(14f, BlurMaskFilter.Blur.NORMAL)
+        }
+        canvas.drawCircle(dotCenterX, waveCenterY, 13f, dotGlowPaint)
+        val dotCorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+        }
+        canvas.drawCircle(dotCenterX, waveCenterY, 7.5f, dotCorePaint)
+
+        val timePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb((0.56f * 255).toInt(), 255, 255, 255)
+            textSize = 31f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        }
+        val timeY = waveTop + waveHeight + 40f
+        val leftTimestamp = "1:14"
+        val rightTimestamp = formatStoryDuration(track.durationMs)
+        canvas.drawText(leftTimestamp, waveLeft, timeY, timePaint)
+        val rightW = timePaint.measureText(rightTimestamp)
+        canvas.drawText(rightTimestamp, waveRight - rightW, timeY, timePaint)
+    }
+
+    private fun drawLuxuryAuraBrandingPill(
+        canvas: Canvas,
+        width: Int,
+        height: Int
+    ) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+
+        val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 33f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            letterSpacing = 0.22f
+        }
+        val label = "AURA MUSIC"
+        val textWidth = textPaint.measureText(label)
+        val iconWidth = 36f
+        val iconGap = 20f
+        val padH = 48f
+        val padV = 24f
+
+        val pillWidth = padH * 2f + iconWidth + iconGap + textWidth
+        val pillHeight = 42f + padV * 2f
+        val pillLeft = (w - pillWidth) / 2f
+        val pillBottom = h - 110f
+        val pillTop = pillBottom - pillHeight
+        val pillRect = RectF(pillLeft, pillTop, pillLeft + pillWidth, pillBottom)
+        val pillRadius = pillHeight / 2f
+
+        val pillBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb((0.08f * 255).toInt(), 255, 255, 255)
+        }
+        canvas.drawRoundRect(pillRect, pillRadius, pillRadius, pillBgPaint)
+
+        val pillBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1.5f
+            color = Color.argb((0.18f * 255).toInt(), 255, 255, 255)
+        }
+        canvas.drawRoundRect(pillRect, pillRadius, pillRadius, pillBorderPaint)
+
+        val eqStartX = pillRect.left + padH
+        val eqCenterY = pillRect.centerY()
+        val barHeights = floatArrayOf(16f, 30f, 22f, 34f, 18f)
+        val eqBarW = 4.5f
+        val eqBarGap = 3.2f
+        val eqPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+        }
+        for (i in barHeights.indices) {
+            val bh = barHeights[i]
+            val bx = eqStartX + i * (eqBarW + eqBarGap)
+            canvas.drawRoundRect(
+                RectF(bx, eqCenterY - bh / 2f, bx + eqBarW, eqCenterY + bh / 2f),
+                eqBarW / 2f,
+                eqBarW / 2f,
+                eqPaint
+            )
+        }
+
+        val fm = textPaint.fontMetrics
+        val textBaseline = pillRect.centerY() - (fm.ascent + fm.descent) / 2f
+        canvas.drawText(label, eqStartX + iconWidth + iconGap, textBaseline, textPaint)
+    }
+
+    private fun formatStoryDuration(durationMs: Long): String {
+        val totalSeconds = (durationMs / 1000L).toInt()
+        if (totalSeconds <= 80) return "3:28"
+        val minutes = totalSeconds / 60
+        val seconds = totalSeconds % 60
+        return String.format("%d:%02d", minutes, seconds)
+    }
+
+    private fun toAndroidColor(composeColor: androidx.compose.ui.graphics.Color, alphaMultiplier: Float): Int {
+        val a = ((composeColor.alpha * alphaMultiplier) * 255f).toInt().coerceIn(0, 255)
+        val r = (composeColor.red * 255f).toInt().coerceIn(0, 255)
+        val g = (composeColor.green * 255f).toInt().coerceIn(0, 255)
+        val b = (composeColor.blue * 255f).toInt().coerceIn(0, 255)
+        return Color.argb(a, r, g, b)
+    }
+
+    private fun drawRoundedBitmapOrPlaceholder(
+        canvas: Canvas,
+        bmp: Bitmap?,
+        rect: RectF,
+        cornerRadius: Float,
+        fallbackColor: Int
+    ) {
+        if (bmp != null) {
+            val path = Path().apply {
+                addRoundRect(rect, cornerRadius, cornerRadius, Path.Direction.CW)
+            }
+            canvas.save()
+            canvas.clipPath(path)
+            val srcRatio = bmp.width.toFloat() / bmp.height.toFloat().coerceAtLeast(1f)
+            val dstRatio = rect.width() / rect.height().coerceAtLeast(1f)
+            val srcRect = if (srcRatio > dstRatio) {
+                val newW = (bmp.height * dstRatio).toInt()
+                val xOff = (bmp.width - newW) / 2
+                Rect(xOff, 0, xOff + newW, bmp.height)
+            } else {
+                val newH = (bmp.width / dstRatio).toInt()
+                val yOff = (bmp.height - newH) / 2
+                Rect(0, yOff, bmp.width, yOff + newH)
+            }
+            canvas.drawBitmap(bmp, srcRect, rect, Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
+            canvas.restore()
+        } else {
+            val fallbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = fallbackColor
+            }
+            canvas.drawRoundRect(rect, cornerRadius, cornerRadius, fallbackPaint)
+            val notePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = rect.width() * 0.30f
+                textAlign = Paint.Align.CENTER
+            }
+            canvas.drawText("♪", rect.centerX(), rect.centerY() + rect.width() * 0.1f, notePaint)
+        }
+    }
+
+    fun createHeavyBlurredBitmap(source: Bitmap, targetW: Int = 180, targetH: Int = 320, radius: Int = 26): Bitmap {
+        val safeSrc = if (source.config == Bitmap.Config.HARDWARE) {
+            source.copy(Bitmap.Config.ARGB_8888, false)
+        } else {
+            source
+        }
+        val scaled = Bitmap.createScaledBitmap(safeSrc, targetW, targetH, true)
+        val bitmap = scaled.copy(Bitmap.Config.ARGB_8888, true)
+        if (radius < 1) return bitmap
+
+        val w = bitmap.width
+        val h = bitmap.height
+        val pix = IntArray(w * h)
+        bitmap.getPixels(pix, 0, w, 0, 0, w, h)
+
+        val wm = w - 1
+        val hm = h - 1
+        val wh = w * h
+        val div = radius + radius + 1
+
+        val r = IntArray(wh)
+        val g = IntArray(wh)
+        val b = IntArray(wh)
+        var rsum: Int
+        var gsum: Int
+        var bsum: Int
+        var x: Int
+        var y: Int
+        var i: Int
+        var p: Int
+        var yp: Int
+        var yi: Int
+        var yw: Int
+        val vmin = IntArray(max(w, h))
+
+        var divsum = (div + 1) shr 1
+        divsum *= divsum
+        val dv = IntArray(256 * divsum)
+        for (idx in dv.indices) {
+            dv[idx] = idx / divsum
+        }
+
+        yi = 0
+        yw = 0
+
+        val stack = Array(div) { IntArray(3) }
+        var stackpointer: Int
+        var stackstart: Int
+        var sir: IntArray
+        var rbs: Int
+        val r1 = radius + 1
+        var routsum: Int
+        var goutsum: Int
+        var boutsum: Int
+        var rinsum: Int
+        var ginsum: Int
+        var binsum: Int
+
+        y = 0
+        while (y < h) {
+            bsum = 0
+            gsum = 0
+            rsum = 0
+            boutsum = 0
+            goutsum = 0
+            routsum = 0
+            binsum = 0
+            ginsum = 0
+            rinsum = 0
+            i = -radius
+            while (i <= radius) {
+                p = pix[yi + min(wm, max(i, 0))]
+                sir = stack[i + radius]
+                sir[0] = (p and 0xff0000) shr 16
+                sir[1] = (p and 0x00ff00) shr 8
+                sir[2] = p and 0x0000ff
+                rbs = r1 - abs(i)
+                rsum += sir[0] * rbs
+                gsum += sir[1] * rbs
+                bsum += sir[2] * rbs
+                if (i > 0) {
+                    rinsum += sir[0]
+                    ginsum += sir[1]
+                    binsum += sir[2]
+                } else {
+                    routsum += sir[0]
+                    goutsum += sir[1]
+                    boutsum += sir[2]
+                }
+                i++
+            }
+            stackpointer = radius
+
+            x = 0
+            while (x < w) {
+                r[yi] = dv[rsum]
+                g[yi] = dv[gsum]
+                b[yi] = dv[bsum]
+
+                rsum -= routsum
+                gsum -= goutsum
+                bsum -= boutsum
+
+                stackstart = stackpointer - radius + div
+                sir = stack[stackstart % div]
+
+                routsum -= sir[0]
+                goutsum -= sir[1]
+                boutsum -= sir[2]
+
+                if (y == 0) {
+                    vmin[x] = min(x + radius + 1, wm)
+                }
+                p = pix[yw + vmin[x]]
+
+                sir[0] = (p and 0xff0000) shr 16
+                sir[1] = (p and 0x00ff00) shr 8
+                sir[2] = p and 0x0000ff
+
+                rinsum += sir[0]
+                ginsum += sir[1]
+                binsum += sir[2]
+
+                rsum += rinsum
+                gsum += ginsum
+                bsum += binsum
+
+                stackpointer = (stackpointer + 1) % div
+                sir = stack[stackpointer % div]
+
+                routsum += sir[0]
+                goutsum += sir[1]
+                boutsum += sir[2]
+
+                rinsum -= sir[0]
+                ginsum -= sir[1]
+                binsum -= sir[2]
+
+                yi++
+                x++
+            }
+            yw += w
+            y++
+        }
+        x = 0
+        while (x < w) {
+            bsum = 0
+            gsum = 0
+            rsum = 0
+            boutsum = 0
+            goutsum = 0
+            routsum = 0
+            binsum = 0
+            ginsum = 0
+            rinsum = 0
+            yp = -radius * w
+            i = -radius
+            while (i <= radius) {
+                yi = max(0, yp) + x
+                sir = stack[i + radius]
+                sir[0] = r[yi]
+                sir[1] = g[yi]
+                sir[2] = b[yi]
+                rbs = r1 - abs(i)
+                rsum += r[yi] * rbs
+                gsum += g[yi] * rbs
+                bsum += b[yi] * rbs
+                if (i > 0) {
+                    rinsum += sir[0]
+                    ginsum += sir[1]
+                    binsum += sir[2]
+                } else {
+                    routsum += sir[0]
+                    goutsum += sir[1]
+                    boutsum += sir[2]
+                }
+                if (i < hm) {
+                    yp += w
+                }
+                i++
+            }
+            yi = x
+            stackpointer = radius
+            y = 0
+            while (y < h) {
+                pix[yi] = (-0x1000000 and pix[yi]) or (dv[rsum] shl 16) or (dv[gsum] shl 8) or dv[bsum]
+
+                rsum -= routsum
+                gsum -= goutsum
+                bsum -= boutsum
+
+                stackstart = stackpointer - radius + div
+                sir = stack[stackstart % div]
+
+                routsum -= sir[0]
+                goutsum -= sir[1]
+                boutsum -= sir[2]
+
+                if (x == 0) {
+                    vmin[y] = min(y + r1, hm) * w
+                }
+                p = x + vmin[y]
+
+                sir[0] = r[p]
+                sir[1] = g[p]
+                sir[2] = b[p]
+
+                rinsum += sir[0]
+                ginsum += sir[1]
+                binsum += sir[2]
+
+                rsum += rinsum
+                gsum += ginsum
+                bsum += binsum
+
+                stackpointer = (stackpointer + 1) % div
+                sir = stack[stackpointer]
+
+                routsum += sir[0]
+                goutsum += sir[1]
+                boutsum += sir[2]
+
+                rinsum -= sir[0]
+                ginsum -= sir[1]
+                binsum -= sir[2]
+
+                yi += w
+                y++
+            }
+            x++
+        }
+
+        bitmap.setPixels(pix, 0, w, 0, 0, w, h)
+        return bitmap
+    }
+}
+
+com/example/data/model/LyricsLine.kt
+package com.example.data.model
+
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+
+data class WordTimestamp(
+    val word: String,
+    val startMs: Long,
+    val endMs: Long
+)
+
+data class LyricsLine(
+    val timestampMs: Long,
+    val text: String,
+    val words: List<WordTimestamp> = emptyList()
+) {
+    val formattedTimestamp: String
+        get() {
+            val totalSec = timestampMs / 1000
+            val min = totalSec / 60
+            val sec = totalSec % 60
+            val ms = (timestampMs % 1000) / 10
+            return "%02d:%02d.%02d".format(min, sec, ms)
+        }
+}
+
+@Entity(tableName = "lyrics")
+data class LyricsEntity(
+    @PrimaryKey val trackId: String,
+    val rawLrc: String,
+    val offsetMs: Long = 0L,
+    val isUserEdited: Boolean = false,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+enum class LyricsDisplayMode(val displayName: String) {
+    CLASSIC("Classic"),
+    MINIMAL("Minimal"),
+    CENTER("Center"),
+    CINEMATIC("Cinematic"),
+    KARAOKE("Karaoke"),
+    FOCUS("Focus"),
+    FLOATING("Floating")
+}
+
