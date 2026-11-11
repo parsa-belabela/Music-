@@ -668,6 +668,12 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         // ۱. نهایی‌سازی آهنگ قبلی (اگر زیر ۵۰٪ بوده، کاملاً نادیده گرفته می‌شود)
         commitActiveListeningSession(wasSkipped = true)
 
+        val effectiveTrack = track.copy(isFavorite = repository.isTrackLiked(track.id, track.isFavorite))
+        val effectiveQueue = queue.map { q ->
+            if (q.id == effectiveTrack.id) effectiveTrack
+            else q.copy(isFavorite = repository.isTrackLiked(q.id, q.isFavorite))
+        }
+
         // ۲. ریست کامل شمارنده‌ها برای آهنگ جدید
         hasCountedCurrentTrackForAd = false
         hasCountedCurrentTrackForWrapped = false
@@ -675,40 +681,40 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
         lastWrappedDbSyncMs = 0L
         lastObservedPositionMs = startPositionMs
         activeActualListenedMs = 0L
-        activePlayingTrackRef = track
+        activePlayingTrackRef = effectiveTrack
         trackStartPlayTimestamp = System.currentTimeMillis()
 
         _currentLyrics.value = emptyList()
         _currentLyricsEntity.value = null
 
-        val safeIdx = queueIndex.coerceIn(0, (queue.size - 1).coerceAtLeast(0))
+        val safeIdx = queueIndex.coerceIn(0, (effectiveQueue.size - 1).coerceAtLeast(0))
 
         _playbackState.update {
             it.copy(
-                currentTrack = track,
-                queue = queue,
+                currentTrack = effectiveTrack,
+                queue = effectiveQueue,
                 queueIndex = safeIdx,
                 status = PlayerStatus.BUFFERING,
                 isPlayWhenReady = true,
                 currentPositionMs = startPositionMs,
-                durationMs = track.durationMs
+                durationMs = effectiveTrack.durationMs
             )
         }
 
-        // ۳. شروع بلافاصله پخش صوتی از ثانیه صفر + بافر استریم در پس‌زمینه
-        val cachedFile = OnlineCacheHolder.getCachedFileIfPresent(app, track.id)
-            ?: OnlineCacheHolder.getStreamBufferFileIfPresent(app, track.id)
+        // ۳. شروع بلافاصله پخش صوتی از ثانیه صفر + بافر استریم در پس‌زمینه (حافظه پنهان)
+        val cachedFile = OnlineCacheHolder.getCachedFileIfPresent(app, effectiveTrack.id)
+            ?: OnlineCacheHolder.getStreamBufferFileIfPresent(app, effectiveTrack.id)
         if (cachedFile != null) {
-            val localReadyTrack = track.copy(uri = cachedFile.absolutePath)
+            val localReadyTrack = effectiveTrack.copy(uri = cachedFile.absolutePath)
             audioEngine.playTrack(localReadyTrack, startPositionMs)
         } else {
-            audioEngine.playTrack(track, startPositionMs)
-            if (track.uri.startsWith("http://") || track.uri.startsWith("https://")) {
-                OnlineCacheHolder.warmStreamBufferInBackground(app, track) { bufferedFile ->
-                    if (bufferedFile != null && _playbackState.value.currentTrack?.id == track.id) {
+            audioEngine.playTrack(effectiveTrack, startPositionMs)
+            if (effectiveTrack.uri.startsWith("http://") || effectiveTrack.uri.startsWith("https://")) {
+                OnlineCacheHolder.warmStreamBufferInBackground(app, effectiveTrack) { bufferedFile ->
+                    if (bufferedFile != null && _playbackState.value.currentTrack?.id == effectiveTrack.id) {
                         if (audioEngine.status.value == PlayerStatus.ERROR) {
                             audioEngine.playTrack(
-                                track.copy(uri = bufferedFile.absolutePath),
+                                effectiveTrack.copy(uri = bufferedFile.absolutePath),
                                 0L,
                                 autoPlay = _playbackState.value.isPlayWhenReady
                             )
@@ -1049,26 +1055,30 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun toggleFavorite(track: Track) {
-        val newFavState = !track.isFavorite
-        if (_playbackState.value.currentTrack?.id == track.id) {
+        val currentLiked = repository.isTrackLiked(track.id, track.isFavorite)
+        val newFavState = !currentLiked
+        val cleanTarget = track.id.removePrefix("online_")
+        if (_playbackState.value.currentTrack?.id == track.id || _playbackState.value.currentTrack?.id?.removePrefix("online_") == cleanTarget) {
             _playbackState.update {
                 it.copy(currentTrack = it.currentTrack?.copy(isFavorite = newFavState))
             }
         }
         _playbackState.update { state ->
             val updatedQueue = state.queue.map { qTrack ->
-                if (qTrack.id == track.id) qTrack.copy(isFavorite = newFavState) else qTrack
+                if (qTrack.id == track.id || qTrack.id.removePrefix("online_") == cleanTarget) {
+                    qTrack.copy(isFavorite = newFavState)
+                } else qTrack
             }
             state.copy(queue = updatedQueue)
         }
 
         viewModelScope.launch {
             try {
-                repository.toggleFavorite(track.id, track.isFavorite)
+                repository.toggleTrackFavorite(track)
             } catch (_: Exception) {
                 if (_playbackState.value.currentTrack?.id == track.id) {
                     _playbackState.update {
-                        it.copy(currentTrack = it.currentTrack?.copy(isFavorite = track.isFavorite))
+                        it.copy(currentTrack = it.currentTrack?.copy(isFavorite = currentLiked))
                     }
                 }
             }
@@ -1688,6 +1698,23 @@ class MusicPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun removeTrackFromPlaylist(playlistId: String, trackId: String) {
         viewModelScope.launch {
             repository.removeTrackFromPlaylist(playlistId, trackId)
+            if (playlistId == com.example.data.repository.LikedTracksStore.MY_LIKED_PLAYLIST_ID) {
+                val cleanTarget = trackId.removePrefix("online_")
+                if (_playbackState.value.currentTrack?.id == trackId || _playbackState.value.currentTrack?.id?.removePrefix("online_") == cleanTarget) {
+                    _playbackState.update {
+                        it.copy(currentTrack = it.currentTrack?.copy(isFavorite = false))
+                    }
+                }
+                _playbackState.update { state ->
+                    state.copy(
+                        queue = state.queue.map { qTrack ->
+                            if (qTrack.id == trackId || qTrack.id.removePrefix("online_") == cleanTarget) {
+                                qTrack.copy(isFavorite = false)
+                            } else qTrack
+                        }
+                    )
+                }
+            }
         }
     }
 

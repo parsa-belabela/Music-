@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.AuraApplication
+import com.example.OnlineCacheHolder
 import com.example.audio.AmbientPalette
 import com.example.data.model.*
 import com.example.data.repository.UserProfileData
@@ -87,11 +88,23 @@ fun SettingsScreen(
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val favoriteTracks by (app?.repository?.favoriteTracks ?: kotlinx.coroutines.flow.flowOf(emptyList()))
         .collectAsStateWithLifecycle(initialValue = emptyList())
+    val hiddenCacheBytes by OnlineCacheHolder.hiddenCacheSizeBytes.collectAsState()
+
+    val formattedHiddenCacheSize = remember(hiddenCacheBytes, isFa) {
+        val mb = hiddenCacheBytes.toDouble() / (1024.0 * 1024.0)
+        if (mb < 0.05) {
+            if (isFa) "۰ مگابایت" else "0 MB"
+        } else {
+            val formatted = String.format(Locale.US, "%.1f", mb)
+            if (isFa) "$formatted مگابایت" else "$formatted MB"
+        }
+    }
 
     LaunchedEffect(Unit) {
         UserProfileManager.init(context)
-        if (app != null) {
-            withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
+            OnlineCacheHolder.refreshHiddenCacheSize(context)
+            if (app != null) {
                 UserProfileManager.refreshProfileWithDatabase(context, app.repository)
             }
         }
@@ -441,6 +454,47 @@ fun SettingsScreen(
                         accentColor = Color(0xFFFBBF24),
                         onClick = onOpenDuplicatesReview,
                         modifier = Modifier.weight(1f)
+                    )
+                }
+
+                // Clear Hidden Audio Cache (Only deletes background-streamed tracks that were NOT explicitly downloaded)
+                OutlinedButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            val freedBytes = withContext(Dispatchers.IO) {
+                                OnlineCacheHolder.clearHiddenAudioCache(context)
+                            }
+                            val freedMb = String.format(Locale.US, "%.1f", freedBytes.toDouble() / (1024.0 * 1024.0))
+                            Toast.makeText(
+                                context,
+                                if (freedBytes > 0L) {
+                                    if (isFa) "حافظه پنهان پاک شد ($freedMb مگابایت آزاد شد) • آهنگ‌های دانلودشده شما دست‌نخورده باقی ماندند"
+                                    else "Hidden cache cleared ($freedMb MB freed) • Downloaded songs kept safe"
+                                } else {
+                                    if (isFa) "حافظه پنهان در حال حاضر خالی است" else "Hidden cache is already empty"
+                                },
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, AuraSpotifyGreen.copy(alpha = 0.45f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("clear_hidden_cache_button")
+                ) {
+                    Icon(
+                        Icons.Default.AutoDelete,
+                        contentDescription = null,
+                        tint = AuraSpotifyGreen,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isFa) "پاک کردن حافظه پنهان ($formattedHiddenCacheSize)" else "Clear Hidden Cache ($formattedHiddenCacheSize)",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
 
@@ -899,4 +953,3 @@ private fun SettingsActionTile(
         }
     }
 }
-

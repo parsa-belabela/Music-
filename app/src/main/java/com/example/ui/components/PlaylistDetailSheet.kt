@@ -14,17 +14,21 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.OnlineMusicRepository
 import com.example.audio.AmbientPalette
 import com.example.data.model.AppLanguage
 import com.example.data.model.AppSettings
 import com.example.data.model.Playlist
 import com.example.data.model.Track
+import com.example.data.repository.LikedTracksStore
+import com.example.ui.theme.AuraSpotifyGreen
 import com.example.ui.theme.GlassThickness
 import com.example.ui.theme.liquidGlass
 import com.example.util.Localization
@@ -47,15 +51,39 @@ fun PlaylistDetailSheet(
     onDeletePlaylist: (String) -> Unit
 ) {
     val lang = settings.language
+    val storedLikedTracks by LikedTracksStore.likedTracksFlow.collectAsState()
     var showTrackPicker by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var renameText by remember { mutableStateOf(playlist.name) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
-    val playlistTracks = remember(playlist.trackIds, allTracks) {
-        val trackMap = allTracks.associateBy { it.id }
-        playlist.trackIds.mapNotNull { trackMap[it] }
+    val isLikedPlaylist = playlist.id == LikedTracksStore.MY_LIKED_PLAYLIST_ID ||
+        playlist.name.equals(LikedTracksStore.MY_LIKED_PLAYLIST_NAME, ignoreCase = true)
+
+    val playlistTracks = remember(playlist.trackIds, allTracks, favoriteTracks, storedLikedTracks, isLikedPlaylist) {
+        val trackMap = LinkedHashMap<String, Track>()
+        allTracks.forEach { trackMap[it.id] = it; trackMap[it.id.removePrefix("online_")] = it }
+        favoriteTracks.forEach { trackMap.putIfAbsent(it.id, it); trackMap.putIfAbsent(it.id.removePrefix("online_"), it) }
+        storedLikedTracks.forEach { trackMap.putIfAbsent(it.id, it); trackMap.putIfAbsent(it.id.removePrefix("online_"), it) }
+        try {
+            OnlineMusicRepository.getMemoryCachedAppTracks().forEach {
+                trackMap.putIfAbsent(it.id, it)
+                trackMap.putIfAbsent(it.id.removePrefix("online_"), it)
+            }
+        } catch (_: Exception) {}
+
+        val resolved = playlist.trackIds.mapNotNull { id ->
+            trackMap[id]
+                ?: trackMap[id.removePrefix("online_")]
+                ?: try { OnlineMusicRepository.findTrackById(id) } catch (_: Exception) { null }
+        }.distinctBy { it.id }
+
+        if (isLikedPlaylist && resolved.isEmpty() && (favoriteTracks.isNotEmpty() || storedLikedTracks.isNotEmpty())) {
+            (storedLikedTracks + favoriteTracks).distinctBy { it.id }
+        } else {
+            resolved
+        }
     }
 
     val totalDurationFormatted = remember(playlistTracks) {
@@ -128,11 +156,35 @@ fun PlaylistDetailSheet(
                         modifier = Modifier
                             .size(68.dp)
                             .clip(RoundedCornerShape(18.dp))
-                            .background(palette.primary.copy(alpha = 0.25f)),
+                            .background(
+                                if (isLikedPlaylist) {
+                                    Brush.linearGradient(
+                                        listOf(
+                                            Color(0xFF4F46E5),
+                                            Color(0xFF7C3AED),
+                                            AuraSpotifyGreen
+                                        )
+                                    )
+                                } else {
+                                    Brush.linearGradient(
+                                        listOf(
+                                            palette.primary.copy(alpha = 0.25f),
+                                            palette.primary.copy(alpha = 0.25f)
+                                        )
+                                    )
+                                }
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         val firstArt = playlistTracks.firstOrNull()?.artworkUri
-                        if (firstArt != null) {
+                        if (isLikedPlaylist) {
+                            Icon(
+                                imageVector = Icons.Default.Favorite,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(34.dp)
+                            )
+                        } else if (firstArt != null) {
                             TrackArtworkThumbnail(
                                 artworkUri = firstArt,
                                 accentColor = palette.primary,

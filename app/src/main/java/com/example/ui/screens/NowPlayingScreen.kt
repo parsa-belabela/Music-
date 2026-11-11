@@ -604,9 +604,9 @@ fun NowPlayingScreen(
                                                 Toast.makeText(
                                                     context,
                                                     if (!track.isFavorite) {
-                                                        if (isFa) "به پلی‌لیست I Liked اضافه شد" else "Added to I Liked playlist"
+                                                        if (isFa) "به پلی‌لیست My Liked Music اضافه شد" else "Added to My Liked Music"
                                                     } else {
-                                                        if (isFa) "از پلی‌لیست I Liked حذف شد" else "Removed from I Liked playlist"
+                                                        if (isFa) "از پلی‌لیست My Liked Music حذف شد" else "Removed from My Liked Music"
                                                     },
                                                     Toast.LENGTH_SHORT
                                                 ).show()
@@ -729,7 +729,7 @@ fun NowPlayingScreen(
                         }
                     }
 
-                    // Spotify-style "Add to I Liked" Playlist Button (+) -> (✓)
+                    // Spotify-style "Add to My Liked Music" Playlist Button (+) -> (✓)
                     val isLiked = track.isFavorite
                     IconButton(
                         onClick = {
@@ -738,9 +738,9 @@ fun NowPlayingScreen(
                             Toast.makeText(
                                 context,
                                 if (!isLiked) {
-                                    if (isFa) "به پلی‌لیست I Liked اضافه شد" else "Added to I Liked playlist"
+                                    if (isFa) "به پلی‌لیست My Liked Music اضافه شد" else "Added to My Liked Music"
                                 } else {
-                                    if (isFa) "از پلی‌لیست I Liked حذف شد" else "Removed from I Liked playlist"
+                                    if (isFa) "از پلی‌لیست My Liked Music حذف شد" else "Removed from My Liked Music"
                                 },
                                 Toast.LENGTH_SHORT
                             ).show()
@@ -752,14 +752,14 @@ fun NowPlayingScreen(
                         if (isLiked) {
                             Icon(
                                 imageVector = Icons.Default.CheckCircle,
-                                contentDescription = if (isFa) "در پلی‌لیست I Liked ذخیره شده" else "Added to I Liked",
+                                contentDescription = if (isFa) "در پلی‌لیست My Liked Music ذخیره شده" else "Added to My Liked Music",
                                 tint = AuraSpotifyGreen,
                                 modifier = Modifier.size(28.dp)
                             )
                         } else {
                             Icon(
                                 imageVector = Icons.Default.AddCircleOutline,
-                                contentDescription = if (isFa) "افزودن به پلی‌لیست I Liked" else "Add to I Liked",
+                                contentDescription = if (isFa) "افزودن به پلی‌لیست My Liked Music" else "Add to My Liked Music",
                                 tint = Color.White.copy(alpha = 0.9f),
                                 modifier = Modifier.size(28.dp)
                             )

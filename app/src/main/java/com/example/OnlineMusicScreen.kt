@@ -2946,6 +2946,7 @@ object OnlineCacheHolder {
 
     private val downloadScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val activeDownloads = HashSet<String>()
+    private val activeHiddenBuffering = HashSet<String>()
 
     private val _downloadingTrackIds = MutableStateFlow<Set<String>>(emptySet())
     val downloadingTrackIds: StateFlow<Set<String>> = _downloadingTrackIds.asStateFlow()
@@ -2955,6 +2956,9 @@ object OnlineCacheHolder {
 
     private val _downloadedTrackIds = MutableStateFlow<Set<String>>(emptySet())
     val downloadedTrackIds: StateFlow<Set<String>> = _downloadedTrackIds.asStateFlow()
+
+    private val _hiddenCacheSizeBytes = MutableStateFlow(0L)
+    val hiddenCacheSizeBytes: StateFlow<Long> = _hiddenCacheSizeBytes.asStateFlow()
 
     private fun updateTrackDownloadProgress(rawId: String, percent: Int?) {
         val clean = rawId.removePrefix("online_")
@@ -2981,6 +2985,12 @@ object OnlineCacheHolder {
         return fallbackDir
     }
 
+    fun getHiddenAudioCacheDir(context: Context): File {
+        val hiddenDir = File(context.filesDir, "hidden_audio_cache")
+        if (!hiddenDir.exists()) hiddenDir.mkdirs()
+        return hiddenDir
+    }
+
     fun normalizeKey(trackId: String): String {
         val clean = trackId.removePrefix("online_").replace(Regex("[^a-zA-Z0-9_-]"), "_")
         return "aura_track_$clean.mp3"
@@ -2997,6 +3007,40 @@ object OnlineCacheHolder {
             }
         }
         _downloadedTrackIds.value = ids
+        refreshHiddenCacheSize(context)
+    }
+
+    fun refreshHiddenCacheSize(context: Context): Long {
+        val hiddenDir = getHiddenAudioCacheDir(context)
+        val explicitDir = getMusicDownloadDir(context)
+        var totalBytes = 0L
+        hiddenDir.listFiles()?.forEach { f ->
+            if (f.isFile && f.name.endsWith(".mp3") && f.length() > MIN_VALID_AUDIO_BYTES) {
+                val explicitFile = File(explicitDir, f.name)
+                if (explicitFile.exists() && explicitFile.length() > MIN_VALID_AUDIO_BYTES) {
+                    try { f.delete() } catch (_: Exception) {}
+                } else {
+                    totalBytes += f.length()
+                }
+            }
+        }
+        _hiddenCacheSizeBytes.value = totalBytes
+        return totalBytes
+    }
+
+    fun clearHiddenAudioCache(context: Context): Long {
+        val hiddenDir = getHiddenAudioCacheDir(context)
+        var freedBytes = 0L
+        hiddenDir.listFiles()?.forEach { f ->
+            if (f.isFile) {
+                val len = f.length()
+                if (try { f.delete() } catch (_: Exception) { false }) {
+                    freedBytes += len
+                }
+            }
+        }
+        _hiddenCacheSizeBytes.value = 0L
+        return freedBytes
     }
 
     fun isTrackCached(context: Context, trackId: String): Boolean {
@@ -3009,8 +3053,15 @@ object OnlineCacheHolder {
         return if (file.exists() && file.length() > MIN_VALID_AUDIO_BYTES) file else null
     }
 
+    fun getHiddenBufferFileOnlyIfPresent(context: Context, trackId: String): File? {
+        val key = normalizeKey(trackId)
+        val hiddenFile = File(getHiddenAudioCacheDir(context), key)
+        return if (hiddenFile.exists() && hiddenFile.length() > MIN_VALID_AUDIO_BYTES) hiddenFile else null
+    }
+
     fun getStreamBufferFileIfPresent(context: Context, trackId: String): File? {
-        return getCachedFileIfPresent(context, trackId)
+        getCachedFileIfPresent(context, trackId)?.let { return it }
+        return getHiddenBufferFileOnlyIfPresent(context, trackId)
     }
 
     fun warmStreamBufferInBackground(
@@ -3018,7 +3069,97 @@ object OnlineCacheHolder {
         track: Track,
         onBuffered: ((File?) -> Unit)? = null
     ) {
-        onBuffered?.invoke(getCachedFileIfPresent(context, track.id))
+        val appCtx = context.applicationContext
+        val rawId = track.id.removePrefix("online_")
+        val key = normalizeKey(rawId)
+
+        getStreamBufferFileIfPresent(appCtx, rawId)?.let { existing ->
+            refreshHiddenCacheSize(appCtx)
+            onBuffered?.invoke(existing)
+            return
+        }
+
+        synchronized(activeDownloads) {
+            if (activeDownloads.contains(key)) return
+        }
+        synchronized(activeHiddenBuffering) {
+            if (activeHiddenBuffering.contains(key)) return
+            activeHiddenBuffering.add(key)
+        }
+
+        downloadScope.launch {
+            val hiddenDir = getHiddenAudioCacheDir(appCtx)
+            val tempFile = File(hiddenDir, "$key.tmp")
+            val finalHiddenFile = File(hiddenDir, key)
+            var bufferedResult: File? = null
+            try {
+                val primaryUrl: String? = track.uri.takeIf { it.startsWith("http") }
+                val fallbackUrl: String = OnlineMusicRepository.getDownloadUrlForTrack(rawId)
+                    ?: OnlineMusicRepository.buildDownloadUrl(rawId, track.artist, track.title)
+
+                val candidateUrls = listOfNotNull(primaryUrl, fallbackUrl).distinct()
+                var ok = false
+                for (url in candidateUrls) {
+                    if (url.isBlank()) continue
+                    if (downloadFromUrlToFile(url, tempFile, onProgress = null)) {
+                        ok = true
+                        break
+                    }
+                }
+
+                if (ok && tempFile.exists() && tempFile.length() > MIN_VALID_AUDIO_BYTES) {
+                    val explicitFile = getCachedFileIfPresent(appCtx, rawId)
+                    if (explicitFile != null) {
+                        tempFile.delete()
+                        bufferedResult = explicitFile
+                    } else {
+                        if (finalHiddenFile.exists()) finalHiddenFile.delete()
+                        val moved = tempFile.renameTo(finalHiddenFile)
+                        if (!moved) {
+                            tempFile.copyTo(finalHiddenFile, overwrite = true)
+                            tempFile.delete()
+                        }
+                        if (finalHiddenFile.exists() && finalHiddenFile.length() > MIN_VALID_AUDIO_BYTES) {
+                            bufferedResult = finalHiddenFile
+                        }
+                    }
+                } else {
+                    if (tempFile.exists()) tempFile.delete()
+                }
+            } catch (_: Exception) {
+                if (tempFile.exists()) tempFile.delete()
+            } finally {
+                synchronized(activeHiddenBuffering) {
+                    activeHiddenBuffering.remove(key)
+                }
+                refreshHiddenCacheSize(appCtx)
+                withContext(Dispatchers.Main) {
+                    onBuffered?.invoke(bufferedResult)
+                }
+            }
+        }
+    }
+
+    private fun promoteHiddenFileToMusicDir(context: Context, rawId: String, hiddenFile: File): File? {
+        return try {
+            val key = normalizeKey(rawId)
+            val musicDir = getMusicDownloadDir(context)
+            val finalFile = File(musicDir, key)
+            if (finalFile.exists() && finalFile.length() > MIN_VALID_AUDIO_BYTES) {
+                try { hiddenFile.delete() } catch (_: Exception) {}
+                refreshHiddenCacheSize(context)
+                return finalFile
+            }
+            val moved = hiddenFile.renameTo(finalFile)
+            if (!moved) {
+                hiddenFile.copyTo(finalFile, overwrite = true)
+                hiddenFile.delete()
+            }
+            refreshHiddenCacheSize(context)
+            if (finalFile.exists() && finalFile.length() > MIN_VALID_AUDIO_BYTES) finalFile else null
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun downloadFromUrlToFile(
@@ -3174,10 +3315,13 @@ object OnlineCacheHolder {
         explicitDownloadUrl: String? = null,
         onComplete: ((File?) -> Unit)? = null
     ) {
+        val appCtx = context.applicationContext
         val rawId = track.id.removePrefix("online_")
         val key = normalizeKey(rawId)
-        getCachedFileIfPresent(context, rawId)?.let { existing ->
-            refreshDownloadedSet(context)
+
+        // 1. Already in explicit downloads
+        getCachedFileIfPresent(appCtx, rawId)?.let { existing ->
+            refreshDownloadedSet(appCtx)
             downloadScope.launch {
                 registerDownloadedFileInLocalDatabase(track, existing)
                 withContext(Dispatchers.Main) {
@@ -3185,6 +3329,21 @@ object OnlineCacheHolder {
                 }
             }
             return
+        }
+
+        // 2. Already in hidden audio cache (listened previously) -> Promote immediately without re-downloading!
+        getHiddenBufferFileOnlyIfPresent(appCtx, rawId)?.let { hiddenFile ->
+            val promoted = promoteHiddenFileToMusicDir(appCtx, rawId, hiddenFile)
+            if (promoted != null) {
+                refreshDownloadedSet(appCtx)
+                downloadScope.launch {
+                    registerDownloadedFileInLocalDatabase(track, promoted)
+                    withContext(Dispatchers.Main) {
+                        onComplete?.invoke(promoted)
+                    }
+                }
+                return
+            }
         }
 
         synchronized(activeDownloads) {
@@ -3195,35 +3354,61 @@ object OnlineCacheHolder {
         _downloadingTrackIds.value = _downloadingTrackIds.value + setOf(rawId, "online_$rawId")
         updateTrackDownloadProgress(rawId, 1)
 
-        val appCtx = context.applicationContext
         downloadScope.launch {
             val musicDir = getMusicDownloadDir(appCtx)
             val tempFile = File(musicDir, "$key.tmp")
             val finalFile = File(musicDir, key)
             var resultFile: File? = null
             try {
-                val targetUrl = explicitDownloadUrl?.takeIf { it.isNotBlank() }
-                    ?: OnlineMusicRepository.getDownloadUrlForTrack(rawId)
-                    ?: track.uri.takeIf { it.startsWith("http") }
-                    ?: OnlineMusicRepository.buildDownloadUrl(rawId, track.artist, track.title)
-
-                val ok = downloadFromUrlToFile(targetUrl, tempFile) { pct ->
-                    updateTrackDownloadProgress(rawId, pct)
+                // If background stream buffering is currently downloading this track into hidden cache, wait for it!
+                var waitedMs = 0L
+                while (synchronized(activeHiddenBuffering) { activeHiddenBuffering.contains(key) } && waitedMs < 25_000L) {
+                    delay(150L)
+                    waitedMs += 150L
+                    val approxPct = ((waitedMs * 90L) / 8_000L).toInt().coerceIn(5, 95)
+                    updateTrackDownloadProgress(rawId, approxPct)
                 }
-                if (ok && tempFile.exists() && tempFile.length() > MIN_VALID_AUDIO_BYTES) {
-                    if (finalFile.exists()) finalFile.delete()
-                    val moved = tempFile.renameTo(finalFile)
-                    if (!moved) {
-                        tempFile.copyTo(finalFile, overwrite = true)
-                        tempFile.delete()
-                    }
-                    if (finalFile.exists()) {
+
+                // Check again if background stream buffer just finished
+                val newlyBufferedHidden = getHiddenBufferFileOnlyIfPresent(appCtx, rawId)
+                if (newlyBufferedHidden != null) {
+                    val promoted = promoteHiddenFileToMusicDir(appCtx, rawId, newlyBufferedHidden)
+                    if (promoted != null) {
                         updateTrackDownloadProgress(rawId, 100)
-                        resultFile = finalFile
-                        registerDownloadedFileInLocalDatabase(track, finalFile)
+                        resultFile = promoted
+                        registerDownloadedFileInLocalDatabase(track, promoted)
                     }
-                } else {
-                    if (tempFile.exists()) tempFile.delete()
+                }
+
+                // Only download from network if not already promoted from hidden cache
+                if (resultFile == null) {
+                    val targetUrl = explicitDownloadUrl?.takeIf { it.isNotBlank() }
+                        ?: OnlineMusicRepository.getDownloadUrlForTrack(rawId)
+                        ?: track.uri.takeIf { it.startsWith("http") }
+                        ?: OnlineMusicRepository.buildDownloadUrl(rawId, track.artist, track.title)
+
+                    val ok = downloadFromUrlToFile(targetUrl, tempFile) { pct ->
+                        updateTrackDownloadProgress(rawId, pct)
+                    }
+                    if (ok && tempFile.exists() && tempFile.length() > MIN_VALID_AUDIO_BYTES) {
+                        if (finalFile.exists()) finalFile.delete()
+                        val moved = tempFile.renameTo(finalFile)
+                        if (!moved) {
+                            tempFile.copyTo(finalFile, overwrite = true)
+                            tempFile.delete()
+                        }
+                        if (finalFile.exists()) {
+                            // Also clean up any leftover hidden copy if present
+                            getHiddenBufferFileOnlyIfPresent(appCtx, rawId)?.let {
+                                try { it.delete() } catch (_: Exception) {}
+                            }
+                            updateTrackDownloadProgress(rawId, 100)
+                            resultFile = finalFile
+                            registerDownloadedFileInLocalDatabase(track, finalFile)
+                        }
+                    } else {
+                        if (tempFile.exists()) tempFile.delete()
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()

@@ -6,12 +6,15 @@ import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.text.Layout
 import android.text.StaticLayout
+import android.text.TextDirectionHeuristics
 import android.text.TextPaint
 import android.text.TextUtils
 import android.util.Log
 import androidx.core.content.FileProvider
+import androidx.core.content.res.ResourcesCompat
 import com.example.AuraApplication
 import com.example.OnlineMusicRepository
+import com.example.R
 import com.example.audio.AmbientPalette
 import com.example.buildAuraCoverImageRequest
 import com.example.data.model.AppLanguage
@@ -23,7 +26,6 @@ import java.io.FileOutputStream
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sin
 
 enum class StoryBackgroundStyle(val index: Int, val labelEn: String, val labelFa: String) {
     DYNAMIC_AMBIENT_BLUR(0, "Dynamic Ambient Blur", "بلور پویا از کاور"),
@@ -39,6 +41,22 @@ enum class StoryBackgroundStyle(val index: Int, val labelEn: String, val labelFa
 }
 
 object SongShareCardGenerator {
+
+    private val PERSIAN_CHAR_REGEX =
+        Regex("[\\u0600-\\u06FF\\u0750-\\u077F\\u08A0-\\u08FF\\uFB50-\\uFDFF\\uFE70-\\uFEFF]")
+
+    private fun containsPersian(text: String): Boolean =
+        PERSIAN_CHAR_REGEX.containsMatchIn(text)
+
+    private fun loadStoryTypeface(context: Context, isPersian: Boolean, style: Int = Typeface.BOLD): Typeface {
+        return try {
+            val fontRes = if (isPersian) R.font.vazirmatn else R.font.plus_jakarta_sans
+            val base = ResourcesCompat.getFont(context, fontRes)
+            Typeface.create(base ?: Typeface.SANS_SERIF, style)
+        } catch (_: Exception) {
+            Typeface.create(Typeface.SANS_SERIF, style)
+        }
+    }
 
     suspend fun loadSoftwareCoverBitmap(context: Context, track: Track): Bitmap? = withContext(Dispatchers.IO) {
         val bigCoverUrl = track.coverBig?.takeIf { it.isNotBlank() }
@@ -171,6 +189,7 @@ object SongShareCardGenerator {
             )
 
             drawCenterpieceLiquidGlassCard(
+                context = context,
                 canvas = canvas,
                 width = width,
                 height = height,
@@ -181,6 +200,7 @@ object SongShareCardGenerator {
             )
 
             drawLuxuryAuraBrandingPill(
+                context = context,
                 canvas = canvas,
                 width = width,
                 height = height
@@ -322,6 +342,7 @@ object SongShareCardGenerator {
     }
 
     private fun drawCenterpieceLiquidGlassCard(
+        context: Context,
         canvas: Canvas,
         width: Int,
         height: Int,
@@ -338,22 +359,26 @@ object SongShareCardGenerator {
         val contentWidth = cardWidth - innerPad * 2f
         val hasLyrics = lyricLines.isNotEmpty()
 
+        val formattedQuote = if (hasLyrics) {
+            lyricLines.joinToString("\n")
+        } else ""
+        val isPersianQuote = containsPersian(formattedQuote)
+
         val lyricPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
-            textSize = 50f
-            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD_ITALIC)
-            setShadowLayer(16f, 0f, 6f, Color.argb(190, 0, 0, 0))
+            textSize = if (isPersianQuote) 52f else 50f
+            typeface = loadStoryTypeface(context, isPersian = isPersianQuote, style = Typeface.BOLD)
+            setShadowLayer(14f, 0f, 4f, Color.argb(180, 0, 0, 0))
         }
-
-        val formattedQuote = if (hasLyrics) {
-            "“" + lyricLines.joinToString("\n") + "”"
-        } else ""
 
         val lyricLayout = if (hasLyrics) {
             StaticLayout.Builder
                 .obtain(formattedQuote, 0, formattedQuote.length, lyricPaint, contentWidth.toInt())
                 .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                .setLineSpacing(14f, 1.12f)
+                .setTextDirection(
+                    if (isPersianQuote) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
+                )
+                .setLineSpacing(16f, if (isPersianQuote) 1.22f else 1.15f)
                 .setIncludePad(false)
                 .build()
         } else null
@@ -416,6 +441,8 @@ object SongShareCardGenerator {
         canvas.drawRoundRect(cardRect, cardCorner, cardCorner, borderPaint)
 
         var currentY = cardRect.top + innerPad
+        val isTitlePersian = containsPersian(track.title)
+        val isArtistPersian = containsPersian(track.artist)
 
         if (hasLyrics) {
             val coverRect = RectF(
@@ -451,12 +478,12 @@ object SongShareCardGenerator {
             val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.WHITE
                 textSize = 52f
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                typeface = loadStoryTypeface(context, isPersian = isTitlePersian, style = Typeface.BOLD)
             }
             val artistPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.argb((0.72f * 255).toInt(), 255, 255, 255)
                 textSize = 38f
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                typeface = loadStoryTypeface(context, isPersian = isArtistPersian, style = Typeface.NORMAL)
             }
 
             val cleanTitle = TextUtils.ellipsize(track.title, titlePaint, availableTextW, TextUtils.TruncateAt.END).toString()
@@ -532,12 +559,12 @@ object SongShareCardGenerator {
             val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.WHITE
                 textSize = 60f
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                typeface = loadStoryTypeface(context, isPersian = isTitlePersian, style = Typeface.BOLD)
             }
             val artistPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.argb((0.72f * 255).toInt(), 255, 255, 255)
                 textSize = 42f
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                typeface = loadStoryTypeface(context, isPersian = isArtistPersian, style = Typeface.NORMAL)
             }
 
             val cleanTitle = TextUtils.ellipsize(track.title, titlePaint, coverSize, TextUtils.TruncateAt.END).toString()
@@ -552,6 +579,7 @@ object SongShareCardGenerator {
     }
 
     private fun drawLuxuryAuraBrandingPill(
+        context: Context,
         canvas: Canvas,
         width: Int,
         height: Int
@@ -562,7 +590,7 @@ object SongShareCardGenerator {
         val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
             textSize = 33f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            typeface = loadStoryTypeface(context, isPersian = false, style = Typeface.BOLD)
             letterSpacing = 0.22f
         }
         val label = "AURA MUSIC"
@@ -614,14 +642,6 @@ object SongShareCardGenerator {
         val fm = textPaint.fontMetrics
         val textBaseline = pillRect.centerY() - (fm.ascent + fm.descent) / 2f
         canvas.drawText(label, eqStartX + iconWidth + iconGap, textBaseline, textPaint)
-    }
-
-    private fun formatStoryDuration(durationMs: Long): String {
-        val totalSeconds = (durationMs / 1000L).toInt()
-        if (totalSeconds <= 80) return "3:28"
-        val minutes = totalSeconds / 60
-        val seconds = totalSeconds % 60
-        return String.format("%d:%02d", minutes, seconds)
     }
 
     private fun toAndroidColor(composeColor: androidx.compose.ui.graphics.Color, alphaMultiplier: Float): Int {

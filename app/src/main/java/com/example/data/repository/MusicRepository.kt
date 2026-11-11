@@ -15,11 +15,133 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+
+object LikedTracksStore {
+    const val MY_LIKED_PLAYLIST_ID = "playlist_my_liked_music"
+    const val MY_LIKED_PLAYLIST_NAME = "My Liked Music"
+    private const val PREFS_NAME = "aura_liked_tracks_store"
+    private const val KEY_LIKED_TRACKS_JSON = "liked_tracks_json"
+
+    private val _likedTracksFlow = MutableStateFlow<List<Track>>(emptyList())
+    val likedTracksFlow: StateFlow<List<Track>> = _likedTracksFlow.asStateFlow()
+
+    @Volatile
+    private var isInitialized = false
+
+    fun ensureInitialized(context: Context) {
+        if (isInitialized) return
+        synchronized(this) {
+            if (isInitialized) return
+            _likedTracksFlow.value = readFromPrefs(context)
+            isInitialized = true
+        }
+    }
+
+    fun getAll(context: Context): List<Track> {
+        ensureInitialized(context)
+        return _likedTracksFlow.value
+    }
+
+    fun isLiked(context: Context, trackId: String): Boolean {
+        ensureInitialized(context)
+        val clean = trackId.removePrefix("online_")
+        return _likedTracksFlow.value.any {
+            it.id == trackId || it.id.removePrefix("online_") == clean
+        }
+    }
+
+    fun setLiked(context: Context, track: Track, liked: Boolean): List<Track> {
+        ensureInitialized(context)
+        val clean = track.id.removePrefix("online_")
+        val current = _likedTracksFlow.value.toMutableList()
+        current.removeAll { it.id == track.id || it.id.removePrefix("online_") == clean }
+        if (liked) {
+            current.add(0, track.copy(isFavorite = true))
+        }
+        _likedTracksFlow.value = current
+        writeToPrefs(context, current)
+        return current
+    }
+
+    fun removeLikedById(context: Context, trackId: String): List<Track> {
+        ensureInitialized(context)
+        val clean = trackId.removePrefix("online_")
+        val current = _likedTracksFlow.value.filterNot {
+            it.id == trackId || it.id.removePrefix("online_") == clean
+        }
+        _likedTracksFlow.value = current
+        writeToPrefs(context, current)
+        return current
+    }
+
+    private fun readFromPrefs(context: Context): List<Track> {
+        return try {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val raw = prefs.getString(KEY_LIKED_TRACKS_JSON, null) ?: return emptyList()
+            val arr = JSONArray(raw)
+            val list = mutableListOf<Track>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val id = obj.optString("id", "")
+                if (id.isBlank()) continue
+                val artwork = obj.optString("artworkUri", "").takeIf { it.isNotBlank() }
+                if (!artwork.isNullOrBlank()) {
+                    com.example.OnlineMusicRepository.registerCoverUrlForTrack(id, artwork)
+                }
+                list.add(
+                    Track(
+                        id = id,
+                        title = obj.optString("title", "Unknown Track"),
+                        artist = obj.optString("artist", "Unknown Artist"),
+                        album = obj.optString("album", "Single"),
+                        durationMs = obj.optLong("durationMs", 200_000L),
+                        uri = obj.optString("uri", ""),
+                        artworkUri = artwork,
+                        genre = obj.optString("genre", "Music"),
+                        year = obj.optInt("year", 2024),
+                        isFavorite = true,
+                        dateAdded = obj.optLong("dateAdded", System.currentTimeMillis()),
+                        isDemo = false
+                    )
+                )
+            }
+            list
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun writeToPrefs(context: Context, tracks: List<Track>) {
+        try {
+            val arr = JSONArray()
+            tracks.forEach { t ->
+                val obj = JSONObject()
+                obj.put("id", t.id)
+                obj.put("title", t.title)
+                obj.put("artist", t.artist)
+                obj.put("album", t.album)
+                obj.put("durationMs", t.durationMs)
+                obj.put("uri", t.uri)
+                obj.put("artworkUri", t.artworkUri ?: "")
+                obj.put("genre", t.genre)
+                obj.put("year", t.year)
+                obj.put("dateAdded", t.dateAdded)
+                arr.put(obj)
+            }
+            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().putString(KEY_LIKED_TRACKS_JSON, arr.toString()).apply()
+        } catch (_: Exception) {}
+    }
+}
 
 class MusicRepository(
     private val context: Context,
@@ -29,6 +151,10 @@ class MusicRepository(
     private val tag = "MusicRepository"
     private var mediaStoreObserver: android.database.ContentObserver? = null
     private var rescanDebounceJob: Job? = null
+
+    init {
+        LikedTracksStore.ensureInitialized(context)
+    }
 
     fun startObservingMediaStore(scope: CoroutineScope, onTracksUpdated: (() -> Unit)? = null) {
         if (mediaStoreObserver != null) return
@@ -73,13 +199,31 @@ class MusicRepository(
     }
 
     val allTracks: Flow<List<Track>> = musicDao.getAllTracks()
-    val favoriteTracks: Flow<List<Track>> = musicDao.getFavoriteTracks()
+    val favoriteTracks: Flow<List<Track>> = combine(
+        musicDao.getFavoriteTracks(),
+        LikedTracksStore.likedTracksFlow
+    ) { dbFavs, storeFavs ->
+        val merged = LinkedHashMap<String, Track>()
+        storeFavs.forEach { t ->
+            merged[t.id] = t.copy(isFavorite = true)
+        }
+        dbFavs.forEach { t ->
+            if (!merged.containsKey(t.id)) {
+                merged[t.id] = t.copy(isFavorite = true)
+            }
+        }
+        merged.values.toList()
+    }
     val recentlyPlayed: Flow<List<Track>> = musicDao.getRecentlyPlayedTracks()
     val mostPlayed: Flow<List<Track>> = musicDao.getMostPlayedTracks()
     val recentlyAdded: Flow<List<Track>> = musicDao.getRecentlyAddedTracks()
     val playlists: Flow<List<Playlist>> = musicDao.getAllPlaylists()
     val hiddenDuplicates: Flow<List<Track>> = musicDao.getHiddenDuplicates()
     val instrumentalTracks: Flow<List<Track>> = musicDao.getInstrumentalTracks()
+
+    fun isTrackLiked(trackId: String, fallback: Boolean = false): Boolean {
+        return LikedTracksStore.isLiked(context, trackId) || fallback
+    }
 
     suspend fun getAudioProfile(trackId: String): TrackAudioProfile? = withContext(Dispatchers.IO) {
         val dao = trackAudioProfileDao ?: com.example.data.db.AppDatabase.getInstance(context).trackAudioProfileDao()
@@ -239,6 +383,43 @@ class MusicRepository(
     suspend fun initDefaultDataIfNeeded() = withContext(Dispatchers.IO) {
         // Explicitly purge any demo/sample tracks to keep the library 100% clean with zero preloaded songs
         musicDao.deleteDemoTracks()
+        LikedTracksStore.ensureInitialized(context)
+        val storedLiked = LikedTracksStore.getAll(context)
+        val dbFavs = try {
+            musicDao.getAllTracksSync().filter { it.isFavorite }
+        } catch (_: Exception) {
+            emptyList()
+        }
+        if (storedLiked.isNotEmpty() || dbFavs.isNotEmpty()) {
+            val allLikedIds = (storedLiked.map { it.id } + dbFavs.map { it.id }).distinct()
+            ensureMyLikedMusicPlaylistWithIds(allLikedIds)
+        }
+    }
+
+    private suspend fun ensureMyLikedMusicPlaylistWithIds(likedTrackIds: List<String>) {
+        val existingById = musicDao.getPlaylistById(LikedTracksStore.MY_LIKED_PLAYLIST_ID)
+        val mergedIds = if (existingById != null) {
+            (likedTrackIds + existingById.trackIds).distinct()
+        } else {
+            likedTrackIds.distinct()
+        }
+        val playlist = Playlist(
+            id = LikedTracksStore.MY_LIKED_PLAYLIST_ID,
+            name = existingById?.name?.takeIf { it.isNotBlank() } ?: LikedTracksStore.MY_LIKED_PLAYLIST_NAME,
+            description = existingById?.description?.takeIf { it.isNotBlank() } ?: "Your favorite liked songs",
+            trackIds = mergedIds,
+            createdAt = existingById?.createdAt ?: System.currentTimeMillis()
+        )
+        musicDao.insertPlaylist(playlist)
+        mergedIds.forEachIndexed { index, trackId ->
+            musicDao.insertPlaylistTrack(
+                PlaylistTrackCrossRef(
+                    LikedTracksStore.MY_LIKED_PLAYLIST_ID,
+                    trackId,
+                    index
+                )
+            )
+        }
     }
 
     suspend fun scanDeviceMusic(): Int = withContext(Dispatchers.IO) {
@@ -345,22 +526,111 @@ class MusicRepository(
     }
 
     suspend fun saveDownloadedTrackToLibrary(track: Track) = withContext(Dispatchers.IO) {
+        val isAlreadyLiked = LikedTracksStore.isLiked(context, track.id) || track.isFavorite
         val existing = musicDao.getTrackById(track.id)
         val merged = if (existing != null) {
             existing.copy(
                 uri = track.uri,
                 durationMs = if (track.durationMs > 1000L) track.durationMs else existing.durationMs,
                 artworkUri = track.artworkUri?.takeIf { it.isNotBlank() } ?: existing.artworkUri,
+                isFavorite = existing.isFavorite || isAlreadyLiked,
                 dateAdded = System.currentTimeMillis()
             )
         } else {
-            track.copy(dateAdded = System.currentTimeMillis())
+            track.copy(
+                isFavorite = isAlreadyLiked,
+                dateAdded = System.currentTimeMillis()
+            )
         }
         musicDao.insertTrack(merged)
     }
 
+    suspend fun toggleTrackFavorite(track: Track): Boolean = withContext(Dispatchers.IO) {
+        val currentlyLiked = isTrackLiked(track.id, track.isFavorite)
+        val nextLiked = !currentlyLiked
+        val cleanId = track.id.removePrefix("online_")
+        val altId = "online_$cleanId"
+
+        musicDao.setFavorite(track.id, nextLiked)
+        if (track.id != cleanId) musicDao.setFavorite(cleanId, nextLiked)
+        if (track.id != altId) musicDao.setFavorite(altId, nextLiked)
+
+        val enrichedTrack = track.copy(isFavorite = nextLiked)
+        LikedTracksStore.setLiked(context, enrichedTrack, nextLiked)
+
+        // Automatically create or update "My Liked Music" playlist
+        val existingPlaylist = musicDao.getPlaylistById(LikedTracksStore.MY_LIKED_PLAYLIST_ID)
+        if (nextLiked) {
+            val currentIds = existingPlaylist?.trackIds ?: emptyList()
+            val filtered = currentIds.filterNot { it == track.id || it.removePrefix("online_") == cleanId }
+            val updatedIds = listOf(track.id) + filtered
+            val updatedPlaylist = Playlist(
+                id = LikedTracksStore.MY_LIKED_PLAYLIST_ID,
+                name = existingPlaylist?.name?.takeIf { it.isNotBlank() } ?: LikedTracksStore.MY_LIKED_PLAYLIST_NAME,
+                description = existingPlaylist?.description?.takeIf { it.isNotBlank() } ?: "Your favorite liked songs",
+                trackIds = updatedIds,
+                createdAt = existingPlaylist?.createdAt ?: System.currentTimeMillis()
+            )
+            musicDao.insertPlaylist(updatedPlaylist)
+            musicDao.insertPlaylistTrack(
+                PlaylistTrackCrossRef(
+                    LikedTracksStore.MY_LIKED_PLAYLIST_ID,
+                    track.id,
+                    0
+                )
+            )
+        } else {
+            musicDao.removeTrackFromPlaylist(LikedTracksStore.MY_LIKED_PLAYLIST_ID, track.id)
+            musicDao.removeTrackFromPlaylist(LikedTracksStore.MY_LIKED_PLAYLIST_ID, cleanId)
+            musicDao.removeTrackFromPlaylist(LikedTracksStore.MY_LIKED_PLAYLIST_ID, altId)
+            if (existingPlaylist != null) {
+                val updatedIds = existingPlaylist.trackIds.filterNot {
+                    it == track.id || it.removePrefix("online_") == cleanId
+                }
+                musicDao.insertPlaylist(existingPlaylist.copy(trackIds = updatedIds))
+            }
+        }
+
+        nextLiked
+    }
+
     suspend fun toggleFavorite(trackId: String, currentFavorite: Boolean) = withContext(Dispatchers.IO) {
-        musicDao.setFavorite(trackId, !currentFavorite)
+        val nextLiked = !currentFavorite
+        musicDao.setFavorite(trackId, nextLiked)
+        val dbTrack = musicDao.getTrackById(trackId)
+            ?: com.example.OnlineMusicRepository.findTrackById(trackId)
+        if (dbTrack != null) {
+            LikedTracksStore.setLiked(context, dbTrack.copy(isFavorite = nextLiked), nextLiked)
+        } else if (!nextLiked) {
+            LikedTracksStore.removeLikedById(context, trackId)
+        }
+        val cleanId = trackId.removePrefix("online_")
+        val existingPlaylist = musicDao.getPlaylistById(LikedTracksStore.MY_LIKED_PLAYLIST_ID)
+        if (nextLiked) {
+            val currentIds = existingPlaylist?.trackIds ?: emptyList()
+            val updatedIds = (listOf(trackId) + currentIds.filterNot { it.removePrefix("online_") == cleanId }).distinct()
+            val updatedPlaylist = Playlist(
+                id = LikedTracksStore.MY_LIKED_PLAYLIST_ID,
+                name = existingPlaylist?.name?.takeIf { it.isNotBlank() } ?: LikedTracksStore.MY_LIKED_PLAYLIST_NAME,
+                description = existingPlaylist?.description?.takeIf { it.isNotBlank() } ?: "Your favorite liked songs",
+                trackIds = updatedIds,
+                createdAt = existingPlaylist?.createdAt ?: System.currentTimeMillis()
+            )
+            musicDao.insertPlaylist(updatedPlaylist)
+            musicDao.insertPlaylistTrack(
+                PlaylistTrackCrossRef(
+                    LikedTracksStore.MY_LIKED_PLAYLIST_ID,
+                    trackId,
+                    0
+                )
+            )
+        } else {
+            musicDao.removeTrackFromPlaylist(LikedTracksStore.MY_LIKED_PLAYLIST_ID, trackId)
+            if (existingPlaylist != null) {
+                val updatedIds = existingPlaylist.trackIds.filterNot { it == trackId || it.removePrefix("online_") == cleanId }
+                musicDao.insertPlaylist(existingPlaylist.copy(trackIds = updatedIds))
+            }
+        }
     }
 
     suspend fun recordPlay(trackId: String) = withContext(Dispatchers.IO) {
@@ -501,6 +771,13 @@ class MusicRepository(
         val existing = musicDao.getPlaylistById(playlistId)
         if (existing != null && existing.trackIds.contains(trackId)) {
             musicDao.insertPlaylist(existing.copy(trackIds = existing.trackIds - trackId))
+        }
+        if (playlistId == LikedTracksStore.MY_LIKED_PLAYLIST_ID) {
+            val cleanId = trackId.removePrefix("online_")
+            musicDao.setFavorite(trackId, false)
+            musicDao.setFavorite(cleanId, false)
+            musicDao.setFavorite("online_$cleanId", false)
+            LikedTracksStore.removeLikedById(context, trackId)
         }
     }
 

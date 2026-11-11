@@ -55,9 +55,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,6 +68,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.OnlineMusicRepository
+import com.example.R
 import com.example.audio.AmbientPalette
 import com.example.data.model.AppLanguage
 import com.example.data.model.LyricsLine
@@ -78,6 +82,28 @@ import com.example.util.StoryBackgroundStyle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private val STORY_PERSIAN_CHAR_REGEX =
+    Regex("[\\u0600-\\u06FF\\u0750-\\u077F\\u08A0-\\u08FF\\uFB50-\\uFDFF\\uFE70-\\uFEFF]")
+
+internal val StoryVazirmatnFontFamily = FontFamily(
+    Font(R.font.vazirmatn, FontWeight.Normal),
+    Font(R.font.vazirmatn, FontWeight.Medium),
+    Font(R.font.vazirmatn, FontWeight.SemiBold),
+    Font(R.font.vazirmatn, FontWeight.Bold),
+    Font(R.font.vazirmatn, FontWeight.ExtraBold)
+)
+
+internal val StoryIosSansFontFamily = FontFamily(
+    Font(R.font.plus_jakarta_sans, FontWeight.Normal),
+    Font(R.font.plus_jakarta_sans, FontWeight.Medium),
+    Font(R.font.plus_jakarta_sans, FontWeight.SemiBold),
+    Font(R.font.plus_jakarta_sans, FontWeight.Bold),
+    Font(R.font.plus_jakarta_sans, FontWeight.ExtraBold)
+)
+
+internal fun isPersianStoryText(text: String): Boolean =
+    STORY_PERSIAN_CHAR_REGEX.containsMatchIn(text)
 
 @Composable
 fun ShareSongDialog(
@@ -394,6 +420,7 @@ fun ShareSongDialog(
                             ) {
                                 itemsIndexed(validLyrics) { idx, lineText ->
                                     val isLineSelected = selectedLyricIndices.contains(idx)
+                                    val lineIsPersian = isPersianStoryText(lineText)
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -444,6 +471,7 @@ fun ShareSongDialog(
                                             text = lineText,
                                             color = if (isLineSelected) Color.White else Color.White.copy(alpha = 0.72f),
                                             fontSize = 12.sp,
+                                            fontFamily = if (lineIsPersian) StoryVazirmatnFontFamily else StoryIosSansFontFamily,
                                             fontWeight = if (isLineSelected) FontWeight.Bold else FontWeight.Medium,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
@@ -644,6 +672,9 @@ fun ShareSongDialog(
                             )
                             .padding(if (hasSelectedLyrics) 16.dp else 18.dp)
                     ) {
+                        val isTitlePersian = remember(track.title) { isPersianStoryText(track.title) }
+                        val isArtistPersian = remember(track.artist) { isPersianStoryText(track.artist) }
+
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalAlignment = Alignment.Start
@@ -705,6 +736,7 @@ fun ShareSongDialog(
                                             text = track.title,
                                             color = Color.White,
                                             fontSize = 15.sp,
+                                            fontFamily = if (isTitlePersian) StoryVazirmatnFontFamily else StoryIosSansFontFamily,
                                             fontWeight = FontWeight.ExtraBold,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
@@ -714,6 +746,7 @@ fun ShareSongDialog(
                                             text = track.artist,
                                             color = Color.White.copy(alpha = 0.72f),
                                             fontSize = 11.5.sp,
+                                            fontFamily = if (isArtistPersian) StoryVazirmatnFontFamily else StoryIosSansFontFamily,
                                             fontWeight = FontWeight.Medium,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
@@ -733,22 +766,27 @@ fun ShareSongDialog(
                                 Spacer(modifier = Modifier.height(12.dp))
 
                                 val formattedQuote = remember(activeSelectedLyrics) {
-                                    "“" + activeSelectedLyrics.joinToString("\n") + "”"
+                                    activeSelectedLyrics.joinToString("\n")
+                                }
+                                val isQuotePersian = remember(formattedQuote) {
+                                    isPersianStoryText(formattedQuote)
                                 }
 
                                 Text(
                                     text = formattedQuote,
                                     color = Color.White,
-                                    fontSize = 14.5.sp,
-                                    fontFamily = FontFamily.Serif,
-                                    fontStyle = FontStyle.Italic,
+                                    fontSize = if (isQuotePersian) 15.5.sp else 15.sp,
+                                    fontFamily = if (isQuotePersian) StoryVazirmatnFontFamily else StoryIosSansFontFamily,
+                                    fontStyle = FontStyle.Normal,
                                     fontWeight = FontWeight.Bold,
-                                    lineHeight = 21.sp,
+                                    lineHeight = if (isQuotePersian) 25.sp else 22.sp,
+                                    textAlign = if (isQuotePersian) TextAlign.Right else TextAlign.Left,
                                     style = TextStyle(
+                                        textDirection = if (isQuotePersian) TextDirection.Rtl else TextDirection.Ltr,
                                         shadow = Shadow(
-                                            color = Color.Black.copy(alpha = 0.75f),
-                                            offset = Offset(0f, 3f),
-                                            blurRadius = 10f
+                                            color = Color.Black.copy(alpha = 0.72f),
+                                            offset = Offset(0f, 2f),
+                                            blurRadius = 8f
                                         )
                                     ),
                                     modifier = Modifier.fillMaxWidth()
@@ -816,6 +854,7 @@ fun ShareSongDialog(
                                     text = track.title,
                                     color = Color.White,
                                     fontSize = 18.sp,
+                                    fontFamily = if (isTitlePersian) StoryVazirmatnFontFamily else StoryIosSansFontFamily,
                                     fontWeight = FontWeight.ExtraBold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -828,6 +867,7 @@ fun ShareSongDialog(
                                     text = track.artist,
                                     color = Color.White.copy(alpha = 0.72f),
                                     fontSize = 13.sp,
+                                    fontFamily = if (isArtistPersian) StoryVazirmatnFontFamily else StoryIosSansFontFamily,
                                     fontWeight = FontWeight.Medium,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -865,6 +905,7 @@ fun ShareSongDialog(
                                 text = "AURA MUSIC",
                                 color = Color.White,
                                 fontSize = 10.5.sp,
+                                fontFamily = StoryIosSansFontFamily,
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 2.2.sp
                             )

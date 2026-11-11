@@ -1160,6 +1160,9 @@ fun InteractiveStoryPreviewDialog(
                             .padding(if (hasLyrics) 16.dp else 18.dp),
                         horizontalAlignment = Alignment.Start
                     ) {
+                        val isTitlePersian = remember(track.title) { isPersianStoryText(track.title) }
+                        val isArtistPersian = remember(track.artist) { isPersianStoryText(track.artist) }
+
                         if (hasLyrics) {
                             // Compact Header + Featured Lyrics Quote Layout
                             Row(
@@ -1181,6 +1184,7 @@ fun InteractiveStoryPreviewDialog(
                                         text = track.title,
                                         color = Color.White,
                                         fontSize = 15.sp,
+                                        fontFamily = if (isTitlePersian) StoryVazirmatnFontFamily else StoryIosSansFontFamily,
                                         fontWeight = FontWeight.ExtraBold,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
@@ -1190,6 +1194,7 @@ fun InteractiveStoryPreviewDialog(
                                         text = track.artist,
                                         color = Color.White.copy(alpha = 0.72f),
                                         fontSize = 11.5.sp,
+                                        fontFamily = if (isArtistPersian) StoryVazirmatnFontFamily else StoryIosSansFontFamily,
                                         fontWeight = FontWeight.Medium,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
@@ -1210,23 +1215,26 @@ fun InteractiveStoryPreviewDialog(
                                 verticalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                selectedLyricLines.take(4).forEachIndexed { idx, lineText ->
-                                    val prefix = if (idx == 0) "“" else ""
-                                    val suffix = if (idx == selectedLyricLines.take(4).lastIndex) "”" else ""
+                                selectedLyricLines.take(4).forEach { lineText ->
+                                    val isPersianLine = isPersianStoryText(lineText)
                                     Text(
-                                        text = "$prefix$lineText$suffix",
+                                        text = lineText,
                                         color = Color.White,
-                                        fontSize = 14.5.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontStyle = FontStyle.Italic,
-                                        lineHeight = 21.sp,
+                                        fontSize = if (isPersianLine) 15.5.sp else 15.sp,
+                                        fontFamily = if (isPersianLine) StoryVazirmatnFontFamily else StoryIosSansFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontStyle = FontStyle.Normal,
+                                        lineHeight = if (isPersianLine) 25.sp else 22.sp,
+                                        textAlign = if (isPersianLine) TextAlign.Right else TextAlign.Left,
                                         style = TextStyle(
+                                            textDirection = if (isPersianLine) androidx.compose.ui.text.style.TextDirection.Rtl else androidx.compose.ui.text.style.TextDirection.Ltr,
                                             shadow = Shadow(
-                                                color = Color.Black.copy(alpha = 0.8f),
-                                                offset = Offset(0f, 3f),
+                                                color = Color.Black.copy(alpha = 0.72f),
+                                                offset = Offset(0f, 2f),
                                                 blurRadius = 8f
                                             )
-                                        )
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
                                     )
                                 }
                             }
@@ -1247,6 +1255,7 @@ fun InteractiveStoryPreviewDialog(
                                 text = track.title,
                                 color = Color.White,
                                 fontSize = 18.sp,
+                                fontFamily = if (isTitlePersian) StoryVazirmatnFontFamily else StoryIosSansFontFamily,
                                 fontWeight = FontWeight.ExtraBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -1256,6 +1265,7 @@ fun InteractiveStoryPreviewDialog(
                                 text = track.artist,
                                 color = Color.White.copy(alpha = 0.72f),
                                 fontSize = 13.sp,
+                                fontFamily = if (isArtistPersian) StoryVazirmatnFontFamily else StoryIosSansFontFamily,
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis

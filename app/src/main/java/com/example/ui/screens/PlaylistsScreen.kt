@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,7 +15,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -22,11 +25,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.OnlineMusicRepository
 import com.example.audio.AmbientPalette
 import com.example.data.model.AppLanguage
 import com.example.data.model.AppSettings
 import com.example.data.model.Playlist
 import com.example.data.model.Track
+import com.example.data.repository.LikedTracksStore
 import com.example.ui.components.PlaylistDetailSheet
 import com.example.ui.components.TrackArtworkThumbnail
 import com.example.ui.components.TrackPickerSheet
@@ -57,6 +62,9 @@ fun PlaylistsScreen(
     bottomPadding: Dp = 120.dp,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val storedLikedTracks by LikedTracksStore.likedTracksFlow.collectAsState()
+
     var showNameDialog by remember { mutableStateOf(false) }
     var showSongPickerForNewPlaylist by remember { mutableStateOf(false) }
     var pendingPlaylistName by remember { mutableStateOf("") }
@@ -72,11 +80,20 @@ fun PlaylistsScreen(
         playlists.firstOrNull { it.id == selectedPlaylistId }
     }
 
-    val filteredPlaylists = remember(playlists, playlistSearchQuery) {
-        if (playlistSearchQuery.isBlank()) playlists
+    val sortedPlaylists = remember(playlists) {
+        playlists.sortedWith(
+            compareByDescending<Playlist> {
+                it.id == LikedTracksStore.MY_LIKED_PLAYLIST_ID ||
+                    it.name.equals(LikedTracksStore.MY_LIKED_PLAYLIST_NAME, ignoreCase = true)
+            }.thenByDescending { it.createdAt }
+        )
+    }
+
+    val filteredPlaylists = remember(sortedPlaylists, playlistSearchQuery) {
+        if (playlistSearchQuery.isBlank()) sortedPlaylists
         else {
             val q = playlistSearchQuery.trim().lowercase()
-            playlists.filter { it.name.lowercase().contains(q) }
+            sortedPlaylists.filter { it.name.lowercase().contains(q) }
         }
     }
 
@@ -246,33 +263,102 @@ fun PlaylistsScreen(
                 }
             } else {
                 items(filteredPlaylists, key = { it.id }) { pl ->
-                    val plTracks = remember(pl.trackIds, allTracks) {
-                        val trackMap = allTracks.associateBy { it.id }
-                        pl.trackIds.mapNotNull { trackMap[it] }
+                    val isLikedPlaylist = pl.id == LikedTracksStore.MY_LIKED_PLAYLIST_ID ||
+                        pl.name.equals(LikedTracksStore.MY_LIKED_PLAYLIST_NAME, ignoreCase = true)
+
+                    val plTracks = remember(pl.trackIds, allTracks, favoriteTracks, storedLikedTracks, isLikedPlaylist) {
+                        val combinedPool = LinkedHashMap<String, Track>()
+                        allTracks.forEach { combinedPool[it.id] = it; combinedPool[it.id.removePrefix("online_")] = it }
+                        favoriteTracks.forEach { combinedPool.putIfAbsent(it.id, it); combinedPool.putIfAbsent(it.id.removePrefix("online_"), it) }
+                        storedLikedTracks.forEach { combinedPool.putIfAbsent(it.id, it); combinedPool.putIfAbsent(it.id.removePrefix("online_"), it) }
+                        try {
+                            OnlineMusicRepository.getMemoryCachedAppTracks().forEach {
+                                combinedPool.putIfAbsent(it.id, it)
+                                combinedPool.putIfAbsent(it.id.removePrefix("online_"), it)
+                            }
+                        } catch (_: Exception) {}
+
+                        val resolved = pl.trackIds.mapNotNull { id ->
+                            combinedPool[id]
+                                ?: combinedPool[id.removePrefix("online_")]
+                                ?: try { OnlineMusicRepository.findTrackById(id) } catch (_: Exception) { null }
+                        }.distinctBy { it.id }
+
+                        if (isLikedPlaylist && resolved.isEmpty() && (favoriteTracks.isNotEmpty() || storedLikedTracks.isNotEmpty())) {
+                            (storedLikedTracks + favoriteTracks).distinctBy { it.id }
+                        } else {
+                            resolved
+                        }
                     }
                     val firstArt = plTracks.firstOrNull()?.artworkUri
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (isLikedPlaylist) {
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            Color(0xFF4F46E5).copy(alpha = 0.22f),
+                                            AuraSpotifyGreen.copy(alpha = 0.12f),
+                                            AuraSurface
+                                        )
+                                    )
+                                } else {
+                                    Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))
+                                }
+                            )
+                            .then(
+                                if (isLikedPlaylist) {
+                                    Modifier.border(
+                                        width = 0.8.dp,
+                                        brush = Brush.horizontalGradient(
+                                            listOf(
+                                                Color(0xFF818CF8).copy(alpha = 0.45f),
+                                                AuraSpotifyGreen.copy(alpha = 0.35f)
+                                            )
+                                        ),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                } else Modifier
+                            )
                             .clickable { selectedPlaylistId = pl.id }
-                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                            .padding(vertical = 8.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
                                 .size(56.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(AuraSurfaceElevated),
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    if (isLikedPlaylist) {
+                                        Brush.linearGradient(
+                                            listOf(
+                                                Color(0xFF4F46E5),
+                                                Color(0xFF7C3AED),
+                                                AuraSpotifyGreen
+                                            )
+                                        )
+                                    } else {
+                                        Brush.linearGradient(listOf(AuraSurfaceElevated, AuraSurfaceElevated))
+                                    }
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (firstArt != null) {
+                            if (isLikedPlaylist) {
+                                Icon(
+                                    imageVector = Icons.Default.Favorite,
+                                    contentDescription = "My Liked Music",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            } else if (firstArt != null) {
                                 TrackArtworkThumbnail(
                                     artworkUri = firstArt,
                                     accentColor = palette.primary,
                                     size = 56.dp,
-                                    shape = RoundedCornerShape(6.dp),
+                                    shape = RoundedCornerShape(10.dp),
                                     iconSize = 26.dp
                                 )
                             } else {
@@ -288,19 +374,32 @@ fun PlaylistsScreen(
                         Spacer(modifier = Modifier.width(14.dp))
 
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = pl.name,
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color.White,
-                                    fontSize = 15.5.sp
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = pl.name,
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        fontSize = 15.5.sp
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (isLikedPlaylist) {
+                                    Icon(
+                                        imageVector = Icons.Default.PushPin,
+                                        contentDescription = null,
+                                        tint = AuraSpotifyGreen,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
                             Spacer(modifier = Modifier.height(3.dp))
                             Text(
-                                text = "${pl.trackIds.size} ${Localization.getString("tracks", lang)}",
+                                text = "${maxOf(plTracks.size, pl.trackIds.size)} ${Localization.getString("tracks", lang)}",
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = TextSecondary,
                                     fontSize = 12.5.sp
@@ -600,4 +699,3 @@ fun PlaylistsScreen(
         )
     }
 }
-

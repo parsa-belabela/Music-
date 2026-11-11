@@ -593,6 +593,7 @@ class AudioEngine(private val context: Context) {
                 exo.clearMediaItems()
 
                 val cachedOnlineFile = OnlineCacheHolder.getCachedFileIfPresent(context, track.id)
+                    ?: OnlineCacheHolder.getStreamBufferFileIfPresent(context, track.id)
                 val targetUri: Uri = when {
                     cachedOnlineFile != null && cachedOnlineFile.exists() && cachedOnlineFile.length() > 16_384L -> {
                         Uri.fromFile(cachedOnlineFile)
