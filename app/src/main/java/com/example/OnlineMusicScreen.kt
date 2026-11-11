@@ -62,9 +62,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.datasource.DefaultHttpDataSource
+import android.graphics.drawable.BitmapDrawable
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.size.Precision
 import com.example.audio.AmbientPalette
 import com.example.data.model.AppLanguage
 import com.example.data.model.Track
@@ -519,12 +521,76 @@ data class CuratedOnlinePlaylist(
     val tracks: List<Track>
 )
 
+fun extractTrackIdForCacheKey(trackId: String?, coverUrl: String?): String {
+    val explicit = trackId?.trim().orEmpty()
+    if (explicit.isNotBlank()) return explicit
+    val url = coverUrl?.trim().orEmpty()
+    if (url.contains("id=")) {
+        val extracted = url.substringAfter("id=").substringBefore("&").trim()
+        if (extracted.isNotBlank()) return extracted
+    }
+    return url.hashCode().toUInt().toString(16)
+}
+
+fun buildAuraCoverImageRequest(
+    context: Context,
+    trackId: String?,
+    coverUrl: String?,
+    isLarge: Boolean = false,
+    allowHardware: Boolean = true
+): ImageRequest {
+    val keyId = extractTrackIdForCacheKey(trackId, coverUrl)
+    val cacheKey = "cover_${keyId}_${isLarge}"
+    return ImageRequest.Builder(context)
+        .data(coverUrl)
+        .diskCacheKey(cacheKey)
+        .memoryCacheKey(cacheKey)
+        .memoryCachePolicy(CachePolicy.ENABLED)
+        .diskCachePolicy(CachePolicy.ENABLED)
+        .apply {
+            if (isLarge) {
+                size(1000, 1000)
+                precision(Precision.INEXACT)
+                bitmapConfig(Bitmap.Config.ARGB_8888)
+                allowRgb565(false)
+            } else {
+                size(420, 420)
+                precision(Precision.INEXACT)
+                bitmapConfig(Bitmap.Config.RGB_565)
+                allowRgb565(true)
+            }
+            if (!allowHardware) {
+                allowHardware(false)
+            }
+        }
+        .crossfade(true)
+        .build()
+}
+
+@Composable
+fun rememberAuraCoverRequest(
+    trackId: String?,
+    coverUrl: String?,
+    isLarge: Boolean = false,
+    allowHardware: Boolean = true
+): ImageRequest {
+    val context = LocalContext.current
+    return remember(trackId, coverUrl, isLarge, allowHardware, context) {
+        buildAuraCoverImageRequest(
+            context = context,
+            trackId = trackId,
+            coverUrl = coverUrl,
+            isLarge = isLarge,
+            allowHardware = allowHardware
+        )
+    }
+}
+
 @Composable
 fun MosaicPlaylistCover(
     covers: List<String>,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     val validCovers = remember(covers) {
         covers.map { OnlineMusicRepository.normalizeWorkerSmallImageUrl(it).ifBlank { it } }
             .filter { it.isNotBlank() }
@@ -539,14 +605,11 @@ fun MosaicPlaylistCover(
                 Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     for (idx in 0..1) {
                         val cellUrl = validCovers[idx]
-                        val req = remember(cellUrl, context) {
-                            ImageRequest.Builder(context)
-                                .data(cellUrl)
-                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                .diskCachePolicy(CachePolicy.ENABLED)
-                                .crossfade(true)
-                                .build()
-                        }
+                        val req = rememberAuraCoverRequest(
+                            trackId = null,
+                            coverUrl = cellUrl,
+                            isLarge = false
+                        )
                         AsyncImage(
                             model = req,
                             contentDescription = null,
@@ -560,14 +623,11 @@ fun MosaicPlaylistCover(
                 Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     for (idx in 2..3) {
                         val cellUrl = validCovers[idx]
-                        val req = remember(cellUrl, context) {
-                            ImageRequest.Builder(context)
-                                .data(cellUrl)
-                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                .diskCachePolicy(CachePolicy.ENABLED)
-                                .crossfade(true)
-                                .build()
-                        }
+                        val req = rememberAuraCoverRequest(
+                            trackId = null,
+                            coverUrl = cellUrl,
+                            isLarge = false
+                        )
                         AsyncImage(
                             model = req,
                             contentDescription = null,
@@ -581,14 +641,11 @@ fun MosaicPlaylistCover(
             }
         } else if (validCovers.isNotEmpty()) {
             val singleUrl = validCovers.first()
-            val req = remember(singleUrl, context) {
-                ImageRequest.Builder(context)
-                    .data(singleUrl)
-                    .memoryCachePolicy(CachePolicy.ENABLED)
-                    .diskCachePolicy(CachePolicy.ENABLED)
-                    .crossfade(true)
-                    .build()
-            }
+            val req = rememberAuraCoverRequest(
+                trackId = null,
+                coverUrl = singleUrl,
+                isLarge = false
+            )
             AsyncImage(
                 model = req,
                 contentDescription = null,
@@ -1192,22 +1249,24 @@ data class HubComputedData(
 object OnlineMusicRepository {
     const val WORKER_URL = "https://alubm.parsaghorbani8861.workers.dev/"
     val BASE_URL: String get() = WORKER_URL.trimEnd('/')
-    private const val PRIVATE_CATALOG_CACHE_FILE = "aura_cloud_catalog_cache_v4.json"
+    private const val PRIVATE_CATALOG_CACHE_FILE = "catalog_cache.json"
+    private const val LEGACY_CATALOG_CACHE_FILE_V4 = "aura_cloud_catalog_cache_v4.json"
     private const val LEGACY_CATALOG_CACHE_FILE_V3 = "aura_cloud_catalog_cache_v3.json"
     private const val LEGACY_CATALOG_CACHE_FILE = "aura_cloud_catalog_cache_v2.json"
-    private const val PRIVATE_TRACK_COVERS_DIR = "track_covers_private_cache_hd_v3"
-    private val LEGACY_TRACK_COVERS_DIRS = listOf("track_covers_private_cache", "track_covers_private_cache_v2", "track_covers_private_cache_hd")
+    private const val PRIVATE_TRACK_COVERS_DIR = "aura_permanent_covers"
+    private val LEGACY_TRACK_COVERS_DIRS = listOf("track_covers_private_cache", "track_covers_private_cache_v2", "track_covers_private_cache_hd", "track_covers_private_cache_hd_v3")
     private val WORKER_HOST_REGEX = Regex("https?://[^/]+\\.workers\\.dev", RegexOption.IGNORE_CASE)
 
     private val imageMemoryCache = object : LruCache<String, Bitmap>(240) {}
     private val failedCoverUrls = ConcurrentHashMap.newKeySet<String>()
     private val coverDownloadLocks = ConcurrentHashMap<String, Any>()
-    private val coverIoSemaphore = Semaphore(10)
+    private val coverIoSemaphore = Semaphore(8)
     private val cleanedLegacyTrackCovers = AtomicBoolean(false)
     private val catalogFetchMutex = kotlinx.coroutines.sync.Mutex()
     private val backgroundWarmScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val backgroundWarmStarted = AtomicBoolean(false)
     private val startupPreloadCompleted = AtomicBoolean(false)
+    private val sessionCatalogSynced = AtomicBoolean(false)
     private val streamUrlByTrackId = ConcurrentHashMap<String, String>()
     private val downloadUrlByTrackId = ConcurrentHashMap<String, String>()
     private val coverUrlByTrackId = ConcurrentHashMap<String, String>()
@@ -1454,6 +1513,20 @@ object OnlineMusicRepository {
             result
         }
 
+    suspend fun syncCatalogOncePerSession() = withContext(Dispatchers.IO) {
+        if (!sessionCatalogSynced.compareAndSet(false, true)) return@withContext
+        try {
+            val fresh = fetchFromWorker(query = "", artist = "", forceRefresh = true)
+            if (fresh.tracks.isNotEmpty()) {
+                val mapped = fresh.tracks.map { it.toAppTrack() }
+                setMemoryCachedAppTracks(mapped)
+                computeHubDataAsync(mapped, true)
+                computeHubDataAsync(mapped, false)
+            }
+            fetchCuratedPlaylists(forceRefresh = true)
+        } catch (_: Throwable) {}
+    }
+
     suspend fun preloadStartupEverything(
         context: Context,
         localTracks: List<Track>,
@@ -1465,130 +1538,52 @@ object OnlineMusicRepository {
             return
         }
 
-        val appCtx = context.applicationContext
         onProgress(
-            0.08f,
+            0.25f,
             if (isPersian) "در حال بارگذاری آرشیو ابری..." else "Loading cloud catalog..."
         )
 
         var onlineAppTracks = loadCachedAppTracksAsync()
-        if (onlineAppTracks.isEmpty()) {
-            val fetched = try {
-                fetchFromWorker()
-            } catch (_: Throwable) {
-                null
-            }
-            if (fetched != null && fetched.tracks.isNotEmpty()) {
-                onlineAppTracks = withContext(Dispatchers.Default) {
-                    fetched.tracks.map { it.toAppTrack() }
-                }
-                setMemoryCachedAppTracks(onlineAppTracks)
-            }
-        } else {
+        if (onlineAppTracks.isNotEmpty()) {
+            // Instant 0.1s launch from catalog_cache.json!
+            startupPreloadCompleted.set(true)
+            onProgress(1f, if (isPersian) "آماده ورود به برنامه" else "Ready")
             backgroundWarmScope.launch {
                 try {
-                    val fresh = fetchFromWorker()
-                    if (fresh.tracks.isNotEmpty()) {
-                        val mapped = fresh.tracks.map { it.toAppTrack() }
-                        setMemoryCachedAppTracks(mapped)
-                        computeHubDataAsync(mapped, true)
-                        computeHubDataAsync(mapped, false)
-                    }
-                } catch (_: Exception) {}
+                    computeHubDataAsync(onlineAppTracks, isPersian)
+                    computeHubDataAsync(onlineAppTracks, !isPersian)
+                    syncCatalogOncePerSession()
+                } catch (_: Throwable) {}
             }
+            return
+        }
+
+        // First-ever launch when catalog_cache.json does not exist yet
+        val fetched = try {
+            sessionCatalogSynced.set(true)
+            fetchFromWorker(forceRefresh = true)
+        } catch (_: Throwable) {
+            null
+        }
+        if (fetched != null && fetched.tracks.isNotEmpty()) {
+            onlineAppTracks = withContext(Dispatchers.Default) {
+                fetched.tracks.map { it.toAppTrack() }
+            }
+            setMemoryCachedAppTracks(onlineAppTracks)
         }
 
         onProgress(
-            0.32f,
+            0.75f,
             if (isPersian) "در حال ساخت آلبوم‌ها، دسته‌بندی‌ها و پروفایل هنرمندان..." else "Indexing albums, categories & artists..."
         )
 
-        val unifiedTracks = onlineAppTracks
+        computeHubDataAsync(onlineAppTracks, isPersian)
+        computeHubDataAsync(onlineAppTracks, !isPersian)
 
-        val hubPrimary = computeHubDataAsync(unifiedTracks, isPersian)
-        computeHubDataAsync(unifiedTracks, !isPersian)
-
-        onProgress(
-            0.55f,
-            if (isPersian) "در حال آماده‌سازی کاور آلبوم‌ها و عکس پروفایل هنرمندان..." else "Preloading album covers & artist profiles..."
-        )
-
-        val topArtistsToPreload = hubPrimary.artists.take(8)
-        val topAlbumCoversToPreload = (
-            hubPrimary.albums.take(10).mapNotNull { it.coverUri } +
-                unifiedTracks.take(10).mapNotNull { it.artworkUri }
-            ).distinct().take(14)
-
-        val totalAssets = (topArtistsToPreload.size + topAlbumCoversToPreload.size).coerceAtLeast(1)
-        val completedAssets = AtomicInteger(0)
-
-        withTimeoutOrNull(850L) {
-            coroutineScope {
-                val preloaderSemaphore = Semaphore(8)
-                val artistJobs = topArtistsToPreload.map { artist ->
-                    async(Dispatchers.IO) {
-                        try {
-                            preloaderSemaphore.withPermit {
-                                val url = artist.cover.ifBlank { artist.picture }
-                                ArtistAvatarDiskCache.loadOrDownloadArtistBitmap(
-                                    context = appCtx,
-                                    artistName = artist.name,
-                                    remoteUrl = url
-                                )
-                                val done = completedAssets.incrementAndGet()
-                                val pct = 0.55f + (done.toFloat() / totalAssets.toFloat()) * 0.42f
-                                onProgress(
-                                    pct.coerceIn(0.55f, 0.97f),
-                                    if (isPersian) "در حال کش کردن کاورها و آرتیست‌ها ($done/$totalAssets)..."
-                                    else "Caching covers & artist avatars ($done/$totalAssets)..."
-                                )
-                            }
-                        } catch (_: Throwable) {}
-                    }
-                }
-                val coverJobs = topAlbumCoversToPreload.map { coverUrl ->
-                    async(Dispatchers.IO) {
-                        try {
-                            preloaderSemaphore.withPermit {
-                                loadCoverBitmapBlocking(coverUrl)
-                                val done = completedAssets.incrementAndGet()
-                                val pct = 0.55f + (done.toFloat() / totalAssets.toFloat()) * 0.42f
-                                onProgress(
-                                    pct.coerceIn(0.55f, 0.97f),
-                                    if (isPersian) "در حال کش کردن کاورها و آرتیست‌ها ($done/$totalAssets)..."
-                                    else "Caching covers & artist avatars ($done/$totalAssets)..."
-                                )
-                            }
-                        } catch (_: Throwable) {}
-                    }
-                }
-                (artistJobs + coverJobs).awaitAll()
-            }
-        }
-
-        if (backgroundWarmStarted.compareAndSet(false, true)) {
-            backgroundWarmScope.launch {
-                val gentleSemaphore = Semaphore(2)
-                for (album in hubPrimary.albums.take(40)) {
-                    val uri = album.coverUri ?: continue
-                    gentleSemaphore.withPermit {
-                        try {
-                            loadCoverBitmapBlocking(uri)
-                        } catch (_: Throwable) {}
-                    }
-                }
-                for (artist in hubPrimary.artists.drop(8).take(40)) {
-                    gentleSemaphore.withPermit {
-                        try {
-                            ArtistAvatarDiskCache.loadOrDownloadArtistBitmap(
-                                context = appCtx,
-                                artistName = artist.name,
-                                remoteUrl = artist.cover.ifBlank { artist.picture }
-                            )
-                        } catch (_: Throwable) {}
-                    }
-                }
-            }
+        backgroundWarmScope.launch {
+            try {
+                fetchCuratedPlaylists(forceRefresh = true)
+            } catch (_: Throwable) {}
         }
 
         startupPreloadCompleted.set(true)
@@ -1930,13 +1925,25 @@ object OnlineMusicRepository {
                 val legacyV3 = File(appCtx.filesDir, LEGACY_CATALOG_CACHE_FILE_V3)
                 if (legacyV3.exists()) legacyV3.delete()
             } catch (_: Throwable) {}
-            val file = File(appCtx.filesDir, PRIVATE_CATALOG_CACHE_FILE)
+            val primaryFile = appCtx.filesDir.resolve(PRIVATE_CATALOG_CACHE_FILE)
+            val fallbackFile = appCtx.filesDir.resolve(LEGACY_CATALOG_CACHE_FILE_V4)
+            val file = when {
+                primaryFile.exists() && primaryFile.length() > 64L -> primaryFile
+                fallbackFile.exists() && fallbackFile.length() > 64L -> fallbackFile
+                else -> primaryFile
+            }
             if (file.exists() && file.length() > 64L) {
                 val parsed = file.inputStream().use { parseWorkerTracksStream(it) }
                 if (parsed.tracks.isNotEmpty()) {
                     memoryCachedResponse = parsed
                     val mapped = parsed.tracks.map { it.toAppTrack() }
                     setMemoryCachedAppTracks(mapped)
+                    if (file != primaryFile) {
+                        backgroundWarmScope.launch {
+                            saveCompactCatalogToPrivateDisk(parsed)
+                            try { fallbackFile.delete() } catch (_: Throwable) {}
+                        }
+                    }
                     parsed
                 } else {
                     null
@@ -1953,8 +1960,9 @@ object OnlineMusicRepository {
         if (response.tracks.isEmpty()) return
         try {
             val appCtx = AuraApplication.instance.applicationContext
-            val tempFile = File(appCtx.filesDir, "$PRIVATE_CATALOG_CACHE_FILE.tmp")
-            val finalFile = File(appCtx.filesDir, PRIVATE_CATALOG_CACHE_FILE)
+            val tempFile = appCtx.filesDir.resolve("$PRIVATE_CATALOG_CACHE_FILE.tmp")
+            val finalFile = appCtx.filesDir.resolve(PRIVATE_CATALOG_CACHE_FILE)
+            val currentPlaylists = _curatedPlaylistsFlow.value
             FileOutputStream(tempFile).use { fos ->
                 JsonWriter(OutputStreamWriter(fos, Charsets.UTF_8)).use { writer ->
                     writer.beginObject()
@@ -1983,10 +1991,31 @@ object OnlineMusicRepository {
                         writer.name("stream_url").value(track.streamUrl)
                         writer.name("download_url").value(track.downloadUrl)
                         writer.name("cover_url").value(track.coverUrl)
+                        writer.name("cover_small").value(track.coverSmall.ifBlank { track.resolvedSmallCoverUrl() })
+                        writer.name("cover_big").value(track.coverBig.ifBlank { track.coverUrl })
                         writer.name("genre").value(track.rawGenre)
                         writer.endObject()
                     }
                     writer.endArray()
+
+                    if (currentPlaylists.isNotEmpty()) {
+                        writer.name("playlists")
+                        writer.beginArray()
+                        for (pl in currentPlaylists) {
+                            writer.beginObject()
+                            writer.name("id").value(pl.id)
+                            writer.name("title").value(pl.title)
+                            writer.name("description").value(pl.description)
+                            writer.name("covers")
+                            writer.beginArray()
+                            for (c in pl.covers) {
+                                writer.value(c)
+                            }
+                            writer.endArray()
+                            writer.endObject()
+                        }
+                        writer.endArray()
+                    }
                     writer.endObject()
                 }
             }
@@ -2004,8 +2033,16 @@ object OnlineMusicRepository {
     ): WorkerTracksResponse = withContext(Dispatchers.IO) {
         val isFullCatalogRequest = query.isBlank() && artist.isBlank()
         if (isFullCatalogRequest && !forceRefresh) {
-            val existing = memoryCachedResponse
-            if (existing != null && existing.tracks.isNotEmpty() && (System.currentTimeMillis() - lastFullFetchTimeMs) < 180_000L) {
+            val existing = memoryCachedResponse ?: loadCachedWorkerCatalog()
+            if (existing != null && existing.tracks.isNotEmpty()) {
+                if (sessionCatalogSynced.compareAndSet(false, true)) {
+                    backgroundWarmScope.launch {
+                        try {
+                            performWorkerFetchInternal(query = "", artist = "", isFullCatalogRequest = true)
+                            fetchCuratedPlaylists(forceRefresh = true)
+                        } catch (_: Throwable) {}
+                    }
+                }
                 return@withContext existing
             }
         }
@@ -2015,11 +2052,12 @@ object OnlineMusicRepository {
             try {
                 if (!forceRefresh) {
                     val existingAfterLock = memoryCachedResponse
-                    if (existingAfterLock != null && existingAfterLock.tracks.isNotEmpty() && (System.currentTimeMillis() - lastFullFetchTimeMs) < 180_000L) {
+                    if (existingAfterLock != null && existingAfterLock.tracks.isNotEmpty()) {
                         return@withContext existingAfterLock
                     }
                 }
                 _isFetchingFlow.value = true
+                sessionCatalogSynced.set(true)
                 return@withContext performWorkerFetchInternal(query = "", artist = "", isFullCatalogRequest = true)
             } finally {
                 _isFetchingFlow.value = false
@@ -2141,6 +2179,7 @@ object OnlineMusicRepository {
         val mergedArtistsMap = LinkedHashMap<String, ArchiveArtistItem>()
         val matchedList = mutableListOf<ArchiveArtistItem>()
         val tracksList = mutableListOf<OnlineTrack>()
+        val cachedPlaylistsList = mutableListOf<CuratedOnlinePlaylist>()
 
         return try {
             val reader = JsonReader(BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8), 32768)).apply {
@@ -2162,7 +2201,7 @@ object OnlineMusicRepository {
                             "artists" -> {
                                 if (reader.peek() == JsonToken.BEGIN_ARRAY) {
                                     parseWorkerArtistsArrayStream(reader, mergedArtistsMap)
-                                } else {
+                                 } else {
                                     reader.skipValue()
                                 }
                             }
@@ -2180,12 +2219,23 @@ object OnlineMusicRepository {
                                     reader.skipValue()
                                 }
                             }
+                            "playlists" -> {
+                                if (reader.peek() == JsonToken.BEGIN_ARRAY) {
+                                    parsePlaylistsArray(reader, cachedPlaylistsList)
+                                } else {
+                                    reader.skipValue()
+                                }
+                            }
                             else -> reader.skipValue()
                         }
                     }
                     reader.endObject()
                 }
                 else -> reader.skipValue()
+            }
+
+            if (cachedPlaylistsList.isNotEmpty() && _curatedPlaylistsFlow.value.isEmpty()) {
+                _curatedPlaylistsFlow.value = cachedPlaylistsList
             }
 
             val artistsList = mergedArtistsMap.values.toList()
@@ -2567,6 +2617,7 @@ object OnlineMusicRepository {
                     val parsed = decodedStream.use { parseCuratedPlaylistsStream(it) }
                     if (parsed.isNotEmpty()) {
                         _curatedPlaylistsFlow.value = parsed
+                        memoryCachedResponse?.let { saveCompactCatalogToPrivateDisk(it) }
                         return@withContext parsed
                     }
                 }
@@ -5120,25 +5171,12 @@ private fun CloudTrackCoverBox(
     size: Dp,
     shape: Shape
 ) {
-    val context = LocalContext.current
     val resolvedSmallUrl = remember(artworkUri, trackId, fallbackName) {
         OnlineMusicRepository.getSmallCoverUrlForTrack(
             trackId = trackId.orEmpty(),
             fallbackUrl = artworkUri,
             artistName = fallbackName
         )
-    }
-
-    var cachedBitmap by remember(resolvedSmallUrl) {
-        mutableStateOf(
-            if (resolvedSmallUrl.isNotBlank()) OnlineMusicRepository.getCachedCoverBitmap(resolvedSmallUrl) else null
-        )
-    }
-
-    LaunchedEffect(resolvedSmallUrl) {
-        if (cachedBitmap == null && resolvedSmallUrl.isNotBlank()) {
-            cachedBitmap = OnlineMusicRepository.loadCoverBitmap(resolvedSmallUrl, maxDim = 360)
-        }
     }
 
     Box(
@@ -5148,26 +5186,12 @@ private fun CloudTrackCoverBox(
             .background(AuraSurfaceElevated),
         contentAlignment = Alignment.Center
     ) {
-        val bmp = cachedBitmap
-        if (bmp != null) {
-            Image(
-                bitmap = bmp.asImageBitmap(),
-                contentDescription = fallbackName,
-                contentScale = ContentScale.Crop,
-                filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(shape)
+        if (resolvedSmallUrl.isNotBlank()) {
+            val imageRequest = rememberAuraCoverRequest(
+                trackId = trackId ?: fallbackName,
+                coverUrl = resolvedSmallUrl,
+                isLarge = false
             )
-        } else if (resolvedSmallUrl.isNotBlank()) {
-            val imageRequest = remember(resolvedSmallUrl, context) {
-                ImageRequest.Builder(context)
-                    .data(resolvedSmallUrl)
-                    .memoryCachePolicy(CachePolicy.ENABLED)
-                    .diskCachePolicy(CachePolicy.ENABLED)
-                    .crossfade(true)
-                    .build()
-            }
             AsyncImage(
                 model = imageRequest,
                 contentDescription = fallbackName,
@@ -5222,7 +5246,12 @@ fun AuraStartupPreloaderWrapper(
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
-    var isReady by remember { mutableStateOf(OnlineMusicRepository.isStartupPreloadCompleted()) }
+    var isReady by remember {
+        mutableStateOf(
+            OnlineMusicRepository.isStartupPreloadCompleted() ||
+                OnlineMusicRepository.getMemoryCachedAppTracks().isNotEmpty()
+        )
+    }
     var backendProgress by remember { mutableFloatStateOf(if (isReady) 1f else 0.08f) }
     var timerProgress by remember { mutableFloatStateOf(if (isReady) 1f else 0.08f) }
     var statusText by remember(isPersian) {

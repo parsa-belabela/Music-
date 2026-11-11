@@ -129,15 +129,11 @@ fun GlassStatCard(
                 ) {
                     val smallCover = track.coverSmall ?: track.artworkUri
                     if (smallCover != null) {
-                        val context = LocalContext.current
-                        val req = remember(smallCover, context) {
-                            ImageRequest.Builder(context)
-                                .data(smallCover)
-                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                .diskCachePolicy(CachePolicy.ENABLED)
-                                .crossfade(true)
-                                .build()
-                        }
+                        val req = com.example.rememberAuraCoverRequest(
+                            trackId = track.id,
+                            coverUrl = smallCover,
+                            isLarge = false
+                        )
                         AsyncImage(
                             model = req,
                             contentDescription = null,

@@ -891,17 +891,6 @@ fun HomeCloudflareSpotlightSection(
         }
     }
 
-    LaunchedEffect(spotlightTracks) {
-        spotlightTracks.take(8).forEach { track ->
-            val url = track.coverSmall ?: track.artworkUri
-            if (!url.isNullOrBlank()) {
-                launch(kotlinx.coroutines.Dispatchers.IO) {
-                    OnlineMusicRepository.loadCoverBitmap(url, maxDim = 360)
-                }
-            }
-        }
-    }
-
     if (spotlightTracks.isNotEmpty()) {
         Column(modifier = Modifier.fillMaxWidth()) {
             SpotifySectionHeader(

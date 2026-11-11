@@ -1,13 +1,9 @@
 package com.example
 
 import android.app.Application
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.media.AudioManager
 import android.graphics.Bitmap
 import android.os.StrictMode
+import coil.Coil
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
@@ -21,6 +17,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import okhttp3.Dispatcher
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 class AuraApplication : Application(), ImageLoaderFactory {
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -32,12 +31,27 @@ class AuraApplication : Application(), ImageLoaderFactory {
     val trackAnalyzer by lazy { com.example.audio.TrackAnalyzer() }
     val entitlementManager by lazy { com.example.monetization.EntitlementManager.getInstance(this) }
 
-    override fun newImageLoader(): ImageLoader {
-        return ImageLoader.Builder(this)
-            .allowRgb565(false)
-            .bitmapConfig(Bitmap.Config.ARGB_8888)
+    val globalImageLoader: ImageLoader by lazy {
+        val dispatcher = Dispatcher().apply {
+            maxRequests = 8
+            maxRequestsPerHost = 4
+        }
+        val okHttpClient = OkHttpClient.Builder()
+            .dispatcher(dispatcher)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build()
+
+        ImageLoader.Builder(this)
+            .okHttpClient(okHttpClient)
+            .respectCacheHeaders(false)
+            .allowRgb565(true)
+            .bitmapConfig(Bitmap.Config.RGB_565)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
+            .networkCachePolicy(CachePolicy.ENABLED)
             .memoryCache {
                 MemoryCache.Builder(this)
                     .maxSizePercent(0.25)
@@ -45,27 +59,28 @@ class AuraApplication : Application(), ImageLoaderFactory {
             }
             .diskCache {
                 DiskCache.Builder()
-                    .directory(cacheDir.resolve("aura_coil_disk_cache"))
-                    .maxSizeBytes(250L * 1024L * 1024L)
+                    .directory(filesDir.resolve("aura_permanent_covers"))
+                    .maxSizeBytes(500L * 1024L * 1024L)
                     .build()
             }
             .crossfade(true)
             .build()
     }
 
+    override fun newImageLoader(): ImageLoader = globalImageLoader
+
     override fun onCreate() {
         super.onCreate()
         instance = this
+        Coil.setImageLoader(globalImageLoader)
         com.example.data.model.UserTrackMetadataStore.init(this)
         entitlementManager.refreshRemoteConfig()
 
-        // پیش‌بارگذاری فوری کاتالوگ آنلاین از کش یا کلادفلر به محض باز شدن برنامه
+        // بارگذاری فوری کاتالوگ از catalog_cache.json در کسری از ثانیه و همگام‌سازی بی‌صدا فقط یک بار در هر نشست
         applicationScope.launch(Dispatchers.IO) {
             try {
-                val cached = OnlineMusicRepository.loadCachedAppTracksAsync()
-                if (cached.isEmpty()) {
-                    OnlineMusicRepository.fetchFromWorker()
-                }
+                OnlineMusicRepository.loadCachedAppTracksAsync()
+                OnlineMusicRepository.syncCatalogOncePerSession()
             } catch (_: Throwable) {}
         }
 

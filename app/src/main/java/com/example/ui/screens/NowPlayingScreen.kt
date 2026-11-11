@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -535,304 +536,111 @@ fun NowPlayingScreen(
                     }
 
                     NowPlayingCenterView.ARTWORK_AND_HALO -> {
-                        Row(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 8.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            // Left Side Utility Rail (Equalizer, A-B Loop, Playback Speed)
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                // Equalizer Button
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(CircleShape)
-                                        .background(pillSurfaceBg)
-                                        .border(1.dp, pillBorderColor, CircleShape)
-                                        .clickable {
-                                            triggerHaptic()
-                                            onOpenEqualizer()
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.GraphicEq,
-                                        contentDescription = "Equalizer",
-                                        tint = AuraSpotifyGreen,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-
-                                // A-B Loop Pill on Side
-                                val isAbActive = loopStartMs != null
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isAbActive) AuraSpotifyGreen.copy(alpha = 0.24f) else pillSurfaceBg)
-                                        .border(
-                                            1.dp,
-                                            if (isAbActive) AuraSpotifyGreen.copy(alpha = 0.7f) else pillBorderColor,
-                                            CircleShape
-                                        )
-                                        .clickable {
-                                            triggerHaptic()
-                                            val nowPos = currentPositionProvider()
-                                            when {
-                                                loopStartMs == null -> onSetAbLoop(nowPos, null)
-                                                loopEndMs == null -> {
-                                                    if (nowPos > loopStartMs + 800L) {
-                                                        onSetAbLoop(loopStartMs, nowPos)
-                                                    } else {
-                                                        onSetAbLoop(
-                                                            loopStartMs,
-                                                            (loopStartMs + 5000L).coerceAtMost(durForLoop)
-                                                        )
-                                                    }
-                                                }
-                                                else -> onClearAbLoop()
-                                            }
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    val abLabel = when {
-                                        loopStartMs == null -> "A-B"
-                                        loopEndMs == null -> "A→"
-                                        else -> "A⟲B"
-                                    }
-                                    Text(
-                                        text = abLabel,
-                                        color = if (isAbActive) AuraSpotifyGreen else Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-
-                                // Playback Speed Button on Side
-                                val isCustomSpeed = appSettings.playbackSpeed != 1.0f
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isCustomSpeed) AuraSpotifyGreen.copy(alpha = 0.24f) else pillSurfaceBg)
-                                        .border(
-                                            1.dp,
-                                            if (isCustomSpeed) AuraSpotifyGreen.copy(alpha = 0.7f) else pillBorderColor,
-                                            CircleShape
-                                        )
-                                        .clickable {
-                                            triggerHaptic()
-                                            val nextSpeed = when (appSettings.playbackSpeed) {
-                                                1.0f -> 1.25f
-                                                1.25f -> 1.5f
-                                                1.5f -> 2.0f
-                                                else -> 1.0f
-                                            }
-                                            onPlaybackSpeedChange(nextSpeed)
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "${appSettings.playbackSpeed}x",
-                                        color = if (isCustomSpeed) AuraSpotifyGreen else Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                            val glowMainColor = if (dynamicCoverPalette.isMonochrome) {
+                                AuraSpotifyGreen
+                            } else {
+                                dynamicCoverPalette.primary.copy(alpha = 1f)
+                            }
+                            val glowSecColor = if (dynamicCoverPalette.isMonochrome) {
+                                Color(0xFF14833B)
+                            } else {
+                                dynamicCoverPalette.accent.copy(alpha = 1f)
                             }
 
-                            // Center Album Artwork (High-Res coverBig) with Moving Backlight Halo & Subtle Living Sway
-                            Box(
+                            // Moving Luminous Backlight Halo directly behind the Cover
+                            Canvas(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight(),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
                             ) {
-                                val glowMainColor = if (dynamicCoverPalette.isMonochrome) {
-                                    AuraSpotifyGreen
-                                } else {
-                                    dynamicCoverPalette.primary.copy(alpha = 1f)
-                                }
-                                val glowSecColor = if (dynamicCoverPalette.isMonochrome) {
-                                    Color(0xFF14833B)
-                                } else {
-                                    dynamicCoverPalette.accent.copy(alpha = 1f)
-                                }
-
-                                // Moving Luminous Backlight Halo directly behind the Cover
-                                Canvas(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(1f)
-                                ) {
-                                    val cx = size.width / 2f + (rawSwayX * 1.8f * playingFactor)
-                                    val cy = size.height / 2f + (rawSwayY * 1.8f * playingFactor)
-                                    val baseRad = size.minDimension * 0.68f * haloBreath
-                                    drawCircle(
-                                        brush = Brush.radialGradient(
-                                            colors = listOf(
-                                                glowMainColor.copy(alpha = 0.62f * (0.45f + 0.55f * playingFactor)),
-                                                glowSecColor.copy(alpha = 0.28f * (0.45f + 0.55f * playingFactor)),
-                                                Color.Transparent
-                                            ),
-                                            center = Offset(cx, cy),
-                                            radius = baseRad.coerceAtLeast(80f)
+                                val cx = size.width / 2f + (rawSwayX * 2.2f * playingFactor)
+                                val cy = size.height / 2f + (rawSwayY * 2.2f * playingFactor)
+                                val baseRad = size.minDimension * 0.72f * haloBreath
+                                drawCircle(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(
+                                            glowMainColor.copy(alpha = 0.65f * (0.45f + 0.55f * playingFactor)),
+                                            glowSecColor.copy(alpha = 0.30f * (0.45f + 0.55f * playingFactor)),
+                                            Color.Transparent
                                         ),
                                         center = Offset(cx, cy),
-                                        radius = baseRad.coerceAtLeast(80f)
-                                    )
-                                }
-
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(1f)
-                                        .graphicsLayer {
-                                            scaleX = artworkScale
-                                            scaleY = artworkScale
-                                            translationX = rawSwayX * playingFactor
-                                            translationY = rawSwayY * playingFactor
-                                            rotationZ = rawCoverTilt * playingFactor
-                                        }
-                                        .shadow(
-                                            elevation = 24.dp,
-                                            shape = RoundedCornerShape(12.dp),
-                                            spotColor = glowMainColor,
-                                            ambientColor = glowMainColor
-                                        )
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0xFF181818))
-                                        .pointerInput(track.id) {
-                                            detectTapGestures(
-                                                onDoubleTap = {
-                                                    triggerHaptic()
-                                                    onToggleFavorite(track)
-                                                },
-                                                onLongPress = {
-                                                    triggerHaptic()
-                                                    showRadialMenu = true
-                                                },
-                                                onTap = {
-                                                    isImmersive = !isImmersive
-                                                }
-                                            )
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    var loadedCoverBitmap by remember(track.id, bigCoverUrl) {
-                                        mutableStateOf(
-                                            if (bigCoverUrl.isNotBlank()) {
-                                                OnlineMusicRepository.getCachedCoverBitmap(bigCoverUrl)
-                                            } else null
-                                        )
-                                    }
-                                    LaunchedEffect(track.id, bigCoverUrl) {
-                                        if (loadedCoverBitmap == null && bigCoverUrl.isNotBlank()) {
-                                            loadedCoverBitmap =
-                                                OnlineMusicRepository.loadCoverBitmap(bigCoverUrl, maxDim = 1000)
-                                        }
-                                    }
-
-                                    val bmp = loadedCoverBitmap
-                                    if (bmp != null) {
-                                        Image(
-                                            bitmap = bmp.asImageBitmap(),
-                                            contentDescription = track.title,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                    } else if (bigCoverUrl.isNotBlank()) {
-                                        val highResRequest = remember(bigCoverUrl, context) {
-                                            ImageRequest.Builder(context)
-                                                .data(bigCoverUrl)
-                                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                                .diskCachePolicy(CachePolicy.ENABLED)
-                                                .crossfade(true)
-                                                .build()
-                                        }
-                                        AsyncImage(
-                                            model = highResRequest,
-                                            contentDescription = track.title,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                    } else {
-                                        MusicArtworkPlaceholder(
-                                            title = track.title,
-                                            artist = track.artist,
-                                            trackId = track.id,
-                                            palette = dynamicCoverPalette,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                    }
-                                }
+                                        radius = baseRad.coerceAtLeast(100f)
+                                    ),
+                                    center = Offset(cx, cy),
+                                    radius = baseRad.coerceAtLeast(100f)
+                                )
                             }
 
-                            // Right Side Utility Rail (Share, Queue, Sleep Timer)
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .graphicsLayer {
+                                        scaleX = artworkScale
+                                        scaleY = artworkScale
+                                        translationX = rawSwayX * playingFactor
+                                        translationY = rawSwayY * playingFactor
+                                        rotationZ = rawCoverTilt * playingFactor
+                                    }
+                                    .shadow(
+                                        elevation = 28.dp,
+                                        shape = RoundedCornerShape(16.dp),
+                                        spotColor = glowMainColor,
+                                        ambientColor = glowMainColor
+                                    )
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color(0xFF181818))
+                                    .pointerInput(track.id) {
+                                        detectTapGestures(
+                                            onDoubleTap = {
+                                                triggerHaptic()
+                                                onToggleFavorite(track)
+                                                Toast.makeText(
+                                                    context,
+                                                    if (!track.isFavorite) {
+                                                        if (isFa) "به پلی‌لیست I Liked اضافه شد" else "Added to I Liked playlist"
+                                                    } else {
+                                                        if (isFa) "از پلی‌لیست I Liked حذف شد" else "Removed from I Liked playlist"
+                                                    },
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            },
+                                            onLongPress = {
+                                                triggerHaptic()
+                                                showRadialMenu = true
+                                            },
+                                            onTap = {
+                                                isImmersive = !isImmersive
+                                            }
+                                        )
+                                    },
+                                contentAlignment = Alignment.Center
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(CircleShape)
-                                        .background(pillSurfaceBg)
-                                        .border(1.dp, pillBorderColor, CircleShape)
-                                        .clickable {
-                                            triggerHaptic()
-                                            onShareSong(track)
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Share,
-                                        contentDescription = "Share",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
+                                if (bigCoverUrl.isNotBlank()) {
+                                    val highResRequest = com.example.rememberAuraCoverRequest(
+                                        trackId = track.id,
+                                        coverUrl = bigCoverUrl,
+                                        isLarge = true
                                     )
-                                }
-
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(CircleShape)
-                                        .background(pillSurfaceBg)
-                                        .border(1.dp, pillBorderColor, CircleShape)
-                                        .clickable {
-                                            triggerHaptic()
-                                            onOpenQueue()
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.QueueMusic,
-                                        contentDescription = "Queue",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(20.dp)
+                                    AsyncImage(
+                                        model = highResRequest,
+                                        contentDescription = track.title,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
                                     )
-                                }
-
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(CircleShape)
-                                        .background(pillSurfaceBg)
-                                        .border(1.dp, pillBorderColor, CircleShape)
-                                        .clickable {
-                                            triggerHaptic()
-                                            onOpenSleepTimer()
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Snooze,
-                                        contentDescription = "Sleep Timer",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
+                                } else {
+                                    MusicArtworkPlaceholder(
+                                        title = track.title,
+                                        artist = track.artist,
+                                        trackId = track.id,
+                                        palette = dynamicCoverPalette,
+                                        modifier = Modifier.fillMaxSize()
                                     )
                                 }
                             }
@@ -921,19 +729,41 @@ fun NowPlayingScreen(
                         }
                     }
 
+                    // Spotify-style "Add to I Liked" Playlist Button (+) -> (✓)
+                    val isLiked = track.isFavorite
                     IconButton(
                         onClick = {
                             triggerHaptic()
                             onToggleFavorite(track)
+                            Toast.makeText(
+                                context,
+                                if (!isLiked) {
+                                    if (isFa) "به پلی‌لیست I Liked اضافه شد" else "Added to I Liked playlist"
+                                } else {
+                                    if (isFa) "از پلی‌لیست I Liked حذف شد" else "Removed from I Liked playlist"
+                                },
+                                Toast.LENGTH_SHORT
+                            ).show()
                         },
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier
+                            .size(42.dp)
+                            .testTag("spotify_i_liked_button")
                     ) {
-                        Icon(
-                            imageVector = if (track.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = "Favorite",
-                            tint = if (track.isFavorite) AuraSpotifyGreen else Color.White,
-                            modifier = Modifier.size(26.dp)
-                        )
+                        if (isLiked) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = if (isFa) "در پلی‌لیست I Liked ذخیره شده" else "Added to I Liked",
+                                tint = AuraSpotifyGreen,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.AddCircleOutline,
+                                contentDescription = if (isFa) "افزودن به پلی‌لیست I Liked" else "Add to I Liked",
+                                tint = Color.White.copy(alpha = 0.9f),
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
                     }
                 }
 
@@ -1053,6 +883,146 @@ fun NowPlayingScreen(
                                 .size(4.dp)
                                 .clip(CircleShape)
                                 .background(if (isRepeatActive) AuraSpotifyGreen else Color.Transparent)
+                        )
+                    }
+                }
+
+                // Spotify-Style Secondary Utilities Bar (Equalizer, Speed, A-B Loop, Sleep Timer, Share, Queue)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Equalizer
+                    IconButton(
+                        onClick = {
+                            triggerHaptic()
+                            onOpenEqualizer()
+                        },
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GraphicEq,
+                            contentDescription = "Equalizer",
+                            tint = AuraSpotifyGreen,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    // Playback Speed
+                    val isCustomSpeed = appSettings.playbackSpeed != 1.0f
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(if (isCustomSpeed) AuraSpotifyGreen.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f))
+                            .clickable {
+                                triggerHaptic()
+                                val nextSpeed = when (appSettings.playbackSpeed) {
+                                    1.0f -> 1.25f
+                                    1.25f -> 1.5f
+                                    1.5f -> 2.0f
+                                    else -> 1.0f
+                                }
+                                onPlaybackSpeedChange(nextSpeed)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "${appSettings.playbackSpeed}x",
+                            color = if (isCustomSpeed) AuraSpotifyGreen else Color.White.copy(alpha = 0.85f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // A-B Loop
+                    val isAbActive = loopStartMs != null
+                    val abLabel = when {
+                        loopStartMs == null -> "A-B"
+                        loopEndMs == null -> "A→"
+                        else -> "A⟲B"
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(if (isAbActive) AuraSpotifyGreen.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f))
+                            .clickable {
+                                triggerHaptic()
+                                val nowPos = currentPositionProvider()
+                                when {
+                                    loopStartMs == null -> onSetAbLoop(nowPos, null)
+                                    loopEndMs == null -> {
+                                        if (nowPos > loopStartMs + 800L) {
+                                            onSetAbLoop(loopStartMs, nowPos)
+                                        } else {
+                                            onSetAbLoop(
+                                                loopStartMs,
+                                                (loopStartMs + 5000L).coerceAtMost(durForLoop)
+                                            )
+                                        }
+                                    }
+                                    else -> onClearAbLoop()
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = abLabel,
+                            color = if (isAbActive) AuraSpotifyGreen else Color.White.copy(alpha = 0.85f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // Sleep Timer
+                    IconButton(
+                        onClick = {
+                            triggerHaptic()
+                            onOpenSleepTimer()
+                        },
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Snooze,
+                            contentDescription = "Sleep Timer",
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+
+                    // Share
+                    IconButton(
+                        onClick = {
+                            triggerHaptic()
+                            onShareSong(track)
+                        },
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Share",
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+
+                    // Queue
+                    IconButton(
+                        onClick = {
+                            triggerHaptic()
+                            onOpenQueue()
+                        },
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.QueueMusic,
+                            contentDescription = "Queue",
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.size(21.dp)
                         )
                     }
                 }

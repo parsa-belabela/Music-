@@ -206,14 +206,11 @@ fun TrackListItem(track: CloudflareTrack, onClick: () -> Unit) {
             contentAlignment = Alignment.Center
         ) {
             if (!smallCoverUrl.isNullOrBlank()) {
-                val req = remember(smallCoverUrl, context) {
-                    ImageRequest.Builder(context)
-                        .data(smallCoverUrl)
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .crossfade(true)
-                        .build()
-                }
+                val req = com.example.rememberAuraCoverRequest(
+                    trackId = track.id,
+                    coverUrl = smallCoverUrl,
+                    isLarge = false
+                )
                 AsyncImage(
                     model = req,
                     contentDescription = track.title,
