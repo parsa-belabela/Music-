@@ -300,12 +300,13 @@ fun SearchScreen(
                 isLoadingOnline = false
             }
         }
-        if (refreshTrigger == 0 && (onlineTracks.isNotEmpty() || repoTracks.isNotEmpty())) {
+        val currentMaxCount = maxOf(onlineTracks.size, repoTracks.size)
+        if (refreshTrigger == 0 && currentMaxCount >= 2500) {
             isLoadingOnline = false
             return@LaunchedEffect
         }
         try {
-            val response = OnlineMusicRepository.fetchFromWorker(forceRefresh = refreshTrigger > 0)
+            val response = OnlineMusicRepository.fetchFromWorker(forceRefresh = refreshTrigger > 0 || currentMaxCount in 1 until 2500)
             if (response.tracks.isNotEmpty()) {
                 val mapped = withContext(Dispatchers.Default) {
                     response.tracks.map { it.toAppTrack() }
@@ -331,7 +332,11 @@ fun SearchScreen(
         }
     }
 
-    val effectiveTracks = if (onlineTracks.isNotEmpty()) onlineTracks else repoTracks
+    val effectiveTracks = if (repoTracks.size >= onlineTracks.size && repoTracks.isNotEmpty()) {
+        repoTracks
+    } else {
+        onlineTracks
+    }
     val isPersian = appSettings.language == AppLanguage.PERSIAN
 
     LaunchedEffect(effectiveTracks, isPersian) {

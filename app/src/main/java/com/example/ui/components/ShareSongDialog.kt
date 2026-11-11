@@ -87,19 +87,19 @@ private val STORY_PERSIAN_CHAR_REGEX =
     Regex("[\\u0600-\\u06FF\\u0750-\\u077F\\u08A0-\\u08FF\\uFB50-\\uFDFF\\uFE70-\\uFEFF]")
 
 internal val StoryVazirmatnFontFamily = FontFamily(
-    Font(R.font.vazirmatn, FontWeight.Normal),
-    Font(R.font.vazirmatn, FontWeight.Medium),
-    Font(R.font.vazirmatn, FontWeight.SemiBold),
-    Font(R.font.vazirmatn, FontWeight.Bold),
-    Font(R.font.vazirmatn, FontWeight.ExtraBold)
+    Font(R.font.vazirmatn_semibold, FontWeight.Normal),
+    Font(R.font.vazirmatn_semibold, FontWeight.Medium),
+    Font(R.font.vazirmatn_bold, FontWeight.SemiBold),
+    Font(R.font.vazirmatn_bold, FontWeight.Bold),
+    Font(R.font.vazirmatn_bold, FontWeight.ExtraBold)
 )
 
 internal val StoryIosSansFontFamily = FontFamily(
-    Font(R.font.plus_jakarta_sans, FontWeight.Normal),
-    Font(R.font.plus_jakarta_sans, FontWeight.Medium),
-    Font(R.font.plus_jakarta_sans, FontWeight.SemiBold),
-    Font(R.font.plus_jakarta_sans, FontWeight.Bold),
-    Font(R.font.plus_jakarta_sans, FontWeight.ExtraBold)
+    Font(R.font.vazirmatn_medium, FontWeight.Normal),
+    Font(R.font.vazirmatn_semibold, FontWeight.Medium),
+    Font(R.font.vazirmatn_bold, FontWeight.SemiBold),
+    Font(R.font.vazirmatn_bold, FontWeight.Bold),
+    Font(R.font.vazirmatn_bold, FontWeight.ExtraBold)
 )
 
 internal fun isPersianStoryText(text: String): Boolean =

@@ -50,9 +50,9 @@ object SongShareCardGenerator {
 
     private fun loadStoryTypeface(context: Context, isPersian: Boolean, style: Int = Typeface.BOLD): Typeface {
         return try {
-            val fontRes = if (isPersian) R.font.vazirmatn else R.font.plus_jakarta_sans
+            val fontRes = if (style == Typeface.BOLD) R.font.vazirmatn_bold else R.font.vazirmatn_semibold
             val base = ResourcesCompat.getFont(context, fontRes)
-            Typeface.create(base ?: Typeface.SANS_SERIF, style)
+            base ?: Typeface.create(Typeface.SANS_SERIF, style)
         } catch (_: Exception) {
             Typeface.create(Typeface.SANS_SERIF, style)
         }
